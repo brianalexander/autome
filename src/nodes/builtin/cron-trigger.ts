@@ -1,0 +1,77 @@
+/**
+ * Cron Trigger node — triggers workflows on a schedule.
+ * Uses setInterval for simplicity (a cron library can be swapped in later).
+ */
+import type { NodeTypeSpec, TriggerExecutor } from '../types.js';
+
+/** Parse a simple cron-like interval string to milliseconds */
+function parseScheduleMs(schedule: string): number {
+  // Support simple formats: "5m", "1h", "30s", "*/5 * * * *" (cron → treated as 5 min)
+  const match = schedule.match(/^(\d+)(s|m|h)$/);
+  if (match) {
+    const value = parseInt(match[1], 10);
+    switch (match[2]) {
+      case 's':
+        return value * 1000;
+      case 'm':
+        return value * 60_000;
+      case 'h':
+        return value * 3_600_000;
+    }
+  }
+  // Cron expression: extract minute interval if it's a simple */N pattern
+  const cronMatch = schedule.match(/^\*\/(\d+)\s/);
+  if (cronMatch) {
+    return parseInt(cronMatch[1], 10) * 60_000;
+  }
+  // Default: 5 minutes
+  return 300_000;
+}
+
+const executor: TriggerExecutor = {
+  type: 'trigger',
+  async activate(workflowId, stageId, config, emit) {
+    const schedule = (config.schedule as string) || '5m';
+    const intervalMs = parseScheduleMs(schedule);
+
+    console.log(`[cron-trigger] Activated for workflow ${workflowId}, schedule: ${schedule} (${intervalMs}ms)`);
+
+    const id = setInterval(() => {
+      emit({
+        type: 'cron',
+        timestamp: new Date().toISOString(),
+        schedule,
+      });
+    }, intervalMs);
+
+    // Return cleanup function
+    return () => {
+      clearInterval(id);
+      console.log(`[cron-trigger] Deactivated for workflow ${workflowId}`);
+    };
+  },
+};
+
+export const cronTriggerSpec: NodeTypeSpec = {
+  id: 'cron-trigger',
+  name: 'Cron Trigger',
+  category: 'trigger',
+  description: 'Trigger a workflow on a recurring schedule',
+  icon: '⏰',
+  color: { bg: '#f0fdf4', border: '#22c55e', text: '#16a34a' },
+  configSchema: {
+    type: 'object',
+    properties: {
+      schedule: {
+        type: 'string',
+        title: 'Schedule',
+        description: 'Schedule expression. Simple formats: "5m", "1h", "30s". Cron: "*/5 * * * *".',
+        default: '5m',
+      },
+    },
+    required: ['schedule'],
+  },
+  defaultConfig: { schedule: '5m' },
+  triggerMode: 'immediate',
+  executor,
+};

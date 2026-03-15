@@ -1,0 +1,5 @@
+{
+  "name": "assistant",
+  "description": "General-purpose AI assistant for Autome. Answers questions about workflows, explains instance failures, and helps with configuration.",
+  "tools": ["read"]
+}

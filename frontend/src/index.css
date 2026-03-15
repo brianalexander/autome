@@ -1,0 +1,389 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Surface colors */
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f9fafb;
+  --color-surface-tertiary: #f3f4f6;
+  --color-surface-inset: #e5e7eb;
+
+  /* Border colors */
+  --color-border: #e5e7eb;
+  --color-border-subtle: #d1d5db;
+
+  /* Text colors */
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-tertiary: #9ca3af;
+  --color-text-muted: #d1d5db;
+  --color-text-inverted: #f9fafb;
+
+  /* Accent */
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-accent-muted: #dbeafe;
+
+  /* Status */
+  --color-status-success: #16a34a;
+  --color-status-success-muted: #dcfce7;
+  --color-status-error: #dc2626;
+  --color-status-error-muted: #fef2f2;
+  --color-status-warning: #d97706;
+  --color-status-warning-muted: #fef9c3;
+  --color-status-info: #2563eb;
+  --color-status-info-muted: #dbeafe;
+
+  /* Interactive */
+  --color-interactive: #f3f4f6;
+  --color-interactive-hover: #e5e7eb;
+}
+
+.dark {
+  /* LangFlow-inspired neutral dark palette (no blue tint) */
+  --color-surface: hsl(240 6% 10%);           /* #18181b — near black, barely warm */
+  --color-surface-secondary: hsl(240 4% 16%); /* #27272a — cards, panels */
+  --color-surface-tertiary: hsl(240 5% 22%);  /* #333338 — inputs, insets */
+  --color-surface-inset: hsl(240 4% 16%);
+
+  --color-border: hsl(240 5% 26%);            /* #3f3f46 — subtle borders */
+  --color-border-subtle: hsl(240 4% 34%);     /* #52525b — hover borders */
+
+  --color-text-primary: hsl(0 0% 100%);       /* white */
+  --color-text-secondary: hsl(240 5% 65%);    /* #a1a1aa — secondary text */
+  --color-text-tertiary: hsl(240 4% 46%);     /* #71717a — hints, labels */
+  --color-text-muted: hsl(240 5% 34%);        /* #52525b — very faint */
+  --color-text-inverted: hsl(240 6% 10%);
+
+  --color-accent: #3b82f6;
+  --color-accent-hover: #60a5fa;
+  --color-accent-muted: hsl(242 25% 34%);
+
+  --color-status-success: #4ade80;
+  --color-status-success-muted: hsl(164 86% 16%);
+  --color-status-error: #f87171;
+  --color-status-error-muted: hsl(0 75% 15%);
+  --color-status-warning: #fbbf24;
+  --color-status-warning-muted: hsl(45 97% 15%);
+  --color-status-info: #60a5fa;
+  --color-status-info-muted: hsl(217 50% 20%);
+
+  --color-interactive: hsl(240 4% 16%);       /* same as surface-secondary */
+  --color-interactive-hover: hsl(240 5% 26%); /* same as border */
+}
+
+html, body {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  overflow: hidden;
+}
+
+/* ═══ Canvas Design Tokens ═══ */
+:root {
+  /* Node */
+  --node-bg: rgba(255, 255, 255, 0.85);
+  --node-border: var(--color-border);
+  --node-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+  --node-shadow-hover: 0 8px 16px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04);
+  --node-shadow-selected: 0 0 0 2px rgba(59,130,246,0.35), 0 8px 16px rgba(59,130,246,0.08);
+  --node-radius: 12px;
+
+  /* Status */
+  --status-pending: #94a3b8;
+  --status-running: #3b82f6;
+  --status-completed: #22c55e;
+  --status-failed: #ef4444;
+  --status-skipped: #94a3b8;
+  --status-waiting: #f59e0b;
+
+  /* Handles */
+  --handle-size: 10px;
+  --handle-color-agent: #3b82f6;
+  --handle-color-step: #8b5cf6;
+  --handle-color-trigger: #f59e0b;
+  --handle-color-gate: #ec4899;
+
+  /* Edges */
+  --edge-stroke: #94a3b8;
+  --edge-stroke-hover: #64748b;
+  --edge-stroke-selected: #3b82f6;
+  --edge-stroke-taken: #22c55e;
+  --edge-stroke-error: #f97316;
+  --edge-stroke-cycle: #f43f5e;
+  --edge-width: 1.5;
+  --edge-width-hover: 2.5;
+}
+
+.dark {
+  --node-bg: hsl(240 4% 16% / 0.9);
+  --node-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.15);
+  --node-shadow-hover: 0 8px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.2);
+  --node-shadow-selected: 0 0 0 2px rgba(59,130,246,0.4), 0 8px 16px rgba(59,130,246,0.12);
+}
+
+/* ═══ React Flow Canvas Overrides ═══ */
+
+/* Background dots — ensure visibility in both themes */
+.react-flow__background pattern circle {
+  fill: hsl(240 5% 65%) !important;
+}
+.dark .react-flow__background pattern circle {
+  fill: hsl(240 5% 26%) !important;
+}
+
+/* Handles — visible colored dots with neon glow on hover */
+.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50% !important;
+  border: 2px solid rgba(255,255,255,0.9) !important;
+  transition: all 0.2s ease !important;
+  z-index: 30 !important;
+}
+
+.react-flow__handle:hover {
+  width: 14px !important;
+  height: 14px !important;
+  border-color: transparent !important;
+}
+
+/* Neon glow keyframes — one per handle color */
+@keyframes neon-glow-blue {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.9),
+                0 0 4px var(--handle-color-agent),
+                0 0 8px var(--handle-color-agent),
+                0 0 12px var(--handle-color-agent);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.9),
+                0 0 6px var(--handle-color-agent),
+                0 0 12px var(--handle-color-agent),
+                0 0 20px var(--handle-color-agent);
+  }
+}
+
+@keyframes neon-glow-purple {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.9),
+                0 0 4px var(--handle-color-step),
+                0 0 8px var(--handle-color-step),
+                0 0 12px var(--handle-color-step);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.9),
+                0 0 6px var(--handle-color-step),
+                0 0 12px var(--handle-color-step),
+                0 0 20px var(--handle-color-step);
+  }
+}
+
+@keyframes neon-glow-amber {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.9),
+                0 0 4px var(--handle-color-trigger),
+                0 0 8px var(--handle-color-trigger),
+                0 0 12px var(--handle-color-trigger);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.9),
+                0 0 6px var(--handle-color-trigger),
+                0 0 12px var(--handle-color-trigger),
+                0 0 20px var(--handle-color-trigger);
+  }
+}
+
+@keyframes neon-glow-pink {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.9),
+                0 0 4px var(--handle-color-gate),
+                0 0 8px var(--handle-color-gate),
+                0 0 12px var(--handle-color-gate);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.9),
+                0 0 6px var(--handle-color-gate),
+                0 0 12px var(--handle-color-gate),
+                0 0 20px var(--handle-color-gate);
+  }
+}
+
+/* Apply neon glow on hover — use CSS classes on handles */
+.handle-glow-blue:hover {
+  animation: neon-glow-blue 1.1s ease-in-out infinite !important;
+}
+.handle-glow-purple:hover {
+  animation: neon-glow-purple 1.1s ease-in-out infinite !important;
+}
+.handle-glow-amber:hover {
+  animation: neon-glow-amber 1.1s ease-in-out infinite !important;
+}
+.handle-glow-pink:hover {
+  animation: neon-glow-pink 1.1s ease-in-out infinite !important;
+}
+
+/* Connection line while dragging */
+.react-flow__connection-path {
+  stroke: var(--handle-color-agent) !important;
+  stroke-width: 2 !important;
+}
+
+/* Edge selection */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--edge-stroke-selected) !important;
+  stroke-width: var(--edge-width-hover) !important;
+}
+
+/* Node transitions */
+.react-flow__node {
+  transition: box-shadow 0.2s ease, transform 0.15s ease !important;
+}
+
+.react-flow__node.selected {
+  z-index: 10 !important;
+}
+
+/* Flowing dashes animation for cycle edges — dashes move along the path */
+@keyframes cycle-flow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.cycle-edge-flow {
+  animation: cycle-flow 1.5s linear infinite;
+}
+
+/* Subtle animation for running status dot */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.status-pulse {
+  animation: status-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+
+/* Shimmer sweep for ThinkingIndicator */
+@keyframes shimmer-sweep {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.animate-shimmer {
+  color: var(--color-text-tertiary);
+  background: linear-gradient(
+    90deg,
+    var(--color-text-tertiary) 0%,
+    #93c5fd 40%,
+    #c4b5fd 60%,
+    var(--color-text-tertiary) 100%
+  );
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-sweep 2s linear infinite;
+}
+
+/* Blinking cursor for StreamingMarkdown */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Thinking indicator icon animations */
+@keyframes thinking-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.7; }
+}
+
+@keyframes thinking-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(90deg); }
+}
+
+@keyframes thinking-sparkle-main {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.85); opacity: 0.6; }
+}
+
+@keyframes thinking-sparkle-small {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+@keyframes thinking-wobble {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(8deg); }
+  75% { transform: rotate(-8deg); }
+}
+
+@keyframes thinking-glow {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 0px currentColor); }
+  50% { opacity: 0.8; filter: drop-shadow(0 0 3px currentColor); }
+}
+
+@keyframes thinking-zap {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  25% { transform: translateY(-1px); opacity: 0.7; }
+  50% { transform: translateY(0); opacity: 1; }
+  75% { transform: translateY(1px); opacity: 0.7; }
+}
+
+.animate-thinking-pulse {
+  animation: thinking-pulse 2s ease-in-out infinite;
+}
+
+.animate-thinking-spin {
+  animation: thinking-spin 3s ease-in-out infinite alternate;
+}
+
+.animate-thinking-sparkle-main {
+  animation: thinking-sparkle-main 1.5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.animate-thinking-sparkle-small {
+  animation: thinking-sparkle-small 1.2s ease-in-out infinite;
+}
+
+.animate-thinking-wobble {
+  animation: thinking-wobble 2.5s ease-in-out infinite;
+}
+
+.animate-thinking-glow {
+  animation: thinking-glow 2s ease-in-out infinite;
+}
+
+.animate-thinking-zap {
+  animation: thinking-zap 1.5s ease-in-out infinite;
+}
+
+.input-field {
+  width: 100%;
+  background-color: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-primary);
+}
+.input-field:focus {
+  outline: none;
+  border-color: rgb(59 130 246);
+  box-shadow: 0 0 0 1px rgb(59 130 246);
+}
+.input-field:disabled {
+  opacity: 0.5;
+}
+

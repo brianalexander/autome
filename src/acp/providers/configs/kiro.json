@@ -1,0 +1,20 @@
+{
+  "name": "kiro",
+  "displayName": "Kiro",
+  "command": "kiro-cli",
+  "args": ["acp", "--trust-all-tools", "--agent", "{{agent}}", "--model", "{{model}}"],
+  "agentDirs": {
+    "local": ".kiro/agents",
+    "global": "~/.kiro/agents"
+  },
+  "agentFileExtensions": [".json"],
+  "supportsSessionResume": true,
+  "vendorNotificationPrefix": "_kiro.dev/",
+  "vendorNotificationMap": {
+    "mcp/server_initialized": "mcp_server_initialized",
+    "mcp/server_init_failure": "mcp_server_init_failure",
+    "commands/available": "commands_available",
+    "metadata": "metadata",
+    "compaction/status": "compaction"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "workflow-author",
+  "description": "Helps users build automation workflows by creating and modifying workflow definitions through natural language",
+  "tools": ["read"],
+  "mcp_servers": {
+    "workflow_author": {
+      "command": "node",
+      "args": ["dist/mcp/workflow-author-server.js"],
+      "env_keys": ["WORKFLOW_ID", "ORCHESTRATOR_PORT"]
+    }
+  }
+}

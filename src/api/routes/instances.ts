@@ -1,0 +1,453 @@
+import { FastifyInstance } from 'fastify';
+import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { z } from 'zod';
+import { broadcast } from '../websocket.js';
+import * as restateClient from '../../restate/client.js';
+import type { RouteDeps, SharedState, SessionConfig } from './shared.js';
+import { sendChatMessage } from './shared.js';
+import { errorMessage } from '../../utils/errors.js';
+
+// Zod schemas for instance routes
+const InstanceIdParams = z.object({ id: z.string() });
+const InstanceStageParams = z.object({ id: z.string(), stageId: z.string() });
+const InstanceQuerySchema = z.object({
+  status: z.string().optional(),
+  definitionId: z.string().optional(),
+  limit: z.coerce.number().min(1).max(200).default(50).optional(),
+  offset: z.coerce.number().min(0).default(0).optional(),
+});
+const SegmentsQuerySchema = z.object({
+  iteration: z.string().optional(),
+});
+const PromptQuerySchema = z.object({
+  iteration: z.string().optional(),
+});
+const GateRejectBody = z.object({
+  reason: z.string().optional(),
+});
+const StageMessageBody = z.object({
+  message: z.string(),
+});
+
+export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, state: SharedState): void {
+  const typedApp = app.withTypeProvider<ZodTypeProvider>();
+  const { db } = deps;
+
+  typedApp.get(
+    '/api/instances',
+    {
+      schema: { querystring: InstanceQuerySchema },
+    },
+    async (request, reply) => {
+      try {
+        const query = request.query;
+        const filter: { status?: string; definitionId?: string; limit?: number; offset?: number } = {};
+        if (query.status) filter.status = query.status;
+        if (query.definitionId) filter.definitionId = query.definitionId;
+        if (query.limit != null) filter.limit = query.limit;
+        if (query.offset != null) filter.offset = query.offset;
+        const result = db.listInstances(filter);
+        return { data: result.data, total: result.total, limit: query.limit ?? 50, offset: query.offset ?? 0 };
+      } catch (err) {
+        console.error('GET /api/instances error:', err);
+        return reply.code(500).send({ error: 'Internal server error' });
+      }
+    },
+  );
+
+  typedApp.get(
+    '/api/instances/:id',
+    {
+      schema: { params: InstanceIdParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id } = request.params;
+        const instance = db.getInstance(id);
+        if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+        return instance;
+      } catch (err) {
+        console.error('GET /api/instances/:id error:', err);
+        return reply.code(500).send({ error: 'Internal server error' });
+      }
+    },
+  );
+
+  // GET /api/instances/:id/definition — Get the workflow definition for this instance's version
+  typedApp.get(
+    '/api/instances/:id/definition',
+    {
+      schema: { params: InstanceIdParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id } = request.params;
+        const def = db.getInstanceDefinition(id);
+        if (!def) return reply.code(404).send({ error: 'Definition not found for instance' });
+        return def;
+      } catch (err) {
+        console.error('GET /api/instances/:id/definition error:', err);
+        return reply.code(500).send({ error: 'Internal server error' });
+      }
+    },
+  );
+
+  // DELETE /api/instances/:id
+  typedApp.delete(
+    '/api/instances/:id',
+    {
+      schema: { params: InstanceIdParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id } = request.params;
+        const instance = deps.db.getInstance(id);
+        if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+        deps.db.deleteInstance(id);
+        return reply.code(204).send();
+      } catch (err) {
+        console.error('DELETE /api/instances/:id error:', err);
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // POST /api/instances/:id/cancel — Stop a running workflow instance
+  typedApp.post(
+    '/api/instances/:id/cancel',
+    {
+      schema: { params: InstanceIdParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id: instanceId } = request.params;
+        const instance = deps.db.getInstance(instanceId);
+        if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+
+        // 1. Get live status from Restate (has up-to-date stage info) and fall back to DB
+        let liveContext = instance.context;
+        try {
+          const liveStatus = await restateClient.getWorkflowStatus(instanceId);
+          if (liveStatus?.context) liveContext = liveStatus.context;
+        } catch {
+          /* use DB context */
+        }
+
+        // Find all running stages from live context
+        const runningStages = Object.entries(liveContext?.stages || {})
+          .filter(([, ctx]) => ctx.status === 'running')
+          .map(([stageId]) => stageId);
+
+        console.log(
+          `[stop] Instance ${instanceId}: stopping ${runningStages.length} running stages: ${runningStages.join(', ')}`,
+        );
+
+        // 2. Kill all running agent processes
+        for (const stageId of runningStages) {
+          const client = state.acpPool.getClient(instanceId, stageId);
+          if (client) {
+            client.cancel();
+            setTimeout(async () => {
+              const stillActive = state.acpPool.getClient(instanceId, stageId);
+              if (stillActive) {
+                await state.acpPool.terminate(instanceId, stageId);
+              }
+            }, 2000);
+          }
+        }
+
+        // Also force-terminate any ACP processes for stages we might have missed
+        for (const stageId of Object.keys(liveContext?.stages || {})) {
+          if (!runningStages.includes(stageId)) {
+            const client = state.acpPool.getClient(instanceId, stageId);
+            if (client) {
+              await state.acpPool.terminate(instanceId, stageId);
+            }
+          }
+        }
+
+        // 3. Abort the Restate workflow
+        try {
+          await restateClient.cancelWorkflow(instanceId);
+        } catch (restateErr) {
+          console.warn('[stop] Could not abort Restate workflow:', restateErr);
+        }
+
+        // 4. Update DB — merge live context and mark running stages as stopped
+        const updatedContext = JSON.parse(JSON.stringify(liveContext));
+        for (const stageId of runningStages) {
+          if (updatedContext.stages?.[stageId]) {
+            updatedContext.stages[stageId].status = 'failed';
+            const lastRun = updatedContext.stages[stageId].runs?.[updatedContext.stages[stageId].runs.length - 1];
+            if (lastRun && lastRun.status === 'running') {
+              lastRun.status = 'failed';
+              lastRun.completed_at = new Date().toISOString();
+              lastRun.error = 'Workflow stopped by user';
+            }
+          }
+        }
+
+        // Clear any pending timeouts (agent timeouts, gate timeouts) for this instance
+        for (const [key, handle] of state.stageTimeouts.entries()) {
+          if (key.startsWith(`${instanceId}:`)) {
+            clearTimeout(handle);
+            state.stageTimeouts.delete(key);
+          }
+        }
+
+        deps.db.updateInstance(instanceId, {
+          status: 'cancelled',
+          context: updatedContext,
+          completed_at: new Date().toISOString(),
+        });
+        broadcast('instance:cancelled', { instanceId }, { instanceId });
+
+        return { cancelled: true, stoppedStages: runningStages };
+      } catch (err) {
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // GET /api/instances/:id/status — Get real-time status from Restate
+  typedApp.get(
+    '/api/instances/:id/status',
+    {
+      schema: { params: InstanceIdParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id } = request.params;
+        const status = await restateClient.getWorkflowStatus(id);
+        return status;
+      } catch (err) {
+        // Fall back to DB if Restate is not available
+        const { id } = request.params;
+        const instance = deps.db.getInstance(id);
+        if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+        return {
+          status: instance.status,
+          context: instance.context,
+          currentStageIds: instance.current_stage_ids,
+        };
+      }
+    },
+  );
+
+  // POST /api/instances/:id/gates/:stageId/approve
+  typedApp.post(
+    '/api/instances/:id/gates/:stageId/approve',
+    {
+      schema: { params: InstanceStageParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id, stageId } = request.params;
+        // Cancel any scheduled timeout for this gate — human approved before it fired
+        const gateKey = `${id}:${stageId}`;
+        const existingTimeout = state.stageTimeouts.get(gateKey);
+        if (existingTimeout !== undefined) {
+          clearTimeout(existingTimeout);
+          state.stageTimeouts.delete(gateKey);
+        }
+        await restateClient.approveGate(id, stageId);
+        broadcast(
+          'instance:gate_approved',
+          {
+            instanceId: id,
+            stageId,
+          },
+          { instanceId: id },
+        );
+        return { approved: true };
+      } catch (err) {
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // POST /api/instances/:id/gates/:stageId/reject
+  typedApp.post(
+    '/api/instances/:id/gates/:stageId/reject',
+    {
+      schema: { params: InstanceStageParams, body: GateRejectBody },
+    },
+    async (request, reply) => {
+      try {
+        const { id, stageId } = request.params;
+        const body = request.body;
+        // Cancel any scheduled timeout for this gate — human rejected before it fired
+        const gateKey = `${id}:${stageId}`;
+        const existingTimeout = state.stageTimeouts.get(gateKey);
+        if (existingTimeout !== undefined) {
+          clearTimeout(existingTimeout);
+          state.stageTimeouts.delete(gateKey);
+        }
+        await restateClient.rejectGate(id, stageId, body.reason);
+        broadcast(
+          'instance:gate_rejected',
+          {
+            instanceId: id,
+            stageId,
+            reason: body.reason,
+          },
+          { instanceId: id },
+        );
+        return { rejected: true };
+      } catch (err) {
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // POST /api/instances/:id/stages/:stageId/message — Send message to agent (auto-spawns if needed)
+  typedApp.post(
+    '/api/instances/:id/stages/:stageId/message',
+    {
+      schema: { params: InstanceStageParams, body: StageMessageBody },
+    },
+    async (request, reply) => {
+      try {
+        const { id: instanceId, stageId } = request.params;
+        const { message } = request.body;
+
+        // Look up agent config from workflow definition
+        const instance = db.getInstance(instanceId);
+        if (!instance) return reply.code(404).send({ error: `Instance not found: ${instanceId}` });
+        const workflow = db.getWorkflow(instance.definition_id);
+        if (!workflow) return reply.code(404).send({ error: `Workflow not found` });
+        const stageDef = workflow.stages.find((s) => s.id === stageId);
+        const stageConfig = stageDef?.config as Record<string, unknown> | undefined;
+        if (!stageConfig?.agentId)
+          return reply.code(400).send({ error: `${stageId} is not an agent stage` });
+
+        const stageCtx = instance.context?.stages?.[stageId];
+        const iteration = stageCtx?.run_count || 1;
+
+        await sendChatMessage(
+          {
+            config: {
+              pool: state.acpPool,
+              instanceId,
+              stageId,
+              iteration,
+              agentId: (stageConfig.agentId as string) || '',
+              overrides: stageConfig.overrides as SessionConfig['overrides'] ?? undefined,
+              eventPrefix: 'agent',
+              filterPayload: { instanceId, stageId },
+              scope: { instanceId },
+            },
+            message,
+          },
+          db,
+        );
+
+        return { injected: true };
+      } catch (err) {
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // GET /api/instances/:id/stages/:stageId/segments
+  typedApp.get(
+    '/api/instances/:id/stages/:stageId/segments',
+    {
+      schema: { params: InstanceStageParams, querystring: SegmentsQuerySchema },
+    },
+    async (request, reply) => {
+      try {
+        const { id, stageId } = request.params;
+        const query = request.query;
+        const iteration = query.iteration ? parseInt(query.iteration, 10) : undefined;
+        const segments = deps.db.getSegments(id, stageId, iteration);
+        return segments;
+      } catch (err) {
+        console.error('[segments] Error:', err);
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // GET /api/instances/:id/stages/:stageId/prompt — Get the rendered prompt sent to a stage
+  typedApp.get(
+    '/api/instances/:id/stages/:stageId/prompt',
+    {
+      schema: { params: InstanceStageParams, querystring: PromptQuerySchema },
+    },
+    async (request, reply) => {
+      try {
+        const { id, stageId } = request.params;
+        const query = request.query;
+        const iteration = query.iteration ? parseInt(query.iteration, 10) : undefined;
+        const promptRecord = db.getRenderedPrompt(id, stageId, iteration);
+        if (!promptRecord) return reply.code(404).send({ error: 'No rendered prompt found' });
+        return { prompt: promptRecord.prompt, iteration: promptRecord.iteration, created_at: promptRecord.created_at };
+      } catch (err) {
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // POST /api/instances/:id/stages/:stageId/cancel — Force-stop a running stage agent
+  typedApp.post(
+    '/api/instances/:id/stages/:stageId/cancel',
+    {
+      schema: { params: InstanceStageParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id: instanceId, stageId } = request.params;
+        const key = `${instanceId}:${stageId}`;
+        state.forceStoppedStages.add(key);
+        setTimeout(() => state.forceStoppedStages.delete(key), 5 * 60 * 1000);
+
+        // Sweep all pending/in_progress tool calls to failed
+        const instance = deps.db.getInstance(instanceId);
+        const iteration = instance?.context?.stages?.[stageId]?.run_count || 1;
+        deps.db.sweepToolCallStatuses(instanceId, stageId, iteration, ['pending', 'in_progress'], 'failed');
+
+        // Send session/cancel first (graceful stop)
+        const client = state.acpPool.getClient(instanceId, stageId);
+        if (client) {
+          client.cancel();
+          // Safety timeout: force-kill if agent doesn't stop within 2s
+          setTimeout(async () => {
+            const stillActive = state.acpPool.getClient(instanceId, stageId);
+            if (stillActive) {
+              await state.acpPool.terminate(instanceId, stageId);
+            }
+          }, 2000);
+        }
+
+        broadcast('agent:cancelled', { instanceId, stageId }, { instanceId });
+        return { cancelled: true };
+      } catch (err) {
+        console.error('[cancel-stage] Error:', err);
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // POST /api/instances/:id/stages/:stageId/restart-session — Destroy agent session
+  typedApp.post(
+    '/api/instances/:id/stages/:stageId/restart-session',
+    {
+      schema: { params: InstanceStageParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id: instanceId, stageId } = request.params;
+        await state.acpPool.terminate(instanceId, stageId);
+        const sessionKey = `${instanceId}:${stageId}`;
+        db.markAcpSessionStatus(sessionKey, 'destroyed');
+        state.signalledStages.delete(sessionKey);
+        broadcast('agent:session_status', { instanceId, stageId, status: 'pending_restart' }, { instanceId });
+        return { ok: true };
+      } catch (err) {
+        console.error('[agent/restart-session] Error:', err);
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+}

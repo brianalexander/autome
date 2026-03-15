@@ -1,0 +1,26 @@
+node_modules/
+dist/
+data/
+.env
+*.db
+*.db-journal
+.playwright-cli/
+frontend/dist/
+*.png
+restate-data/
+
+# Generated provider-specific agent configs (source of truth is agents/)
+.kiro/agents/
+.opencode/agents/
+.claude/agents/
+
+# Tool artifacts
+frontend/.tanstack/
+
+# Editor/tool-specific configs (user-local)
+.claude/
+.kiro/
+.opencode/
+
+# Scratch/reference (not source code)
+scratch/
