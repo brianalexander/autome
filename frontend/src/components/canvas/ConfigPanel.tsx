@@ -73,6 +73,29 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
     debouncedOnSave(next);
   }, [stage, debouncedOnSave]);
 
+  // Compute upstream output schema(s) for autocomplete and reference
+  const upstreamSchema = useMemo(() => {
+    const incomingEdges = definition.edges.filter(e => e.target === stage.id);
+    if (incomingEdges.length === 0) return undefined;
+    if (incomingEdges.length === 1) {
+      const sourceStage = definition.stages.find(s => s.id === incomingEdges[0].source);
+      const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
+      return sourceConfig.output_schema as Record<string, unknown> | undefined;
+    }
+    // Fan-in: merge upstream schemas into one object with source IDs as keys
+    const merged: Record<string, unknown> = { type: 'object', properties: {} };
+    const mergedProps = (merged as any).properties;
+    for (const edge of incomingEdges) {
+      const sourceStage = definition.stages.find(s => s.id === edge.source);
+      const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
+      const schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+      if (schema) {
+        mergedProps[edge.source] = schema;
+      }
+    }
+    return Object.keys(mergedProps).length > 0 ? merged : undefined;
+  }, [definition, stage.id]);
+
   // For trigger stages: scan outgoing edge prompt_templates for expected payload fields
   const expectedPayloadFields = useMemo(() => {
     if (!isTriggerType(stage.type)) return [];
@@ -131,6 +154,28 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
             placeholder="Short description of what this node does"
           />
         </Field>
+
+        {/* Upstream output schema reference */}
+        {upstreamSchema?.properties != null && !isTriggerType(stage.type) && (
+          <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3 mb-4">
+            <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
+              Available from upstream
+            </div>
+            <div className="space-y-1">
+              {Object.entries(upstreamSchema.properties as Record<string, Record<string, unknown>>).map(([key, propSchema]) => {
+                const propType = propSchema.type as string | undefined;
+                const propDesc = propSchema.description as string | undefined;
+                return (
+                  <div key={key} className="flex items-baseline gap-2 text-xs">
+                    <code className="text-blue-400 font-mono">input.{key}</code>
+                    {propType && <span className="text-text-muted text-[10px]">{propType}</span>}
+                    {propDesc && <span className="text-text-tertiary text-[10px]">— {propDesc}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Agent-specific config */}
         {stage.type === 'agent' && (
@@ -463,7 +508,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
 
         {/* Generic config for new node types — driven by SchemaForm */}
         {!['agent', 'gate', 'manual-trigger', 'webhook-trigger', 'cron-trigger'].includes(stage.type) && (
-          <GenericNodeConfig editState={stage} onUpdate={(updated) => debouncedOnSave(updated)} />
+          <GenericNodeConfig editState={stage} onUpdate={(updated) => debouncedOnSave(updated)} upstreamSchema={upstreamSchema} />
         )}
 
         {/* --- Advanced: Fan-in, Retry, Map (all step types) --- */}
@@ -855,13 +900,17 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
                 Available from {sourceStage?.label || edge.source}
               </div>
               <div className="space-y-1">
-                {Object.entries(props).map(([key, schema]) => (
-                  <div key={key} className="flex items-baseline gap-2 text-xs">
-                    <code className="text-blue-400 font-mono">output.{key}</code>
-                    {schema.type && <span className="text-text-muted text-[10px]">{schema.type}</span>}
-                    {schema.description && <span className="text-text-tertiary text-[10px]">— {schema.description}</span>}
-                  </div>
-                ))}
+                {Object.entries(props).map(([key, ps]) => {
+                  const t = (ps as Record<string, unknown>).type as string | undefined;
+                  const d = (ps as Record<string, unknown>).description as string | undefined;
+                  return (
+                    <div key={key} className="flex items-baseline gap-2 text-xs">
+                      <code className="text-blue-400 font-mono">output.{key}</code>
+                      {t && <span className="text-text-muted text-[10px]">{t}</span>}
+                      {d && <span className="text-text-tertiary text-[10px]">— {d}</span>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );
@@ -1094,9 +1143,11 @@ function OverridesSection({ overrides, canonicalSpec, onChange, onReset }: Overr
 function GenericNodeConfig({
   editState,
   onUpdate,
+  upstreamSchema,
 }: {
   editState: StageDefinition;
   onUpdate: (s: StageDefinition) => void;
+  upstreamSchema?: Record<string, unknown>;
 }) {
   const { data: specs } = useNodeTypes();
   const spec = specs?.find((s) => s.id === editState.type);
@@ -1119,6 +1170,7 @@ function GenericNodeConfig({
         schema={spec.configSchema}
         value={(editState.config || {}) as Record<string, unknown>}
         onChange={handleChange}
+        outputSchema={upstreamSchema}
       />
     </>
   );
