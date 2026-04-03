@@ -22,6 +22,7 @@ const SegmentsQuerySchema = z.object({
 const PromptQuerySchema = z.object({
   iteration: z.string().optional(),
 });
+const GateApproveBody = z.object({ data: z.unknown().optional() });
 const GateRejectBody = z.object({
   reason: z.string().optional(),
 });
@@ -238,11 +239,12 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
   typedApp.post(
     '/api/instances/:id/gates/:stageId/approve',
     {
-      schema: { params: InstanceStageParams },
+      schema: { params: InstanceStageParams, body: GateApproveBody },
     },
     async (request, reply) => {
       try {
         const { id, stageId } = request.params;
+        const { data } = request.body;
         // Cancel any scheduled timeout for this gate — human approved before it fired
         const gateKey = `${id}:${stageId}`;
         const existingTimeout = state.stageTimeouts.get(gateKey);
@@ -250,7 +252,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           clearTimeout(existingTimeout);
           state.stageTimeouts.delete(gateKey);
         }
-        await restateClient.approveGate(id, stageId);
+        await restateClient.approveGate(id, stageId, data);
         broadcast(
           'instance:gate_approved',
           {

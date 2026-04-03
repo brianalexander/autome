@@ -185,8 +185,11 @@ export const instances = {
   getStatus: (id: string) => request<{ status: string; context: WorkflowInstance['context'] } | undefined>(`/instances/${id}/status`),
   cancel: (id: string) => request<{ cancelled: boolean }>(`/instances/${id}/cancel`, { method: 'POST' }),
   delete: (id: string) => request<void>(`/instances/${id}`, { method: 'DELETE' }),
-  approveGate: (instanceId: string, stageId: string) =>
-    request<{ approved: boolean }>(`/instances/${instanceId}/gates/${stageId}/approve`, { method: 'POST' }),
+  approveGate: (instanceId: string, stageId: string, data?: unknown) =>
+    request<{ approved: boolean }>(`/instances/${instanceId}/gates/${stageId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ data }),
+    }),
   rejectGate: (instanceId: string, stageId: string, reason?: string) =>
     request<{ rejected: boolean }>(`/instances/${instanceId}/gates/${stageId}/reject`, {
       method: 'POST',

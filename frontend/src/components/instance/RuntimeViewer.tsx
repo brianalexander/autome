@@ -182,8 +182,10 @@ export function RuntimeViewer({
               stageId={selectedStageId}
               stageDef={selectedStageDef}
               stageCtx={selectedStageCtx}
+              definition={definition}
+              workflowContext={effectiveContext?.stages || {}}
               onClose={() => setSelectedStageId(null)}
-              onApprove={() => approveGate.mutate({ instanceId, stageId: selectedStageId })}
+              onApprove={(data) => approveGate.mutate({ instanceId, stageId: selectedStageId, data })}
               onReject={() => rejectGate.mutate({ instanceId, stageId: selectedStageId })}
             />
           ) : selectedStageDef?.type === 'agent' && selectedStageCtx ? (

@@ -1,4 +1,4 @@
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useBlocker } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -112,6 +112,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   const [testRunStarting, setTestRunStarting] = useState(false);
 
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
 
   // Subscribe to workflow-scoped events plus the active test run instance
   const wsSubscriptions = testRunInstanceId
@@ -140,6 +141,10 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     canRedo,
     reset: resetHistory,
   } = useUndoRedo<WorkflowDefinition | null>(isNew ? initialDef : null);
+
+  // Block navigation when there are unsaved changes (browser back, link clicks, etc.)
+  // useBlocker with withResolver gives us proceed/reset to control our own modal.
+  const blocker = useBlocker({ condition: hasChanges || (isNew && canUndo) });
 
   // When the existing workflow first loads, seed the undo stack with it,
   // then check if there's an in-flight draft that differs (survives page refresh).
@@ -440,6 +445,41 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     }
   }, [workflowId, currentDefinition?.name]);
 
+  // Called when user confirms discard — either from toolbar button or navigation blocker
+  const handleDiscardChanges = useCallback(() => {
+    if (!isNew && workflow) {
+      // Revert definition to last saved version
+      resetHistory(workflow);
+      setHasChanges(false);
+      // Clear the server-side draft so it matches saved
+      fetch(`/api/internal/author-draft/${workflowId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(workflow),
+      }).catch(() => {});
+    }
+    if (isNew) {
+      // For new workflows, clear draft
+      sessionStorage.removeItem(DRAFT_ID_KEY);
+      authorChat.clearSegments(effectiveId).catch(() => {});
+    }
+    // If blocker is active (navigation was attempted), proceed with it
+    if (blocker.status === 'blocked') {
+      blocker.proceed();
+    }
+  }, [isNew, workflow, workflowId, effectiveId, resetHistory, blocker]);
+
+  const handleResetDraft = useCallback(() => {
+    // Clear sessionStorage draft ID
+    sessionStorage.removeItem(DRAFT_ID_KEY);
+    // Clear chat segments on the server
+    authorChat.clearSegments(effectiveId).catch(() => {});
+    // Navigate to fresh new workflow (will generate new tempId)
+    navigate({ to: '/workflows/new' });
+    // Force a full remount by reloading (since URL doesn't change if already on /new)
+    window.location.reload();
+  }, [effectiveId, navigate]);
+
   // Global keyboard shortcuts
   useKeyboardShortcuts({
     onUndo: undo,
@@ -567,12 +607,29 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
             description={definition.description || ''}
             onNameChange={handleNameChange}
             onDescriptionChange={handleDescriptionChange}
-            backLink={isNew ? undefined : '/'}
-            onBack={isNew ? () => navigate({ to: '/' }) : undefined}
+            onBack={() => navigate({ to: '/' })}
           />
 
           {/* Floating widget 2: actions — top-right of canvas */}
           <div className="absolute top-3 right-3 z-40 flex items-center gap-1.5">
+            {isNew && (
+              <button
+                onClick={() => setResetModalOpen(true)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border bg-[var(--color-surface)] border-[var(--color-border)] text-red-500 hover:text-red-400 shadow-sm backdrop-blur-sm transition-colors"
+              >
+                Reset
+              </button>
+            )}
+
+            {!isNew && hasChanges && (
+              <button
+                onClick={handleDiscardChanges}
+                className="px-2.5 py-1.5 text-xs rounded-lg border bg-[var(--color-surface)] border-[var(--color-border)] text-red-500 hover:text-red-400 shadow-sm backdrop-blur-sm transition-colors"
+              >
+                Discard
+              </button>
+            )}
+
             <button
               onClick={handleTestRunClick}
               className="px-2.5 py-1.5 text-xs rounded-lg border bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] shadow-sm backdrop-blur-sm transition-colors"
@@ -682,6 +739,61 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
         isOpen={shortcutsHelpOpen}
         onClose={() => setShortcutsHelpOpen(false)}
       />
+
+      {resetModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setResetModalOpen(false)}>
+          <div className="bg-surface border border-border rounded-xl w-full max-w-sm p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-text-primary mb-2">Reset Draft?</h3>
+            <p className="text-xs text-text-secondary mb-4">
+              This will discard all unsaved changes and chat history for this draft. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setResetModalOpen(false)}
+                className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary rounded-lg border border-border hover:bg-surface-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetDraft}
+                className="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Navigation blocker modal — shown when user tries to navigate away with unsaved changes */}
+      {blocker.status === 'blocked' && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => blocker.reset()}>
+          <div className="bg-surface border border-border rounded-xl w-full max-w-sm p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-text-primary mb-2">
+              {isNew ? 'Discard Draft?' : 'Discard Changes?'}
+            </h3>
+            <p className="text-xs text-text-secondary mb-4">
+              {isNew
+                ? 'This will discard the current draft and all chat history. This cannot be undone.'
+                : 'This will revert the workflow to the last saved version. Unsaved edits will be lost.'}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => blocker.reset()}
+                className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary rounded-lg border border-border hover:bg-surface-secondary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDiscardChanges}
+                className="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors"
+              >
+                {isNew ? 'Discard' : 'Revert'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

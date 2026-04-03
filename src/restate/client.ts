@@ -22,9 +22,9 @@ export async function startWorkflow(instanceId: string, definition: WorkflowDefi
   return handle;
 }
 
-export async function approveGate(instanceId: string, stageId: string) {
+export async function approveGate(instanceId: string, stageId: string, data?: unknown) {
   const client = getRestateClient();
-  return client.workflowClient(pipelineWorkflow, instanceId).approveGate({ stageId });
+  return client.workflowClient(pipelineWorkflow, instanceId).approveGate({ stageId, data });
 }
 
 export async function rejectGate(instanceId: string, stageId: string, reason?: string) {

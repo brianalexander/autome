@@ -180,8 +180,14 @@ export const pipelineWorkflow = restate.workflow({
 
     // --- Shared handlers (callable while workflow is running) ---
 
-    approveGate: async (ctx: restate.WorkflowSharedContext, input: { stageId: string }): Promise<string> => {
-      await ctx.promise<boolean>(`gate-${input.stageId}`).resolve(true);
+    approveGate: async (
+      ctx: restate.WorkflowSharedContext,
+      input: { stageId: string; data?: unknown },
+    ): Promise<string> => {
+      await ctx.promise<{ approved: boolean; data?: unknown }>(`gate-${input.stageId}`).resolve({
+        approved: true,
+        data: input.data,
+      });
       return `Gate ${input.stageId} approved`;
     },
 
@@ -189,7 +195,7 @@ export const pipelineWorkflow = restate.workflow({
       ctx: restate.WorkflowSharedContext,
       input: { stageId: string; reason?: string },
     ): Promise<string> => {
-      await ctx.promise<boolean>(`gate-${input.stageId}`).resolve(false);
+      await ctx.promise<{ approved: boolean }>(`gate-${input.stageId}`).resolve({ approved: false });
       return `Gate ${input.stageId} rejected: ${input.reason || 'no reason given'}`;
     },
 

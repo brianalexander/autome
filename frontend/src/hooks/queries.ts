@@ -132,8 +132,8 @@ export function useInstanceDefinition(instanceId: string) {
 export function useApproveGate() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ instanceId, stageId }: { instanceId: string; stageId: string }) =>
-      instances.approveGate(instanceId, stageId),
+    mutationFn: ({ instanceId, stageId, data }: { instanceId: string; stageId: string; data?: unknown }) =>
+      instances.approveGate(instanceId, stageId, data),
     onSuccess: (_, { instanceId }) => {
       queryClient.invalidateQueries({ queryKey: ['instance', instanceId] });
       toast.success('Gate approved');

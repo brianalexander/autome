@@ -11,6 +11,7 @@ const executor: StepExecutor = {
   async execute(execCtx: StepExecutorContext): Promise<{ output: unknown }> {
     const { ctx, stageId, config, orchestratorUrl, workflowContext } = execCtx;
     const gateType = (config.type as string) || 'auto';
+    let gateData: unknown | undefined;
 
     if (gateType === 'manual') {
       ctx.set('status', 'waiting_gate');
@@ -32,13 +33,16 @@ const executor: StepExecutor = {
         return { waiting: true };
       });
 
-      // Wait for approval via durable promise
-      const approved = await ctx.promise<boolean>(`gate-${stageId}`).get();
+      // Wait for approval via durable promise.
+      // Accept both the legacy boolean shape (in-flight workflows) and the new object shape.
+      const raw = await ctx.promise<{ approved: boolean; data?: unknown } | boolean>(`gate-${stageId}`).get();
+      const result = typeof raw === 'boolean' ? { approved: raw } : raw;
 
-      if (!approved) {
+      if (!result.approved) {
         throw new restate.TerminalError(`Gate "${stageId}" was rejected`);
       }
 
+      gateData = result.data;
       ctx.set('status', 'running');
     } else if (gateType === 'conditional') {
       const condition = config.condition as string;
@@ -52,7 +56,7 @@ const executor: StepExecutor = {
     }
     // Auto gates just pass through
 
-    return { output: { approved: true } };
+    return { output: gateData ?? { approved: true } };
   },
 };
 
@@ -79,6 +83,12 @@ export const gateNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Timeout Action',
         enum: ['approve', 'reject'],
+      },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema to validate edited data before gate approval',
+        format: 'json',
       },
     },
   },
