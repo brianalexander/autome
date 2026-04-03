@@ -1,10 +1,12 @@
 import { createRootRoute, Outlet, Link } from '@tanstack/react-router';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import { useTheme, type ThemeMode } from '../hooks/useTheme';
-import { Sun, Moon, Monitor, ChevronsUpDown } from 'lucide-react';
-import { useActiveProvider, useAcpProviders, useSetSystemProvider } from '../hooks/queries';
-import { useState, useRef, useCallback } from 'react';
+import { Sun, Moon, Monitor, ChevronsUpDown, Bell } from 'lucide-react';
+import { useActiveProvider, useAcpProviders, useSetSystemProvider, useApprovals } from '../hooks/queries';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { useQueryClient } from '@tanstack/react-query';
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -79,6 +81,26 @@ function ProviderSelector() {
   );
 }
 
+function ApprovalBadge() {
+  const { data: pendingApprovals } = useApprovals();
+  const count = pendingApprovals?.length ?? 0;
+
+  if (count === 0) return null;
+
+  return (
+    <Link
+      to="/approvals"
+      className="relative p-1.5 text-amber-500 hover:text-amber-400 transition-colors"
+      title={`${count} pending approval${count !== 1 ? 's' : ''}`}
+    >
+      <Bell size={16} className="animate-pulse" />
+      <span className="absolute -top-0.5 -right-0.5 bg-amber-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+        {count > 9 ? '9+' : count}
+      </span>
+    </Link>
+  );
+}
+
 function ThemeToggle() {
   const { mode, setMode } = useTheme();
 
@@ -109,6 +131,32 @@ function ThemeToggle() {
 }
 
 function RootLayout() {
+  const { on } = useWebSocket();
+  const queryClient = useQueryClient();
+
+  // Listen for gate_waiting events and show toast notifications
+  useEffect(() => {
+    const unsub = on('instance:stage_status', (data: unknown) => {
+      const d = data as { instanceId?: string; stageId?: string; status?: string; message?: string };
+      if (d.status === 'waiting_gate') {
+        // Invalidate approvals cache
+        queryClient.invalidateQueries({ queryKey: ['approvals'] });
+        // Show toast with link
+        toast.info(
+          d.message || `Gate "${d.stageId}" is waiting for approval`,
+          {
+            action: {
+              label: 'Review',
+              onClick: () => window.location.href = `/approvals`,
+            },
+            duration: 10000,
+          }
+        );
+      }
+    });
+    return unsub;
+  }, [on, queryClient]);
+
   return (
     <div className="h-screen bg-surface text-text-primary flex flex-col overflow-hidden">
       <header className="border-b border-border px-6 py-3 flex items-center justify-between flex-shrink-0">
@@ -131,9 +179,16 @@ function RootLayout() {
             >
               Instances
             </Link>
+            <Link
+              to="/approvals"
+              className="text-text-secondary hover:text-text-primary [&.active]:text-text-primary [&.active]:font-medium transition-colors"
+            >
+              Approvals
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <ApprovalBadge />
           <ProviderSelector />
           <ThemeToggle />
         </div>

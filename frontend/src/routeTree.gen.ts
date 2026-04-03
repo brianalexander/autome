@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as InstancesRouteImport } from './routes/instances'
+import { Route as ApprovalsRouteImport } from './routes/approvals'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkflowsNewRouteImport } from './routes/workflows.new'
 import { Route as WorkflowsWorkflowIdRouteImport } from './routes/workflows.$workflowId'
@@ -18,6 +19,11 @@ import { Route as InstancesInstanceIdRouteImport } from './routes/instances.$ins
 const InstancesRoute = InstancesRouteImport.update({
   id: '/instances',
   path: '/instances',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApprovalsRoute = ApprovalsRouteImport.update({
+  id: '/approvals',
+  path: '/approvals',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -43,6 +49,7 @@ const InstancesInstanceIdRoute = InstancesInstanceIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/approvals': typeof ApprovalsRoute
   '/instances': typeof InstancesRouteWithChildren
   '/instances/$instanceId': typeof InstancesInstanceIdRoute
   '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/approvals': typeof ApprovalsRoute
   '/instances': typeof InstancesRouteWithChildren
   '/instances/$instanceId': typeof InstancesInstanceIdRoute
   '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/approvals': typeof ApprovalsRoute
   '/instances': typeof InstancesRouteWithChildren
   '/instances/$instanceId': typeof InstancesInstanceIdRoute
   '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
@@ -67,6 +76,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/approvals'
     | '/instances'
     | '/instances/$instanceId'
     | '/workflows/$workflowId'
@@ -74,6 +84,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/approvals'
     | '/instances'
     | '/instances/$instanceId'
     | '/workflows/$workflowId'
@@ -81,6 +92,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/approvals'
     | '/instances'
     | '/instances/$instanceId'
     | '/workflows/$workflowId'
@@ -89,6 +101,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApprovalsRoute: typeof ApprovalsRoute
   InstancesRoute: typeof InstancesRouteWithChildren
   WorkflowsWorkflowIdRoute: typeof WorkflowsWorkflowIdRoute
   WorkflowsNewRoute: typeof WorkflowsNewRoute
@@ -101,6 +114,13 @@ declare module '@tanstack/react-router' {
       path: '/instances'
       fullPath: '/instances'
       preLoaderRoute: typeof InstancesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/approvals': {
+      id: '/approvals'
+      path: '/approvals'
+      fullPath: '/approvals'
+      preLoaderRoute: typeof ApprovalsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -148,6 +168,7 @@ const InstancesRouteWithChildren = InstancesRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApprovalsRoute: ApprovalsRoute,
   InstancesRoute: InstancesRouteWithChildren,
   WorkflowsWorkflowIdRoute: WorkflowsWorkflowIdRoute,
   WorkflowsNewRoute: WorkflowsNewRoute,

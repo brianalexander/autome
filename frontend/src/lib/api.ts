@@ -273,6 +273,21 @@ export const acpProviders = {
   },
 };
 
+export interface PendingApproval {
+  instanceId: string;
+  workflowName: string;
+  workflowId: string;
+  stageId: string;
+  stageLabel: string;
+  gateMessage: string | null;
+  upstreamData: unknown;
+  waitingSince: string;
+}
+
+export const approvals = {
+  list: () => request<PendingApproval[]>('/approvals'),
+};
+
 export const settings = {
   getAll: () => request<Record<string, string>>('/settings'),
   get: (key: string) => request<{ key: string; value: string }>(`/settings/${key}`),

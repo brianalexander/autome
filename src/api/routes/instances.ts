@@ -56,6 +56,71 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
     },
   );
 
+  // GET /api/approvals — list all pending gate approvals across all instances
+  typedApp.get('/api/approvals', async (request, reply) => {
+    try {
+      const { data: gateInstances } = db.listInstances({ status: 'waiting_gate', limit: 200 });
+      const { data: inputInstances } = db.listInstances({ status: 'waiting_input', limit: 200 });
+      const waitingInstances = [...gateInstances, ...inputInstances];
+
+      const approvals: Array<{
+        instanceId: string;
+        workflowName: string;
+        workflowId: string;
+        stageId: string;
+        stageLabel: string;
+        gateMessage: string | null;
+        upstreamData: unknown;
+        waitingSince: string;
+      }> = [];
+
+      for (const inst of waitingInstances) {
+        const def = inst.definition_id ? db.getWorkflow(inst.definition_id) : null;
+        const context = inst.context;
+        if (!context?.stages) continue;
+
+        for (const [stageId, stageCtx] of Object.entries(context.stages)) {
+          if (stageCtx.status !== 'running') continue;
+
+          // Find the stage definition and confirm it's a manual gate
+          const stageDef = def?.stages?.find((s: { id: string }) => s.id === stageId);
+          if (!stageDef || stageDef.type !== 'gate') continue;
+          const gateConfig = (stageDef.config || {}) as Record<string, unknown>;
+          if (gateConfig.type !== 'manual') continue;
+
+          // Collect upstream output for display
+          const upstreamEdges = (def?.edges || []).filter((e: { target: string }) => e.target === stageId);
+          let upstreamData: unknown;
+          if (upstreamEdges.length === 1) {
+            upstreamData = context.stages[(upstreamEdges[0] as { source: string }).source]?.latest;
+          } else if (upstreamEdges.length > 1) {
+            const merged: Record<string, unknown> = {};
+            for (const edge of upstreamEdges as Array<{ source: string }>) {
+              merged[edge.source] = context.stages[edge.source]?.latest;
+            }
+            upstreamData = merged;
+          }
+
+          approvals.push({
+            instanceId: inst.id,
+            workflowName: def?.name ?? 'Unknown Workflow',
+            workflowId: inst.definition_id ?? '',
+            stageId,
+            stageLabel: (stageDef.label as string | undefined) ?? stageId,
+            gateMessage: (gateConfig.message as string) || null,
+            upstreamData,
+            waitingSince: inst.updated_at ?? inst.created_at,
+          });
+        }
+      }
+
+      return approvals;
+    } catch (err) {
+      console.error('[approvals] Error:', err);
+      return reply.code(500).send({ error: errorMessage(err) });
+    }
+  });
+
   typedApp.get(
     '/api/instances/:id',
     {

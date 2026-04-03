@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet, useMatch } from '@tanstack/react-router';
 import { toast } from 'sonner';
+import { Activity } from 'lucide-react';
 import { useInstances, useWorkflows, useCancelInstance, useDeleteInstance } from '../hooks/queries';
 import { isTriggerType, type WorkflowInstance, type WorkflowDefinition } from '../lib/api';
 import { useMemo } from 'react';
@@ -77,16 +78,30 @@ function InstancesList() {
     });
   }, [instanceList, workflowMap]);
 
-  if (isLoading) return <div className="p-6 text-text-secondary">Loading instances...</div>;
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <span className="text-text-muted text-sm">Loading instances...</span>
+      </div>
+    );
+  }
   if (error) return <div className="p-6 text-red-600 dark:text-red-400">Error: {(error as Error).message}</div>;
+
+  if (grouped.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <Activity className="w-12 h-12 text-text-muted/30 mx-auto mb-3" />
+          <p className="text-text-secondary text-sm">No instances yet</p>
+          <p className="text-text-muted text-xs mt-1">Trigger a workflow to see runs here</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 p-6 overflow-y-auto">
-      <h2 className="text-2xl font-bold mb-6">Instances</h2>
-
-      {grouped.length === 0 ? (
-        <div className="text-text-tertiary text-center py-12">No instances yet. Trigger a workflow to create one.</div>
-      ) : (
+      {(
         <div className="space-y-6">
           {grouped.map(({ workflow, instances }) => (
             <div key={instances[0].definition_id}>

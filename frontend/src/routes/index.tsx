@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useState, useRef, useCallback } from 'react';
+import { Boxes } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWorkflows, useTriggerWorkflow, useDeleteWorkflow } from '../hooks/queries';
@@ -19,32 +20,59 @@ function WorkflowsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const queryClient = useQueryClient();
 
-  if (isLoading) return <div className="p-6 text-text-secondary">Loading workflows...</div>;
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <span className="text-text-muted text-sm">Loading workflows...</span>
+      </div>
+    );
+  }
   if (error) return <div className="p-6 text-red-600 dark:text-red-400">Error: {(error as Error).message}</div>;
 
-  return (
-    <div className="flex-1 p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">Workflows</h2>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setImportOpen(true)}
-            className="px-4 py-2 text-sm border border-border hover:bg-interactive text-text-secondary hover:text-text-primary rounded-lg transition-colors"
-          >
-            Import
-          </button>
-          <button
-            onClick={() => navigate({ to: '/workflows/new' })}
-            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
-          >
-            + New Workflow
-          </button>
+  if (!workflowList?.data?.length) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <Boxes className="w-12 h-12 text-text-muted/30 mx-auto mb-3" />
+          <p className="text-text-secondary text-sm">No workflows yet</p>
+          <p className="text-text-muted text-xs mt-1">Create a workflow to automate your tasks</p>
+          <div className="flex justify-center gap-2 mt-4">
+            <button
+              onClick={() => setImportOpen(true)}
+              className="px-4 py-2 text-sm border border-border hover:bg-interactive text-text-secondary hover:text-text-primary rounded-lg transition-colors"
+            >
+              Import
+            </button>
+            <button
+              onClick={() => navigate({ to: '/workflows/new' })}
+              className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+            >
+              + New Workflow
+            </button>
+          </div>
         </div>
       </div>
+    );
+  }
 
-      {!workflowList?.data?.length ? (
-        <div className="text-text-tertiary text-center py-12">No workflows yet. Create one to get started.</div>
-      ) : (
+  return (
+    <div className="flex-1 p-6 overflow-y-auto">
+      <div className="flex justify-end mb-6 gap-2">
+        <button
+          onClick={() => setImportOpen(true)}
+          className="px-4 py-2 text-sm border border-border hover:bg-interactive text-text-secondary hover:text-text-primary rounded-lg transition-colors"
+        >
+          Import
+        </button>
+        <button
+          onClick={() => navigate({ to: '/workflows/new' })}
+          className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+        >
+          + New Workflow
+        </button>
+      </div>
+
+      {(
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {workflowList.data.map((workflow) => {
             const triggerStages = workflow.stages.filter((s) => isTriggerType(s.type));
