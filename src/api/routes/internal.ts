@@ -13,6 +13,7 @@ import { nodeRegistry } from '../../nodes/registry.js';
 import type { WorkflowInstance } from '../../types/instance.js';
 import type { WorkflowDefinition } from '../../schemas/pipeline.js';
 import { createProviderAsync } from '../../acp/provider/registry.js';
+import { validateCode } from '../validate-code.js';
 
 // Zod schemas for internal routes
 const SpawnAgentBody = z.object({
@@ -74,6 +75,11 @@ const AuthorStopBody = z.object({
 const AuthorSegmentsMigrateBody = z.object({
   fromId: z.string(),
   toId: z.string(),
+});
+
+const ValidateCodeBody = z.object({
+  code: z.string(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
 const WorkflowStatusBody = z.object({
@@ -803,6 +809,22 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
       const { key } = request.params as { key: string };
       const session = db.getAcpSession(key);
       return { model: session?.model_name || null, status: session?.status || null };
+    },
+  );
+
+  // POST /api/internal/validate-code — TypeScript type-checking for the code editor
+  typedApp.post(
+    '/api/internal/validate-code',
+    { schema: { body: ValidateCodeBody } },
+    async (request) => {
+      try {
+        const { code, outputSchema } = request.body;
+        const diagnostics = validateCode({ code, outputSchema });
+        return { diagnostics };
+      } catch (err) {
+        console.error('[validate-code] Error:', err);
+        return { diagnostics: [] };
+      }
     },
   );
 }

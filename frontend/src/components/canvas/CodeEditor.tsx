@@ -8,6 +8,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
 import { githubDark } from '@uiw/codemirror-theme-github';
 import { autocompletion, type CompletionContext, type Completion } from '@codemirror/autocomplete';
+import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
 import { EditorView, hoverTooltip, type Tooltip } from '@codemirror/view';
 import { Maximize2, Minimize2, BookOpen } from 'lucide-react';
 
@@ -278,6 +279,37 @@ export default ({ input, config, context, trigger }) => {
   };
 };`;
 
+// --- Backend TypeScript linting ---
+
+function createCodeLinter(outputSchema?: Record<string, unknown>) {
+  return linter(async (view): Promise<Diagnostic[]> => {
+    const code = view.state.doc.toString();
+    if (!code.trim()) return [];
+
+    try {
+      const res = await fetch('/api/internal/validate-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, outputSchema }),
+      });
+      if (!res.ok) return [];
+      const { diagnostics } = await res.json() as { diagnostics: Array<{ from: number; to: number; severity: string; message: string }> };
+
+      const docLength = view.state.doc.length;
+      return diagnostics
+        .filter(d => d.from >= 0 && d.to <= docLength && d.from < d.to)
+        .map(d => ({
+          from: d.from,
+          to: d.to,
+          severity: d.severity as 'error' | 'warning' | 'info',
+          message: d.message,
+        }));
+    } catch {
+      return []; // Network error — silently skip
+    }
+  }, { delay: 250 });
+}
+
 // --- CSS fix: make editor fill its container even when empty ---
 
 function editorFillTheme(minH: string) {
@@ -328,6 +360,11 @@ export function CodeEditor({
     [outputSchema],
   );
 
+  const codeLinter = useMemo(
+    () => context === 'code' ? createCodeLinter(outputSchema) : null,
+    [context, outputSchema],
+  );
+
   const extensions = useMemo(
     () => [
       context === 'json' ? json() : javascript({ jsx: false, typescript: true }),
@@ -340,9 +377,10 @@ export function CodeEditor({
             codeHoverTooltip,
           ]
         : []),
+      ...(codeLinter ? [codeLinter, lintGutter()] : []),
       editorFillTheme(effectiveMinHeight),
     ],
-    [context, effectiveMinHeight, completionFn],
+    [context, effectiveMinHeight, completionFn, codeLinter],
   );
 
   const apiReference = showApiRef ? (
