@@ -105,6 +105,7 @@ export const ToolCallRecordSchema = z.object({
     .optional(),
   raw_input: z.string().nullable(),
   raw_output: z.string().nullable(),
+  parent_tool_use_id: z.string().nullable().optional(),
   exit_code: z.number().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),

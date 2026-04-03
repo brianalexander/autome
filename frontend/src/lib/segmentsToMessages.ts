@@ -12,6 +12,7 @@ export interface ChatMessage {
     status?: string;
     rawInput?: string;
     rawOutput?: string;
+    parentToolUseId?: string;
   }>;
 }
 
@@ -72,6 +73,7 @@ export function segmentsToMessages(segments: SegmentRecord[]): ChatMessage[] | u
           status: seg.tool_call.status,
           rawInput: seg.tool_call.raw_input || undefined,
           rawOutput: seg.tool_call.raw_output || undefined,
+          parentToolUseId: seg.tool_call.parent_tool_use_id || undefined,
         });
       }
     }

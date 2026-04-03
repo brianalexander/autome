@@ -91,7 +91,7 @@ export const StreamingMarkdown = React.memo(function StreamingMarkdown({
       prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
       prose-strong:text-text-primary prose-em:text-text-primary
       prose-blockquote:border-border-subtle prose-blockquote:text-text-secondary
-      prose-hr:border-border
+      prose-hr:border-border prose-hr:my-2
     "
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>

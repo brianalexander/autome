@@ -155,3 +155,34 @@ export function computeTurnDuration(
   const secs = Math.max(0, (latest - earliest) / 1000);
   return secs > 1 ? formatElapsed(secs) : null;
 }
+
+// --- Sub-agent detection ---
+
+export function isSubAgentCall(toolCall: ToolCallRecord): boolean {
+  const title = (toolCall.title || '').toLowerCase();
+  if (title === 'task' || title === 'agent') return true;
+  if (!toolCall.raw_input) return false;
+  try {
+    const input = JSON.parse(toolCall.raw_input);
+    // Only subagent_type is unique to Agent/Task tools.
+    // Do NOT check for `prompt` alone — WebFetch also has a `prompt` field.
+    if (input.subagent_type) return true;
+  } catch {}
+  return false;
+}
+
+export function extractSubAgentInfo(rawInput: string | null): { type?: string; description?: string; prompt?: string } | null {
+  if (!rawInput) return null;
+  try {
+    const input = JSON.parse(rawInput);
+    const { __tool_name, __mcp_server, __tool_use_purpose, ...rest } = input;
+    if (rest.subagent_type || rest.description || rest.prompt) {
+      return {
+        type: rest.subagent_type,
+        description: rest.description,
+        prompt: rest.prompt,
+      };
+    }
+  } catch {}
+  return null;
+}

@@ -128,6 +128,7 @@ export function AcpChatPane({
         if (!matchesFilter(data)) return;
         const d = data as Record<string, unknown>;
         const tcId = d.toolCallId as string;
+        const parentToolUseId = d.parentToolUseId as string | undefined;
         chat.appendToolSegment(tcId);
         chat.updateToolCall(tcId, {
           id: tcId,
@@ -138,6 +139,7 @@ export function AcpChatPane({
             ? typeof d.rawInput === 'string' ? d.rawInput : JSON.stringify(d.rawInput)
             : null,
           raw_output: null,
+          parentToolUseId: parentToolUseId || null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as ToolCallRecord);
@@ -148,6 +150,7 @@ export function AcpChatPane({
         const d = data as Record<string, unknown>;
         const tcId = d.toolCallId as string;
         const existing = chat.liveToolCalls.get(tcId);
+        const parentToolUseId = (d.parentToolUseId as string | undefined) ?? (existing as (ToolCallRecord & { parentToolUseId?: string }) | undefined)?.parentToolUseId;
         chat.updateToolCall(tcId, {
           id: tcId,
           title: existing?.title ?? null,
@@ -159,6 +162,7 @@ export function AcpChatPane({
           raw_output: d.rawOutput
             ? typeof d.rawOutput === 'string' ? d.rawOutput : JSON.stringify(d.rawOutput)
             : null,
+          parentToolUseId: parentToolUseId || null,
           created_at: existing?.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as ToolCallRecord);

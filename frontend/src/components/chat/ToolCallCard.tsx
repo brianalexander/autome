@@ -5,9 +5,11 @@
  */
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { Wrench, BookOpen, Pencil, Trash2, Search, Zap, Globe, MessageCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Wrench, BookOpen, Pencil, Trash2, Search, Zap, Globe, MessageCircle, Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolCallRecord } from '../../lib/api';
 import { formatElapsed } from '../../lib/format';
+import { isSubAgentCall, extractSubAgentInfo } from '../../lib/chatUtils';
+import { StreamingMarkdown } from './StreamingMarkdown';
 
 // --- Helpers ---
 
@@ -35,6 +37,7 @@ function extractToolInfo(rawInput: string | null): {
   } catch {}
   return {};
 }
+
 
 function prettyCompact(value: unknown, indent = 2): string {
   if (value === null || value === undefined) return '';
@@ -73,8 +76,9 @@ const permissionStyles: Record<string, string> = {
   cancelled: 'text-text-tertiary',
 };
 
-function toolKindIcon(kind?: string | null): ReactNode {
+function toolKindIcon(kind?: string | null, isAgent?: boolean): ReactNode {
   const cls = "w-3.5 h-3.5";
+  if (isAgent) return <Bot className={cls} />;
   if (!kind) return <Wrench className={cls} />;
   const tool = kind.includes('/') ? kind.split('/').pop()! : kind;
   switch (tool) {
@@ -111,14 +115,18 @@ function toolKindIcon(kind?: string | null): ReactNode {
 export function ToolCallCard({
   toolCall,
   onPermissionResponse,
+  childToolCalls,
 }: {
   toolCall: ToolCallRecord;
   onPermissionResponse?: (toolCallId: string, optionId: string) => void;
+  childToolCalls?: ToolCallRecord[];
 }) {
   const [showIO, setShowIO] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
   const isRunning = toolCall.status === 'in_progress' || toolCall.status === 'pending';
+  const isAgent = isSubAgentCall(toolCall);
+  const subAgentInfo = isAgent ? extractSubAgentInfo(toolCall.raw_input) : null;
   const { server, tool, purpose, command } = extractToolInfo(toolCall.raw_input);
   const args = parseToolArgs(toolCall.raw_input);
   const output = toolCall.raw_output ? tryParse(toolCall.raw_output) : null;
@@ -151,7 +159,12 @@ export function ToolCallCard({
     return () => clearInterval(id);
   }, [isRunning, toolCall.created_at, toolCall.updated_at]);
 
-  const displayName = server && tool ? `@${server}/${tool}` : toolCall.title || 'Tool call';
+  const rawTitle = toolCall.title && toolCall.title !== 'undefined' && toolCall.title !== '"undefined"'
+    ? toolCall.title
+    : null;
+  const displayName = isAgent && subAgentInfo?.description
+    ? subAgentInfo.description
+    : server && tool ? `@${server}/${tool}` : rawTitle || toolCall.kind || 'Tool call';
 
   const commandStr = command != null && command !== '' ? command : null;
 
@@ -163,7 +176,7 @@ export function ToolCallCard({
         className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-surface-secondary/50 select-text w-full text-left"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="text-text-tertiary flex-shrink-0">{toolKindIcon(toolCall.kind)}</span>
+        <span className="text-text-tertiary flex-shrink-0">{toolKindIcon(toolCall.kind, isAgent)}</span>
         <span className="text-text-primary font-medium font-mono truncate flex-1 text-left">{displayName}</span>
 
         {/* Exit code badge — only show when collapsed and non-zero */}
@@ -177,6 +190,13 @@ export function ToolCallCard({
         <span className="flex items-center gap-1 flex-shrink-0">
           <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
         </span>
+
+        {/* Child count badge — collapsed agent */}
+        {!expanded && isAgent && childToolCalls && childToolCalls.length > 0 && (
+          <span className="text-[10px] text-text-muted flex-shrink-0">
+            {childToolCalls.length} tool{childToolCalls.length !== 1 ? 's' : ''}
+          </span>
+        )}
 
         {/* Duration */}
         <span
@@ -201,6 +221,59 @@ export function ToolCallCard({
               <span className="text-[10px] bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded font-mono">
                 exit {toolCall.exit_code}
               </span>
+            </div>
+          )}
+
+          {/* Sub-agent type badge */}
+          {isAgent && subAgentInfo?.type && (
+            <div className="px-3 pb-1.5 -mt-0.5">
+              <span className="text-[10px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono">
+                {subAgentInfo.type}
+              </span>
+            </div>
+          )}
+
+          {/* Sub-agent child tool calls */}
+          {isAgent && childToolCalls && childToolCalls.length > 0 && (
+            <div className="px-3 pb-2">
+              <div className="border border-border-subtle rounded-md overflow-hidden divide-y divide-border-subtle">
+                {childToolCalls.map((child) => {
+                  const childInfo = extractToolInfo(child.raw_input);
+                  const childStyle = statusStyles[child.status] || statusStyles.pending;
+                  const childIsRunning = child.status === 'in_progress' || child.status === 'pending';
+                  const childDisplayName = childInfo.server && childInfo.tool
+                    ? `@${childInfo.server}/${childInfo.tool}`
+                    : child.title || 'Tool call';
+                  const childStart = new Date(child.created_at).getTime();
+                  const childEnd = new Date(child.updated_at).getTime();
+                  const childDuration = childIsRunning
+                    ? Math.max(0, (Date.now() - childStart) / 1000)
+                    : Math.max(0, (childEnd - childStart) / 1000);
+
+                  return (
+                    <div
+                      key={child.id}
+                      className="flex items-center gap-2 px-2.5 py-1 text-[11px]"
+                    >
+                      <span className="text-text-tertiary flex-shrink-0">
+                        {toolKindIcon(child.kind)}
+                      </span>
+                      <span className="text-text-secondary font-mono truncate flex-1">
+                        {childDisplayName}
+                      </span>
+                      {child.exit_code != null && child.exit_code !== 0 && (
+                        <span className="text-[9px] bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 px-1 py-0.5 rounded font-mono flex-shrink-0">
+                          exit {child.exit_code}
+                        </span>
+                      )}
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${childStyle.dot}`} />
+                      <span className={`text-[10px] font-mono tabular-nums flex-shrink-0 ${childIsRunning ? 'text-blue-400' : 'text-text-muted'}`}>
+                        {formatElapsed(childDuration)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -265,12 +338,18 @@ export function ToolCallCard({
           {/* Output preview — brief summary visible when completed */}
           {!!output && !isRunning && (
             <div className="px-3 pb-2 -mt-0.5">
-              <pre className="text-[11px] text-text-secondary font-mono bg-surface-secondary rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap max-h-20 overflow-y-auto">
-                {(() => {
-                  const str = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
-                  return str.length > 300 ? str.slice(0, 300) + '...' : str;
-                })()}
-              </pre>
+              {isAgent ? (
+                <div className="text-[11px] max-h-40 overflow-y-auto">
+                  <StreamingMarkdown content={typeof output === 'string' ? output : JSON.stringify(output, null, 2)} />
+                </div>
+              ) : (
+                <pre className="text-[11px] text-text-secondary font-mono bg-surface-secondary rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap max-h-20 overflow-y-auto">
+                  {(() => {
+                    const str = typeof output === 'string' ? output : JSON.stringify(output, null, 2);
+                    return str.length > 300 ? str.slice(0, 300) + '...' : str;
+                  })()}
+                </pre>
+              )}
             </div>
           )}
 
@@ -290,18 +369,32 @@ export function ToolCallCard({
                 <div className="divide-y divide-border/50">
                   {args && (
                     <div className="px-3 py-2">
-                      <div className="text-[10px] text-text-tertiary mb-1.5 uppercase tracking-wider">Input</div>
-                      <pre className="text-[11px] text-text-secondary bg-surface-secondary rounded p-2.5 overflow-x-auto max-h-48 overflow-y-auto font-mono leading-relaxed whitespace-pre-wrap">
-                        {prettyCompact(args)}
-                      </pre>
+                      <div className="text-[10px] text-text-tertiary mb-1.5 uppercase tracking-wider">
+                        {isAgent ? 'Prompt' : 'Input'}
+                      </div>
+                      {isAgent && subAgentInfo?.prompt ? (
+                        <div className="text-[11px] text-text-secondary bg-surface-secondary rounded p-2.5 overflow-x-auto max-h-48 overflow-y-auto leading-relaxed whitespace-pre-wrap">
+                          {subAgentInfo.prompt.length > 500 ? subAgentInfo.prompt.slice(0, 500) + '...' : subAgentInfo.prompt}
+                        </div>
+                      ) : (
+                        <pre className="text-[11px] text-text-secondary bg-surface-secondary rounded p-2.5 overflow-x-auto max-h-48 overflow-y-auto font-mono leading-relaxed whitespace-pre-wrap">
+                          {prettyCompact(args)}
+                        </pre>
+                      )}
                     </div>
                   )}
                   {!!output && (
                     <div className="px-3 py-2">
                       <div className="text-[10px] text-text-tertiary mb-1.5 uppercase tracking-wider">Output</div>
-                      <pre className="text-[11px] text-text-secondary bg-surface-secondary rounded p-2.5 overflow-x-auto max-h-48 overflow-y-auto font-mono leading-relaxed whitespace-pre-wrap">
-                        {typeof output === 'string' ? output : prettyCompact(output)}
-                      </pre>
+                      {isAgent ? (
+                        <div className="text-[11px] bg-surface-secondary rounded p-2.5 overflow-x-auto max-h-48 overflow-y-auto">
+                          <StreamingMarkdown content={typeof output === 'string' ? output : JSON.stringify(output, null, 2)} />
+                        </div>
+                      ) : (
+                        <pre className="text-[11px] text-text-secondary bg-surface-secondary rounded p-2.5 overflow-x-auto max-h-48 overflow-y-auto font-mono leading-relaxed whitespace-pre-wrap">
+                          {typeof output === 'string' ? output : prettyCompact(output)}
+                        </pre>
+                      )}
                     </div>
                   )}
                 </div>

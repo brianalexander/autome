@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { Maximize2 } from 'lucide-react';
 import type { ToolCallRecord } from '../../lib/api';
 import type { ChatMessage } from '../../lib/chatUtils';
-import { computeTurnDuration, extractTextFromSegments, formatSegmentsAsTranscript, formatTime } from '../../lib/chatUtils';
+import { computeTurnDuration, extractTextFromSegments, formatSegmentsAsTranscript, formatTime, isSubAgentCall } from '../../lib/chatUtils';
 import { CopyDropdown } from './CopyDropdown';
 import { StreamingMarkdown } from './StreamingMarkdown';
 import { ToolCallCard } from './ToolCallCard';
@@ -34,6 +34,84 @@ export function TurnCard({
   // Compute turn duration from tool calls
   const turnDuration = useMemo(() => computeTurnDuration(msg, liveToolCalls), [msg, liveToolCalls]);
 
+  // Compute sub-agent parent-child relationships.
+  // Primary: use explicit parentToolUseId from ACP metadata (handles parallel agents correctly).
+  // Fallback: segment-order heuristic for providers that don't include parentToolUseId.
+  const { parentMap, childrenMap } = useMemo(() => {
+    const parentMap = new Map<string, string>(); // childId -> parentId
+    const childrenMap = new Map<string, ToolCallRecord[]>(); // parentId -> children[]
+
+    // First pass: initialize childrenMap for all sub-agent tool calls
+    for (const seg of msg.segments) {
+      if (seg.type !== 'tool') continue;
+      const tc = liveToolCalls.get(seg.toolCallId);
+      if (tc && isSubAgentCall(tc)) {
+        childrenMap.set(seg.toolCallId, []);
+      }
+    }
+
+    // Helper: get parentToolUseId from a tool call record regardless of casing convention.
+    // Live WS path stores camelCase, DB restore path stores snake_case.
+    const getParentId = (tc: ToolCallRecord): string | undefined => {
+      const r = tc as Record<string, unknown>;
+      return (r.parentToolUseId as string) || (r.parent_tool_use_id as string) || undefined;
+    };
+
+    // Check if any tool calls have explicit parentToolUseId
+    let hasExplicitParents = false;
+    for (const seg of msg.segments) {
+      if (seg.type !== 'tool') continue;
+      const tc = liveToolCalls.get(seg.toolCallId);
+      if (tc && getParentId(tc)) {
+        hasExplicitParents = true;
+        break;
+      }
+    }
+
+    if (hasExplicitParents) {
+      // Use explicit parent IDs — accurate even with parallel agents
+      for (const seg of msg.segments) {
+        if (seg.type !== 'tool') continue;
+        const tc = liveToolCalls.get(seg.toolCallId);
+        const pid = tc ? getParentId(tc) : undefined;
+        if (!tc || !pid) continue;
+        // Only group if the parent exists in our childrenMap (i.e., it's a known sub-agent)
+        if (childrenMap.has(pid)) {
+          parentMap.set(seg.toolCallId, pid);
+          childrenMap.get(pid)!.push(tc);
+        }
+      }
+    } else {
+      // Fallback: segment-order heuristic for non-Claude-Code providers
+      const agentStack: string[] = [];
+      for (const seg of msg.segments) {
+        if (seg.type !== 'tool') continue;
+        const tc = liveToolCalls.get(seg.toolCallId);
+        if (!tc) continue;
+
+        // Pop completed agents
+        while (agentStack.length > 0) {
+          const topTc = liveToolCalls.get(agentStack[agentStack.length - 1]);
+          if (topTc && (topTc.status === 'completed' || topTc.status === 'failed')) {
+            agentStack.pop();
+          } else {
+            break;
+          }
+        }
+
+        if (isSubAgentCall(tc)) {
+          agentStack.push(seg.toolCallId);
+        } else if (agentStack.length > 0) {
+          const parentId = agentStack[agentStack.length - 1];
+          parentMap.set(seg.toolCallId, parentId);
+          childrenMap.get(parentId)!.push(tc);
+        }
+      }
+    }
+
+    return { parentMap, childrenMap };
+  }, [msg.segments, liveToolCalls]);
+
   // Copy just the agent text (no tool calls)
   const handleCopyText = useCallback(() => {
     const text = extractTextFromSegments(msg.segments);
@@ -50,7 +128,7 @@ export function TurnCard({
   }, [msg.segments, liveToolCalls]);
 
   return (
-    <div className="border-t border-b border-border-subtle bg-surface-secondary/30 -mx-2 px-2.5 pt-1.5 pb-1">
+    <div className="border-t border-b border-border-subtle bg-surface-secondary/30 -mx-2 px-2.5 pt-1.5 pb-1 space-y-1.5">
       {msg.segments.map((seg, j) => {
         if (seg.type === 'text' && seg.content) {
           const isLastSeg = isLastMsg && j === msg.segments.length - 1;
@@ -60,7 +138,16 @@ export function TurnCard({
         if (seg.type === 'tool') {
           const tc = liveToolCalls.get(seg.toolCallId);
           if (!tc) return null;
-          return <ToolCallCard key={j} toolCall={tc} onPermissionResponse={onPermissionResponse} />;
+          // Skip tool calls that are children of a sub-agent (rendered inside their parent)
+          if (parentMap.has(seg.toolCallId)) return null;
+          return (
+            <ToolCallCard
+              key={j}
+              toolCall={tc}
+              onPermissionResponse={onPermissionResponse}
+              childToolCalls={childrenMap.get(seg.toolCallId)}
+            />
+          );
         }
         return null;
       })}

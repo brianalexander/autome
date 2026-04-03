@@ -187,6 +187,10 @@ export function wireAcpEvents(client: AcpClient, db: OrchestratorDB, opts: WireA
 
   client.on('tool_call', (data: ToolCallEventData) => {
     flushText();
+    // Extract parent tool use ID for sub-agent child grouping
+    const meta = (data as any)?._meta?.claudeCode;
+    const parentToolUseId = meta?.parentToolUseId as string | undefined;
+
     segments.push({ type: 'tool', toolCallId: data.toolCallId });
     db.appendSegment(instanceId, stageId, iteration, 'tool', undefined, data.toolCallId);
     const status = data.rawInput || data.kind ? 'in_progress' : 'pending';
@@ -195,17 +199,22 @@ export function wireAcpEvents(client: AcpClient, db: OrchestratorDB, opts: WireA
       instanceId,
       stageId,
       iteration,
-      title: data.title,
-      kind: data.kind,
+      title: data.title || undefined,
+      kind: data.kind || undefined,
       status,
       rawInput: safeStringify(data.rawInput),
+      parentToolUseId: parentToolUseId || undefined,
     });
-    broadcast(`${eventPrefix}:tool_call`, { ...filterPayload, ...data, status }, scope);
+    broadcast(`${eventPrefix}:tool_call`, { ...filterPayload, ...data, parentToolUseId, status }, scope);
   });
 
   client.on('tool_call_update', (data: ToolCallEventData) => {
     // Unwrap ACP transport format to store what the model actually sees
     const cleanOutput = unwrapAcpOutput(data.rawOutput);
+    // Extract parent tool use ID for sub-agent child grouping
+    const updateMeta = (data as any)?._meta?.claudeCode;
+    const parentToolUseId = updateMeta?.parentToolUseId as string | undefined;
+
     db.upsertToolCall({
       id: data.toolCallId,
       instanceId,
@@ -215,8 +224,9 @@ export function wireAcpEvents(client: AcpClient, db: OrchestratorDB, opts: WireA
       status: data.status || 'completed',
       rawInput: safeStringify(data.rawInput),
       rawOutput: safeStringify(cleanOutput),
+      parentToolUseId: parentToolUseId || undefined,
     });
-    broadcast(`${eventPrefix}:tool_result`, { ...filterPayload, ...data, rawOutput: cleanOutput }, scope);
+    broadcast(`${eventPrefix}:tool_result`, { ...filterPayload, ...data, rawOutput: cleanOutput, parentToolUseId }, scope);
   });
 
   client.on('metadata', (data: { contextUsagePercentage?: number }) => {

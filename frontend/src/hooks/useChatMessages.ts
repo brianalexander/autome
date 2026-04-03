@@ -50,6 +50,7 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
                 ? tc.rawOutput
                 : JSON.stringify(tc.rawOutput)
               : null,
+            parent_tool_use_id: tc.parentToolUseId as string | undefined,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });

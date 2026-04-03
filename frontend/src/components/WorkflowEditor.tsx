@@ -47,6 +47,8 @@ function generateTempId(): string {
   return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const DRAFT_ID_KEY = 'autome:draft-id';
+
 function createBlankDefinition(tempId: string): WorkflowDefinition {
   return {
     id: tempId,
@@ -63,9 +65,26 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   const navigate = useNavigate();
   const isNew = !workflowId;
 
-  // For new workflows, generate a stable temp ID
-  const [tempId] = useState(generateTempId);
+  // For new workflows, persist the temp ID in sessionStorage so it survives page
+  // refresh but is unique per tab/session. Cleared when navigating away from the editor.
+  const [tempId] = useState(() => {
+    const existing = sessionStorage.getItem(DRAFT_ID_KEY);
+    if (existing) return existing;
+    const id = generateTempId();
+    sessionStorage.setItem(DRAFT_ID_KEY, id);
+    return id;
+  });
   const effectiveId = workflowId || tempId;
+
+  // Clear the persisted temp ID when the workflow is saved (isNew becomes false).
+  // We do NOT clear on unmount because a page refresh triggers unmount and we
+  // want the ID to survive refresh. sessionStorage is per-tab and auto-clears
+  // when the tab closes, which is the correct lifecycle for drafts.
+  useEffect(() => {
+    if (!isNew) {
+      sessionStorage.removeItem(DRAFT_ID_KEY);
+    }
+  }, [isNew]);
 
   // Load existing workflow (skipped for new — disabled when id is undefined)
   const { data: workflow, isLoading, error } = useWorkflow(isNew ? undefined : workflowId);
@@ -122,7 +141,8 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     reset: resetHistory,
   } = useUndoRedo<WorkflowDefinition | null>(isNew ? initialDef : null);
 
-  // When the existing workflow first loads, seed the undo stack with it
+  // When the existing workflow first loads, seed the undo stack with it,
+  // then check if there's an in-flight draft that differs (survives page refresh).
   const initialSyncDone = useRef(false);
   useEffect(() => {
     if (isNew) {
@@ -137,12 +157,16 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     if (!workflow || initialSyncDone.current) return;
     initialSyncDone.current = true;
     resetHistory(workflow);
-    // Seed draft to server so MCP author has current data
-    fetch(`/api/internal/author-draft/${workflowId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(workflow),
-    }).catch((err) => console.warn('[draft-sync]', err));
+    // Check if server has a draft that differs from the saved workflow
+    fetch(`/api/internal/author-draft/${workflowId}`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((draft) => {
+        if (draft && JSON.stringify(draft) !== JSON.stringify(workflow)) {
+          resetHistory(draft);
+          setHasChanges(true);
+        }
+      })
+      .catch((err) => console.warn('[draft-restore]', err));
   }, [isNew, workflow, workflowId, tempId, initialDef, resetHistory]);
 
   // Use the undo/redo-managed definition; fall back to fetched workflow during initial load

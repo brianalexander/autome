@@ -577,6 +577,7 @@ export class OrchestratorDB {
       status: string;
       raw_input: string | null;
       raw_output: string | null;
+      parent_tool_use_id: string | null;
       created_at: string;
       updated_at: string;
     } | null;
@@ -585,6 +586,7 @@ export class OrchestratorDB {
     let sql = `SELECT s.id, s.segment_index, s.segment_type, s.content, s.tool_call_id, s.created_at,
                       tc.id AS tc_id, tc.title AS tc_title, tc.kind AS tc_kind, tc.status AS tc_status,
                       tc.raw_input AS tc_raw_input, tc.raw_output AS tc_raw_output,
+                      tc.parent_tool_use_id AS tc_parent_tool_use_id,
                       tc.created_at AS tc_created_at, tc.updated_at AS tc_updated_at
                FROM segments s
                LEFT JOIN tool_calls tc ON s.tool_call_id = tc.id
@@ -608,6 +610,7 @@ export class OrchestratorDB {
       tc_status: string | null;
       tc_raw_input: string | null;
       tc_raw_output: string | null;
+      tc_parent_tool_use_id: string | null;
       tc_created_at: string | null;
       tc_updated_at: string | null;
       created_at: string;
@@ -627,6 +630,7 @@ export class OrchestratorDB {
             status: r.tc_status!,
             raw_input: r.tc_raw_input,
             raw_output: r.tc_raw_output,
+            parent_tool_use_id: r.tc_parent_tool_use_id,
             created_at: r.tc_created_at!,
             updated_at: r.tc_updated_at!,
           }
@@ -674,11 +678,12 @@ export class OrchestratorDB {
     status: string;
     rawInput?: string;
     rawOutput?: string;
+    parentToolUseId?: string;
   }): void {
     this.db
       .prepare(
-        `INSERT OR IGNORE INTO tool_calls (id, instance_id, stage_id, iteration, title, kind, status, raw_input, raw_output)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR IGNORE INTO tool_calls (id, instance_id, stage_id, iteration, title, kind, status, raw_input, raw_output, parent_tool_use_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         data.id,
@@ -690,6 +695,7 @@ export class OrchestratorDB {
         data.status,
         data.rawInput ?? null,
         data.rawOutput ?? null,
+        data.parentToolUseId ?? null,
       );
     // Always update — the second phase may bring new data
     this.db
@@ -700,10 +706,11 @@ export class OrchestratorDB {
          status = ?,
          raw_input = COALESCE(?, raw_input),
          raw_output = COALESCE(?, raw_output),
+         parent_tool_use_id = COALESCE(?, parent_tool_use_id),
          updated_at = datetime('now')
        WHERE id = ?`,
       )
-      .run(data.title ?? null, data.kind ?? null, data.status, data.rawInput ?? null, data.rawOutput ?? null, data.id);
+      .run(data.title ?? null, data.kind ?? null, data.status, data.rawInput ?? null, data.rawOutput ?? null, data.parentToolUseId ?? null, data.id);
   }
 
   sweepToolCallStatuses(
