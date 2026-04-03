@@ -2,7 +2,8 @@
  * Code Executor node — runs JavaScript/TypeScript in an isolated child process.
  * Supports npm dependencies via versioned per-workflow workspaces.
  *
- * The user writes an arrow function: ({ input, config, context, trigger }) => { ... }
+ * The user writes a default export function: ({ input, config, context, trigger }) => { ... }
+ * `input` is the output from the upstream stage (the primary data source).
  * The function can use top-level imports and any installed dependencies.
  */
 import { execFile } from 'child_process';
@@ -103,7 +104,7 @@ export const codeExecutorNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Code',
         description:
-          'JavaScript/TypeScript module with a default export function. Receives { input, config, context, trigger }. Supports ES module imports.',
+          'JavaScript/TypeScript module with a default export function. The `input` parameter contains the output from the upstream stage — use input.fieldName to access upstream data. Also available: config (this node\'s settings), context (context.stages["stage-id"].latest for other stages), trigger (the original trigger event). Supports ES module imports.',
         format: 'code',
       },
       dependencies: {

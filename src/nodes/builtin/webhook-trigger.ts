@@ -21,7 +21,7 @@ export const webhookTriggerSpec: NodeTypeSpec = {
       payload_filter: {
         type: 'string',
         title: 'Payload Filter',
-        description: 'JS expression to filter/transform incoming payloads',
+        description: 'JS expression to filter/transform incoming payloads. The variable `payload` contains the raw HTTP request body. Return a falsy value to reject the event, or return a transformed object.',
         format: 'code',
       },
       payload_schema: {

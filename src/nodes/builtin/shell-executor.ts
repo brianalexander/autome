@@ -129,7 +129,7 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Command',
         description:
-          'Shell command to execute. Supports template expressions: ${input.field}, ${trigger.data}, ${context.stages.id.latest.field}.',
+          'Shell command to execute. Use ${input.fieldName} to reference upstream stage output (primary data). Also: ${context.stages["stage-id"].latest.field} for other stages, ${trigger.payload} for the trigger event.',
         format: 'code',
       },
       timeout_seconds: {

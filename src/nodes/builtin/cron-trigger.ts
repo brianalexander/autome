@@ -65,7 +65,7 @@ export const cronTriggerSpec: NodeTypeSpec = {
       schedule: {
         type: 'string',
         title: 'Schedule',
-        description: 'Schedule expression. Simple formats: "5m", "1h", "30s". Cron: "*/5 * * * *".',
+        description: 'Schedule expression. Simple formats: "5m", "1h", "30s". Limited cron: "*/5 * * * *" (only */N minute patterns). Other cron expressions are not fully supported.',
         default: '5m',
       },
       output_schema: {

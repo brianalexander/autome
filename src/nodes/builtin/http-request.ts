@@ -89,7 +89,7 @@ export const httpRequestNodeSpec: NodeTypeSpec = {
       url: {
         type: 'string',
         title: 'URL',
-        description: 'Request URL. Supports {{ field }} templates from upstream output.',
+        description: 'Request URL. Use {{ fieldName }} to insert values from upstream stage output. Fields are accessed directly (e.g. {{ id }}, {{ name }}), not via input prefix.',
         format: 'url',
       },
       method: { type: 'string', title: 'Method', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], default: 'GET' },
@@ -101,7 +101,7 @@ export const httpRequestNodeSpec: NodeTypeSpec = {
       body: {
         type: 'string',
         title: 'Request Body (JSON)',
-        description: 'JSON payload sent with POST/PUT/PATCH requests. Supports {{ field }} template variables from upstream output.',
+        description: 'JSON payload for POST/PUT/PATCH. Use {{ fieldName }} to insert values from upstream stage output. Fields are accessed directly.',
         format: 'json',
         'x-show-if': { field: 'method', notEquals: 'GET' },
       },

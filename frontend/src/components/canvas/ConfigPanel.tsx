@@ -155,11 +155,11 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
           />
         </Field>
 
-        {/* Upstream output schema reference */}
+        {/* Upstream input schema reference */}
         {upstreamSchema?.properties != null && !isTriggerType(stage.type) && (
           <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3 mb-4">
             <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
-              Available from upstream
+              Input
             </div>
             <div className="space-y-1">
               {Object.entries(upstreamSchema.properties as Record<string, Record<string, unknown>>).map(([key, propSchema]) => {
