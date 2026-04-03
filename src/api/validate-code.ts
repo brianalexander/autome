@@ -102,33 +102,44 @@ declare function fetch(url: string, init?: RequestInit): Promise<Response>;
  *   - export default function(input) { ... }               (single-param function)
  *   - export default async function(input) { ... }         (single-param async function)
  */
-function wrapUserCode(code: string, declarations: string, nodeType?: string): { wrapped: string; offset: number } {
+function wrapUserCode(code: string, declarations: string, nodeType?: string): { wrapped: string; offset: number; injectionPos: number; injectionLen: number } {
   const separator = '// --- user code ---\n';
-  const paramsType = nodeType === 'code-trigger' ? '__CodeTriggerParams' : '__CodeExecutorParams';
+  const destructuredType = nodeType === 'code-trigger' ? '__CodeTriggerParams' : '__CodeExecutorParams';
+  // For single-param pattern like function(input), type as the input data directly
+  const singleParamType = nodeType === 'code-trigger' ? '__CodeTriggerParams' : '__InputType';
 
   let typedCode = code;
+  let injectionPos = -1; // position in original user code where annotation was inserted
+  let injectionLen = 0;  // length of the injected annotation string
 
   // Pattern 1: Destructured params — export default ({ ... }) => or function({ ... })
   const destructuredRegex = /^(export\s+default\s+(?:async\s+)?(?:function\s*)?)\((\{[^}]*\})\)/m;
   const destructuredMatch = code.match(destructuredRegex);
 
   if (destructuredMatch) {
-    typedCode = code.replace(destructuredRegex, `$1($2: ${paramsType})`);
+    const annotation = `: ${destructuredType}`;
+    typedCode = code.replace(destructuredRegex, `$1($2${annotation})`);
+    injectionPos = destructuredMatch.index! + destructuredMatch[1].length + 1 + destructuredMatch[2].length;
+    injectionLen = annotation.length;
   } else {
     // Pattern 2: Single param — export default function(input) or (input) =>
     const singleParamRegex = /^(export\s+default\s+(?:async\s+)?(?:function\s*)?)\((\w+)\)/m;
     const singleParamMatch = code.match(singleParamRegex);
 
     if (singleParamMatch) {
-      typedCode = code.replace(singleParamRegex, `$1($2: ${paramsType})`);
+      const annotation = `: ${singleParamType}`;
+      typedCode = code.replace(singleParamRegex, `$1($2${annotation})`);
+      injectionPos = singleParamMatch.index! + singleParamMatch[1].length + 1 + singleParamMatch[2].length;
+      injectionLen = annotation.length;
     }
-    // If neither pattern matches, leave code as-is — declarations still provide globals
   }
 
   const prefix = declarations + separator;
   return {
     wrapped: prefix + typedCode,
     offset: prefix.length,
+    injectionPos,
+    injectionLen,
   };
 }
 
@@ -138,7 +149,7 @@ export function validateCode(input: ValidateCodeInput): CodeDiagnostic[] {
   if (!code.trim()) return [];
 
   const declarations = generateDeclarations(outputSchema, nodeType);
-  const { wrapped, offset } = wrapUserCode(code, declarations, nodeType);
+  const { wrapped, offset, injectionPos, injectionLen } = wrapUserCode(code, declarations, nodeType);
 
   const fileName = 'user-code.ts';
 
@@ -191,11 +202,24 @@ export function validateCode(input: ValidateCodeInput): CodeDiagnostic[] {
     if (diag.file !== sourceFile) continue;
     if (diag.start == null || diag.length == null) continue;
 
-    // Map position back to the user's original code
-    const from = diag.start - offset;
-    const to = from + diag.length;
+    // Map position back to the user's original code.
+    // Step 1: subtract the declarations prefix offset
+    let from = diag.start - offset;
+    let to = from + diag.length;
 
-    // Skip diagnostics that fall entirely within the declarations prefix
+    // Step 2: if we injected a type annotation into the user's code,
+    // adjust positions for diagnostics that occur after the injection point.
+    if (injectionLen > 0 && injectionPos >= 0) {
+      if (from > injectionPos) {
+        from -= injectionLen;
+        to -= injectionLen;
+      } else if (to > injectionPos) {
+        // Diagnostic spans the injection — clamp the end
+        to -= injectionLen;
+      }
+    }
+
+    // Skip diagnostics in the declarations prefix or the injected annotation itself
     if (to <= 0) continue;
     if (from < 0) continue;
 
