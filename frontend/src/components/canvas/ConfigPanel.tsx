@@ -768,6 +768,30 @@ interface OverridesSectionProps {
   onReset: () => void;
 }
 
+// --- Edge config helpers ---
+
+/** Extract field references from a JS expression like output.foo.bar */
+function extractFieldReferences(expr: string): string[][] {
+  const paths: string[][] = [];
+  const regex = /output\.(\w+(?:\.\w+)*)/g;
+  let match;
+  while ((match = regex.exec(expr)) !== null) {
+    paths.push(match[1].split('.'));
+  }
+  return paths;
+}
+
+/** Check if a field path exists in a JSON Schema */
+function validateFieldPath(schema: Record<string, unknown>, path: string[]): boolean {
+  let current = schema;
+  for (const key of path) {
+    const props = current.properties as Record<string, Record<string, unknown>> | undefined;
+    if (!props || !props[key]) return false;
+    current = props[key];
+  }
+  return true;
+}
+
 interface EdgeConfigPanelProps {
   edge: EdgeDefinition;
   definition: WorkflowDefinition;
@@ -818,6 +842,30 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
             {sourceSpec?.name || sourceStage?.type} → {targetSpec?.name || targetStage?.type}
           </div>
         </Field>
+
+        {/* Source output schema reference — shows what fields are available */}
+        {(() => {
+          const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
+          const outputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+          if (!outputSchema?.properties) return null;
+          const props = outputSchema.properties as Record<string, { type?: string; description?: string }>;
+          return (
+            <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3">
+              <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
+                Available from {sourceStage?.label || edge.source}
+              </div>
+              <div className="space-y-1">
+                {Object.entries(props).map(([key, schema]) => (
+                  <div key={key} className="flex items-baseline gap-2 text-xs">
+                    <code className="text-blue-400 font-mono">output.{key}</code>
+                    {schema.type && <span className="text-text-muted text-[10px]">{schema.type}</span>}
+                    {schema.description && <span className="text-text-tertiary text-[10px]">— {schema.description}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         <Field label="Label">
           <input
@@ -875,16 +923,47 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
         )}
 
         {/* Fallback: if neither node declares edge schemas, show basic fields */}
-        {!sourceSpec?.outEdgeSchema && !targetSpec?.inEdgeSchema && (
-          <Field label="Condition (JS expression)">
-            <textarea
-              value={edge.condition || ''}
-              onChange={(e) => debouncedOnSave({ ...edge, condition: e.target.value || undefined })}
-              className="input-field font-mono text-xs min-h-[60px] resize-y"
-              placeholder="e.g., output.decision === 'approved'"
-            />
-          </Field>
-        )}
+        {(() => {
+          const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
+          const sourceOutputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+          return (
+            <>
+              {!sourceSpec?.outEdgeSchema && !targetSpec?.inEdgeSchema && (
+                <Field label="Condition (JS expression)">
+                  <CodeEditor
+                    value={edge.condition || ''}
+                    onChange={(val) => debouncedOnSave({ ...edge, condition: val || undefined })}
+                    context="condition"
+                    minHeight="60px"
+                    outputSchema={sourceOutputSchema}
+                  />
+                </Field>
+              )}
+
+              {/* Design-time validation warnings */}
+              {(() => {
+                const outputSchema = sourceOutputSchema;
+                const conditionExpr = edge.condition;
+                if (!outputSchema?.properties || !conditionExpr) return null;
+
+                const refs = extractFieldReferences(conditionExpr);
+                const invalid = refs.filter((path) => !validateFieldPath(outputSchema, path));
+                if (invalid.length === 0) return null;
+
+                return (
+                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-700/50 rounded-lg p-2.5 text-xs">
+                    <div className="text-amber-700 dark:text-amber-300 font-medium mb-1">Schema warning</div>
+                    {invalid.map((path, i) => (
+                      <div key={i} className="text-amber-600 dark:text-amber-400">
+                        <code className="font-mono">output.{path.join('.')}</code> not found in source schema
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </>
+          );
+        })()}
       </div>
     </div>
   );

@@ -187,6 +187,73 @@ function codeExecutorCompletions(ctx: CompletionContext) {
   };
 }
 
+// --- Schema-driven autocompletion helpers ---
+
+/** Walk a JSON Schema's properties and generate completion entries */
+function schemaToCompletions(schema: Record<string, unknown>, _prefix: string): Completion[] {
+  const props = schema.properties as Record<string, Record<string, unknown>> | undefined;
+  if (!props) return [];
+  return Object.entries(props).map(([key, propSchema]) => ({
+    label: key,
+    type: 'property' as const,
+    detail: (propSchema.type as string) || 'unknown',
+    info: (propSchema.description as string) || '',
+    boost: 1, // Prioritize schema completions over generic ones
+  }));
+}
+
+/** Walk into a nested JSON Schema path and return the sub-schema */
+function walkSchema(schema: Record<string, unknown>, path: string[]): Record<string, unknown> | null {
+  let current = schema;
+  for (const key of path) {
+    const props = current.properties as Record<string, Record<string, unknown>> | undefined;
+    if (!props || !props[key]) return null;
+    current = props[key];
+  }
+  return current;
+}
+
+function createSchemaAwareCompletions(outputSchema?: Record<string, unknown>) {
+  return function schemaAwareCompletions(ctx: CompletionContext) {
+    if (outputSchema) {
+      // Deep member access: output.body.users. (walk schema)
+      const outputDotChain = ctx.matchBefore(/output(\.\w+)*\.\w*/);
+      if (outputDotChain) {
+        const parts = outputDotChain.text.split('.');
+        // Remove 'output' prefix and the partial last part
+        const pathParts = parts.slice(1, -1); // e.g. ['body'] from 'output.body.u'
+        const subSchema = pathParts.length > 0 ? walkSchema(outputSchema, pathParts) : outputSchema;
+        if (subSchema) {
+          const lastDot = outputDotChain.text.lastIndexOf('.');
+          return {
+            from: outputDotChain.from + lastDot + 1,
+            options: schemaToCompletions(subSchema, ''),
+          };
+        }
+      }
+
+      // Also handle input.data. paths (input.data is the upstream output)
+      const inputDataChain = ctx.matchBefore(/input\.data(\.\w+)*\.\w*/);
+      if (inputDataChain) {
+        const text = inputDataChain.text;
+        const afterInputData = text.replace(/^input\.data\.?/, '');
+        const pathParts = afterInputData ? afterInputData.split('.').slice(0, -1) : [];
+        const subSchema = pathParts.length > 0 ? walkSchema(outputSchema, pathParts) : outputSchema;
+        if (subSchema) {
+          const lastDot = inputDataChain.text.lastIndexOf('.');
+          return {
+            from: inputDataChain.from + lastDot + 1,
+            options: schemaToCompletions(subSchema, ''),
+          };
+        }
+      }
+    }
+
+    // Fall through to existing completions
+    return codeExecutorCompletions(ctx);
+  };
+}
+
 // --- Placeholder ---
 
 const PLACEHOLDER_CONDITION = `output.status === 'approved' && output.score > 0.8`;
@@ -232,6 +299,8 @@ interface CodeEditorProps {
   minHeight?: string;
   /** Context hint for choosing the right placeholder and language */
   context?: 'code' | 'condition' | 'json';
+  /** JSON Schema of the upstream node's output — used for autocomplete suggestions */
+  outputSchema?: Record<string, unknown>;
 }
 
 export function CodeEditor({
@@ -240,6 +309,7 @@ export function CodeEditor({
   placeholder,
   minHeight = '120px',
   context = 'code',
+  outputSchema,
 }: CodeEditorProps) {
   const [expanded, setExpanded] = useState(false);
   const [showApiRef, setShowApiRef] = useState(false);
@@ -252,13 +322,19 @@ export function CodeEditor({
   );
 
   const effectiveMinHeight = expanded ? '60vh' : minHeight;
+
+  const completionFn = useMemo(
+    () => createSchemaAwareCompletions(outputSchema),
+    [outputSchema],
+  );
+
   const extensions = useMemo(
     () => [
       context === 'json' ? json() : javascript({ jsx: false, typescript: true }),
       ...(context !== 'json'
         ? [
             autocompletion({
-              override: [codeExecutorCompletions],
+              override: [completionFn],
               activateOnTyping: true,
             }),
             codeHoverTooltip,
@@ -266,7 +342,7 @@ export function CodeEditor({
         : []),
       editorFillTheme(effectiveMinHeight),
     ],
-    [context, effectiveMinHeight],
+    [context, effectiveMinHeight, completionFn],
   );
 
   const apiReference = showApiRef ? (
