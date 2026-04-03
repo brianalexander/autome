@@ -94,7 +94,7 @@ export const codeExecutorNodeSpec: NodeTypeSpec = {
   name: 'Code Executor',
   category: 'step',
   description: 'Run custom JavaScript with npm package support',
-  icon: '⚡',
+  icon: 'code',
   color: { bg: '#fff7ed', border: '#f97316', text: '#ea580c' },
   configSchema: {
     type: 'object',
@@ -119,6 +119,12 @@ export const codeExecutorNodeSpec: NodeTypeSpec = {
         title: 'Timeout (seconds)',
         description: 'Max execution time (default: 30s)',
         default: 30,
+      },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing this node\'s output. Used for design-time validation of downstream references.',
+        format: 'json',
       },
     },
     required: ['code'],

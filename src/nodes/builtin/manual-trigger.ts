@@ -11,12 +11,18 @@ export const manualTriggerSpec: NodeTypeSpec = {
   name: 'Manual Trigger',
   category: 'trigger',
   description: 'Trigger a workflow manually via UI button or API call',
-  icon: '✋',
+  icon: 'play',
   color: { bg: '#f0fdfa', border: '#14b8a6', text: '#0d9488' },
   configSchema: {
     type: 'object',
     properties: {
       provider: { type: 'string', const: 'manual', default: 'manual' },
+      output_schema: {
+        type: 'object',
+        title: 'Payload Schema',
+        description: 'JSON Schema describing the trigger payload. Used to generate the trigger form and validate downstream references.',
+        format: 'json',
+      },
     },
   },
   defaultConfig: { provider: 'manual' },

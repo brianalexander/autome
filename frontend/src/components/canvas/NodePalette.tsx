@@ -1,83 +1,8 @@
 import { useState, useMemo } from 'react';
-import { Search, Play, Webhook, Clock, Bot, ShieldCheck, Code, Shuffle, Globe, Terminal, Plug, type LucideIcon } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { useNodeTypes } from '../../hooks/queries';
-import type { NodeTypeInfo } from '../../lib/api';
-
-// Map node type IDs to UI groups for nice organization
-const UI_GROUP_MAP: Record<string, string> = {
-  'manual-trigger': 'Triggers',
-  'webhook-trigger': 'Triggers',
-  'cron-trigger': 'Triggers',
-  'code-trigger': 'Triggers',
-  'agent': 'AI & Agents',
-  'gate': 'Logic',
-  'code-executor': 'Logic',
-  'shell-executor': 'Logic',
-  'transform': 'Data',
-  'http-request': 'Data',
-};
-
-// Ordering for UI groups
-const GROUP_ORDER = ['Triggers', 'AI & Agents', 'Logic', 'Data'];
-
-const ICON_MAP: Record<string, LucideIcon> = {
-  'manual-trigger': Play,
-  'webhook-trigger': Webhook,
-  'cron-trigger': Clock,
-  'code-trigger': Plug,
-  'agent': Bot,
-  'gate': ShieldCheck,
-  'code-executor': Code,
-  'shell-executor': Terminal,
-  'transform': Shuffle,
-  'http-request': Globe,
-};
-
-interface NodeEntry {
-  type: string;
-  label: string;
-  lucideIcon: LucideIcon | null;
-  emojiIcon: string;
-  description: string;
-}
-
-interface NodeCategory {
-  label: string;
-  nodes: NodeEntry[];
-}
-
-function buildCategories(nodeTypeList: NodeTypeInfo[]): NodeCategory[] {
-  const groupMap = new Map<string, NodeEntry[]>();
-
-  for (const nt of nodeTypeList) {
-    const group = UI_GROUP_MAP[nt.id] ?? (nt.category === 'trigger' ? 'Triggers' : 'Other');
-    if (!groupMap.has(group)) {
-      groupMap.set(group, []);
-    }
-    groupMap.get(group)!.push({
-      type: nt.id,
-      label: nt.name,
-      lucideIcon: ICON_MAP[nt.id] ?? null,
-      emojiIcon: nt.icon,
-      description: nt.description,
-    });
-  }
-
-  // Build ordered array: known groups first, then any extras (e.g. 'Other')
-  const ordered: NodeCategory[] = [];
-  for (const groupLabel of GROUP_ORDER) {
-    if (groupMap.has(groupLabel)) {
-      ordered.push({ label: groupLabel, nodes: groupMap.get(groupLabel)! });
-    }
-  }
-  for (const [groupLabel, nodes] of groupMap) {
-    if (!GROUP_ORDER.includes(groupLabel)) {
-      ordered.push({ label: groupLabel, nodes });
-    }
-  }
-
-  return ordered;
-}
+import { buildNodeCategories } from '../../lib/nodeRegistry';
+import { resolveLucideIcon } from '../../lib/iconResolver';
 
 interface NodePaletteProps {
   onAddNode: (type: string) => void;
@@ -89,17 +14,19 @@ export function NodePalette({ onAddNode }: NodePaletteProps) {
 
   const categories = useMemo(() => {
     if (!nodeTypeList) return [];
-    return buildCategories(nodeTypeList);
+    return buildNodeCategories(nodeTypeList);
   }, [nodeTypeList]);
 
-  const filtered = categories.map((cat) => ({
-    ...cat,
-    nodes: cat.nodes.filter(
-      (n) =>
-        n.label.toLowerCase().includes(search.toLowerCase()) ||
-        n.description.toLowerCase().includes(search.toLowerCase()),
-    ),
-  })).filter((cat) => cat.nodes.length > 0);
+  const filtered = categories
+    .map((cat) => ({
+      ...cat,
+      nodes: cat.nodes.filter(
+        (n) =>
+          n.label.toLowerCase().includes(search.toLowerCase()) ||
+          n.description.toLowerCase().includes(search.toLowerCase()),
+      ),
+    }))
+    .filter((cat) => cat.nodes.length > 0);
 
   return (
     <div className="flex flex-col h-full">
@@ -128,31 +55,30 @@ export function NodePalette({ onAddNode }: NodePaletteProps) {
                 {cat.label}
               </div>
               <div className="space-y-0.5">
-                {cat.nodes.map((node) => (
-                  <button
-                    key={node.type}
-                    onClick={() => onAddNode(node.type)}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-[var(--color-interactive)] group"
-                  >
-                    <div className="flex-shrink-0 w-5 flex items-center justify-center">
-                      {node.lucideIcon ? (
-                        <node.lucideIcon className="w-4 h-4 text-[var(--color-text-secondary)]" strokeWidth={1.75} />
-                      ) : (
-                        <span className="w-4 h-4 text-sm leading-none flex items-center justify-center">
-                          {node.emojiIcon}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)]">
-                        {node.label}
+                {cat.nodes.map((node) => {
+                  const Icon = resolveLucideIcon(node.icon);
+                  return (
+                    <button
+                      key={node.type}
+                      onClick={() => onAddNode(node.type)}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-[var(--color-interactive)] group"
+                    >
+                      <div className="flex-shrink-0 w-5 flex items-center justify-center">
+                        {Icon ? (
+                          <Icon className="w-4 h-4 text-[var(--color-text-secondary)]" strokeWidth={1.75} />
+                        ) : null}
                       </div>
-                      <div className="text-[11px] text-[var(--color-text-tertiary)] truncate">
-                        {node.description}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-[var(--color-text-primary)] group-hover:text-[var(--color-accent)]">
+                          {node.label}
+                        </div>
+                        <div className="text-[11px] text-[var(--color-text-tertiary)] truncate">
+                          {node.description}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))

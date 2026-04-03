@@ -81,7 +81,7 @@ export const httpRequestNodeSpec: NodeTypeSpec = {
   name: 'HTTP Request',
   category: 'step',
   description: 'Make an HTTP request and return the response',
-  icon: '🌐',
+  icon: 'globe',
   color: { bg: '#ecfeff', border: '#06b6d4', text: '#0891b2' },
   configSchema: {
     type: 'object',
@@ -111,10 +111,28 @@ export const httpRequestNodeSpec: NodeTypeSpec = {
         description: 'JSON Schema defining the expected response body structure. If set, the node fails immediately when the response doesn\'t match.',
         format: 'json',
       },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing this node\'s output. Used for design-time validation of downstream references.',
+        format: 'json',
+      },
     },
     required: ['url', 'method', 'response_schema'],
   },
-  defaultConfig: { url: '', method: 'GET' },
+  defaultConfig: {
+    url: '',
+    method: 'GET',
+    output_schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'number', description: 'HTTP status code' },
+        statusText: { type: 'string', description: 'HTTP status text' },
+        headers: { type: 'object', description: 'Response headers' },
+        body: { description: 'Response body (shape depends on the API)' },
+      },
+    },
+  },
   executor,
   outEdgeSchema: {
     type: 'object',

@@ -90,7 +90,7 @@ export const agentNodeSpec: NodeTypeSpec = {
   name: 'Agent',
   category: 'step',
   description: 'AI agent that executes tasks via an ACP session',
-  icon: '🤖',
+  icon: 'bot',
   color: { bg: '#eff6ff', border: '#3b82f6', text: '#2563eb' },
   configSchema: {
     type: 'object',

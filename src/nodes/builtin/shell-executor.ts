@@ -120,7 +120,7 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
   name: 'Shell / CLI',
   category: 'step',
   description: 'Run shell commands and capture their output',
-  icon: '🖥️',
+  icon: 'terminal',
   color: { bg: '#f8fafc', border: '#64748b', text: '#475569' },
   configSchema: {
     type: 'object',
@@ -150,6 +150,12 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
         description: 'Attempt to parse stdout as JSON (default: true)',
         default: true,
       },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing this node\'s output. Used for design-time validation of downstream references.',
+        format: 'json',
+      },
     },
     required: ['command'],
   },
@@ -158,6 +164,14 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
     timeout_seconds: 30,
     shell: '/bin/bash',
     parse_json: true,
+    output_schema: {
+      type: 'object',
+      properties: {
+        stdout: { type: 'string', description: 'Raw stdout output' },
+        stderr: { type: 'string', description: 'Stderr output' },
+        exitCode: { type: 'number', description: 'Process exit code' },
+      },
+    },
   },
   executor,
   outEdgeSchema: {

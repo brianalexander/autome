@@ -11,7 +11,7 @@ export const webhookTriggerSpec: NodeTypeSpec = {
   name: 'Webhook Trigger',
   category: 'trigger',
   description: 'Trigger a workflow via an incoming HTTP POST request',
-  icon: '🌐',
+  icon: 'globe',
   color: { bg: '#f5f3ff', border: '#8b5cf6', text: '#7c3aed' },
   configSchema: {
     type: 'object',
@@ -28,6 +28,12 @@ export const webhookTriggerSpec: NodeTypeSpec = {
         type: 'object',
         title: 'Expected Payload Schema',
         description: "JSON Schema defining the expected webhook payload structure. Incoming payloads that don't match are rejected with a 422 error.",
+        format: 'json',
+      },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing the trigger output after filtering. Used for design-time validation of downstream references.',
         format: 'json',
       },
     },

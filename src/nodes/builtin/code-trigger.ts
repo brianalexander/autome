@@ -143,7 +143,7 @@ export const codeTriggerSpec: NodeTypeSpec = {
   name: 'Code Trigger',
   category: 'trigger',
   description: 'Run custom JavaScript as a long-running trigger that emits events',
-  icon: '🔌',
+  icon: 'plug',
   color: { bg: '#faf5ff', border: '#a855f7', text: '#9333ea' },
   configSchema: {
     type: 'object',
@@ -169,6 +169,12 @@ export const codeTriggerSpec: NodeTypeSpec = {
         title: 'Timeout (seconds)',
         description: 'Max run time before the trigger process is killed (0 = no timeout, run indefinitely)',
         default: 0,
+      },
+      output_schema: {
+        type: 'object',
+        title: 'Event Schema',
+        description: 'JSON Schema describing the shape of events emitted by this trigger. Used for design-time validation of downstream references.',
+        format: 'json',
       },
     },
     required: ['code'],

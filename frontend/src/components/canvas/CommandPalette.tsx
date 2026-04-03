@@ -1,16 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  Search,
-  Play,
-  Webhook,
-  Clock,
-  Bot,
-  ShieldCheck,
-  Code,
-  Shuffle,
-  Globe,
-  type LucideIcon,
-} from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Search } from 'lucide-react';
+import { useNodeTypes } from '../../hooks/queries';
+import { buildNodeCategories, flattenNodeEntries } from '../../lib/nodeRegistry';
+import { resolveLucideIcon } from '../../lib/iconResolver';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -18,95 +10,26 @@ interface CommandPaletteProps {
   onAddNode: (type: string) => void;
 }
 
-interface CommandItem {
-  id: string;
-  type: string;
-  label: string;
-  description: string;
-  icon: LucideIcon;
-  category: string;
-}
-
-const COMMANDS: CommandItem[] = [
-  {
-    id: 'add-manual-trigger',
-    type: 'manual-trigger',
-    label: 'Manual Trigger',
-    description: 'Start workflow manually',
-    icon: Play,
-    category: 'Triggers',
-  },
-  {
-    id: 'add-webhook-trigger',
-    type: 'webhook-trigger',
-    label: 'Webhook Trigger',
-    description: 'HTTP webhook endpoint',
-    icon: Webhook,
-    category: 'Triggers',
-  },
-  {
-    id: 'add-cron-trigger',
-    type: 'cron-trigger',
-    label: 'Cron Trigger',
-    description: 'Cron schedule trigger',
-    icon: Clock,
-    category: 'Triggers',
-  },
-  {
-    id: 'add-agent',
-    type: 'agent',
-    label: 'Agent',
-    description: 'AI agent via ACP',
-    icon: Bot,
-    category: 'AI & Agents',
-  },
-  {
-    id: 'add-gate',
-    type: 'gate',
-    label: 'Gate',
-    description: 'Approval or conditional gate',
-    icon: ShieldCheck,
-    category: 'Logic',
-  },
-  {
-    id: 'add-code-executor',
-    type: 'code-executor',
-    label: 'Code Executor',
-    description: 'Run custom JavaScript',
-    icon: Code,
-    category: 'Logic',
-  },
-  {
-    id: 'add-transform',
-    type: 'transform',
-    label: 'Transform',
-    description: 'Transform data with expressions',
-    icon: Shuffle,
-    category: 'Data',
-  },
-  {
-    id: 'add-http-request',
-    type: 'http-request',
-    label: 'HTTP Request',
-    description: 'Make HTTP API calls',
-    icon: Globe,
-    category: 'Data',
-  },
-];
-
 export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const { data: nodeTypeList } = useNodeTypes();
+
+  const allNodes = useMemo(() => {
+    if (!nodeTypeList) return [];
+    return flattenNodeEntries(buildNodeCategories(nodeTypeList));
+  }, [nodeTypeList]);
+
   const filtered = query.trim()
-    ? COMMANDS.filter(
-        (c) =>
-          c.label.toLowerCase().includes(query.toLowerCase()) ||
-          c.description.toLowerCase().includes(query.toLowerCase()) ||
-          c.category.toLowerCase().includes(query.toLowerCase()),
+    ? allNodes.filter(
+        (n) =>
+          n.label.toLowerCase().includes(query.toLowerCase()) ||
+          n.description.toLowerCase().includes(query.toLowerCase()) ||
+          n.category.toLowerCase().includes(query.toLowerCase()),
       )
-    : COMMANDS;
+    : allNodes;
 
   // Capture-phase Escape listener — fires before the global shortcut handler
   // so closing the palette doesn't also deselect nodes.
@@ -189,11 +112,11 @@ export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPalettePro
             </div>
           ) : (
             filtered.map((item, i) => {
-              const Icon = item.icon;
+              const Icon = resolveLucideIcon(item.icon);
               const isSelected = i === selectedIndex;
               return (
                 <button
-                  key={item.id}
+                  key={item.type}
                   onClick={() => {
                     onAddNode(item.type);
                     onClose();
@@ -210,7 +133,7 @@ export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPalettePro
                       isSelected ? 'bg-white/20' : 'bg-[var(--color-surface-tertiary)]'
                     }`}
                   >
-                    <Icon className="w-4 h-4" strokeWidth={1.75} />
+                    {Icon ? <Icon className="w-4 h-4" strokeWidth={1.75} /> : null}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{item.label}</div>

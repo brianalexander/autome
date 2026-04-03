@@ -65,7 +65,7 @@ export const gateNodeSpec: NodeTypeSpec = {
   name: 'Gate',
   category: 'step',
   description: 'Approval or conditional checkpoint',
-  icon: '🚧',
+  icon: 'shield-check',
   color: { bg: '#fff1f2', border: '#f43f5e', text: '#e11d48' },
   configSchema: {
     type: 'object',

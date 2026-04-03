@@ -32,7 +32,7 @@ export const transformNodeSpec: NodeTypeSpec = {
   name: 'Transform',
   category: 'step',
   description: 'Transform data between stages using a JS expression',
-  icon: '🔄',
+  icon: 'shuffle',
   color: { bg: '#fffbeb', border: '#f59e0b', text: '#d97706' },
   configSchema: {
     type: 'object',
@@ -44,6 +44,12 @@ export const transformNodeSpec: NodeTypeSpec = {
           'JS expression. Available variables: input (upstream output), context (workflow context), trigger (trigger payload). Must return the output object.',
         format: 'code',
         default: 'input',
+      },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing this node\'s output. Used for design-time validation of downstream references.',
+        format: 'json',
       },
     },
     required: ['expression'],

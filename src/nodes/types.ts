@@ -108,7 +108,7 @@ export interface NodeTypeSpec {
   category: 'trigger' | 'step';
   /** Short description of what this node does */
   description: string;
-  /** Emoji icon for the canvas */
+  /** Lucide icon name for the canvas (e.g. 'terminal', 'bot', 'globe') */
   icon: string;
   /** Color theme for canvas rendering */
   color: NodeColor;

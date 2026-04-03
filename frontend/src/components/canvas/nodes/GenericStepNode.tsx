@@ -5,21 +5,18 @@
  */
 import { memo, type ReactNode } from 'react';
 import { type NodeProps } from '@xyflow/react';
-import { Play, Webhook, Clock, Globe, Shuffle, Code, Zap } from 'lucide-react';
+import { Zap } from 'lucide-react';
 import { RunningTimer } from '../../ui/RunningTimer';
 import { BaseNode } from './BaseNode';
+import { resolveLucideIcon } from '../../../lib/iconResolver';
 
-/** Map backend emoji icons to Lucide components */
-const ICON_MAP: Record<string, ReactNode> = {
-  '✋': <Play className="w-4 h-4" strokeWidth={1.75} />,
-  '▶': <Play className="w-4 h-4" strokeWidth={1.75} />,
-  '🌐': <Globe className="w-4 h-4" strokeWidth={1.75} />,
-  '🔗': <Webhook className="w-4 h-4" strokeWidth={1.75} />,
-  '⏰': <Clock className="w-4 h-4" strokeWidth={1.75} />,
-  '🔄': <Shuffle className="w-4 h-4" strokeWidth={1.75} />,
-  '⚡': <Code className="w-4 h-4" strokeWidth={1.75} />,
-};
-const DEFAULT_ICON = <Zap className="w-4 h-4" strokeWidth={1.75} />;
+/** Resolve a Lucide icon name to a React node, falling back to Zap */
+function resolveIcon(name?: string): ReactNode {
+  if (!name) return <Zap className="w-4 h-4" strokeWidth={1.75} />;
+  const Icon = resolveLucideIcon(name);
+  if (Icon) return <Icon className="w-4 h-4" strokeWidth={1.75} />;
+  return <Zap className="w-4 h-4" strokeWidth={1.75} />;
+}
 
 interface GenericNodeData {
   label: string;
@@ -85,7 +82,7 @@ export const GenericStepNode = memo(function GenericStepNode({ data, selected, i
     <BaseNode
       id={id}
       selected={selected}
-      icon={ICON_MAP[d.icon || ''] || DEFAULT_ICON}
+      icon={resolveIcon(d.icon)}
       label={d.label}
       subtitle={d.description}
       headerTint={accentColor}

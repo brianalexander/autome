@@ -57,7 +57,7 @@ export const cronTriggerSpec: NodeTypeSpec = {
   name: 'Cron Trigger',
   category: 'trigger',
   description: 'Trigger a workflow on a recurring schedule',
-  icon: '⏰',
+  icon: 'clock',
   color: { bg: '#f0fdf4', border: '#22c55e', text: '#16a34a' },
   configSchema: {
     type: 'object',
@@ -68,10 +68,26 @@ export const cronTriggerSpec: NodeTypeSpec = {
         description: 'Schedule expression. Simple formats: "5m", "1h", "30s". Cron: "*/5 * * * *".',
         default: '5m',
       },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing this node\'s output. Used for design-time validation of downstream references.',
+        format: 'json',
+      },
     },
     required: ['schedule'],
   },
-  defaultConfig: { schedule: '5m' },
+  defaultConfig: {
+    schedule: '5m',
+    output_schema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', const: 'cron' },
+        timestamp: { type: 'string', description: 'ISO 8601 timestamp' },
+        schedule: { type: 'string', description: 'The cron/interval expression' },
+      },
+    },
+  },
   triggerMode: 'immediate',
   executor,
 };
