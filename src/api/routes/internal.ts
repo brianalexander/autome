@@ -80,6 +80,7 @@ const AuthorSegmentsMigrateBody = z.object({
 const ValidateCodeBody = z.object({
   code: z.string(),
   outputSchema: z.record(z.string(), z.unknown()).optional(),
+  nodeType: z.string().optional(),
 });
 
 const WorkflowStatusBody = z.object({
@@ -818,8 +819,8 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
     { schema: { body: ValidateCodeBody } },
     async (request) => {
       try {
-        const { code, outputSchema } = request.body;
-        const diagnostics = validateCode({ code, outputSchema });
+        const { code, outputSchema, nodeType } = request.body;
+        const diagnostics = validateCode({ code, outputSchema, nodeType });
         return { diagnostics };
       } catch (err) {
         console.error('[validate-code] Error:', err);

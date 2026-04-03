@@ -508,7 +508,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
 
         {/* Generic config for new node types — driven by SchemaForm */}
         {!['agent', 'gate', 'manual-trigger', 'webhook-trigger', 'cron-trigger'].includes(stage.type) && (
-          <GenericNodeConfig editState={stage} onUpdate={(updated) => debouncedOnSave(updated)} upstreamSchema={upstreamSchema} />
+          <GenericNodeConfig editState={stage} onUpdate={(updated) => debouncedOnSave(updated)} upstreamSchema={upstreamSchema} nodeType={stage.type} />
         )}
 
         {/* --- Advanced: Fan-in, Retry, Map (all step types) --- */}
@@ -1144,10 +1144,12 @@ function GenericNodeConfig({
   editState,
   onUpdate,
   upstreamSchema,
+  nodeType,
 }: {
   editState: StageDefinition;
   onUpdate: (s: StageDefinition) => void;
   upstreamSchema?: Record<string, unknown>;
+  nodeType?: string;
 }) {
   const { data: specs } = useNodeTypes();
   const spec = specs?.find((s) => s.id === editState.type);
@@ -1171,6 +1173,7 @@ function GenericNodeConfig({
         value={(editState.config || {}) as Record<string, unknown>}
         onChange={handleChange}
         outputSchema={upstreamSchema}
+        nodeType={nodeType}
       />
     </>
   );

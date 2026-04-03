@@ -281,7 +281,7 @@ export default ({ input, config, context, trigger }) => {
 
 // --- Backend TypeScript linting ---
 
-function createCodeLinter(outputSchema?: Record<string, unknown>) {
+function createCodeLinter(outputSchema?: Record<string, unknown>, nodeType?: string) {
   return linter(async (view): Promise<Diagnostic[]> => {
     const code = view.state.doc.toString();
     if (!code.trim()) return [];
@@ -290,7 +290,7 @@ function createCodeLinter(outputSchema?: Record<string, unknown>) {
       const res = await fetch('/api/internal/validate-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, outputSchema }),
+        body: JSON.stringify({ code, outputSchema, nodeType }),
       });
       if (!res.ok) return [];
       const { diagnostics } = await res.json() as { diagnostics: Array<{ from: number; to: number; severity: string; message: string }> };
@@ -333,6 +333,8 @@ interface CodeEditorProps {
   context?: 'code' | 'condition' | 'json';
   /** JSON Schema of the upstream node's output — used for autocomplete suggestions */
   outputSchema?: Record<string, unknown>;
+  /** Node type hint for the backend validation (e.g. 'code-executor', 'code-trigger') */
+  nodeType?: string;
 }
 
 export function CodeEditor({
@@ -342,6 +344,7 @@ export function CodeEditor({
   minHeight = '120px',
   context = 'code',
   outputSchema,
+  nodeType,
 }: CodeEditorProps) {
   const [expanded, setExpanded] = useState(false);
   const [showApiRef, setShowApiRef] = useState(false);
@@ -361,8 +364,8 @@ export function CodeEditor({
   );
 
   const codeLinter = useMemo(
-    () => context === 'code' ? createCodeLinter(outputSchema) : null,
-    [context, outputSchema],
+    () => context === 'code' ? createCodeLinter(outputSchema, nodeType) : null,
+    [context, outputSchema, nodeType],
   );
 
   const extensions = useMemo(

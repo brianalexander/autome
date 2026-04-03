@@ -15,6 +15,8 @@ export interface CodeDiagnostic {
 export interface ValidateCodeInput {
   code: string;
   outputSchema?: Record<string, unknown>;
+  /** Node type — determines the function parameter shape ('code-executor' vs 'code-trigger') */
+  nodeType?: string;
 }
 
 /**
@@ -54,9 +56,23 @@ function jsonSchemaToTsType(schema: Record<string, unknown>, indent = 2): string
  * Generate a TypeScript declaration block for the code executor's environment.
  * These are prepended to the user's code so TS can type-check references to
  * `input`, `config`, `context`, `trigger`, and `fetch`.
+ *
+ * For code-trigger nodes the parameter shape is different: { config, emit, signal }
+ * instead of { input, config, context, trigger }.
  */
-function generateDeclarations(outputSchema?: Record<string, unknown>): string {
+function generateDeclarations(outputSchema?: Record<string, unknown>, nodeType?: string): string {
   const inputType = outputSchema ? jsonSchemaToTsType(outputSchema) : 'Record<string, any>';
+
+  if (nodeType === 'code-trigger') {
+    return `
+interface __CodeTriggerParams {
+  config: Record<string, any>;
+  emit: (event: any) => void;
+  signal: AbortSignal;
+}
+declare function fetch(url: string, init?: RequestInit): Promise<Response>;
+`;
+  }
 
   return `
 interface __InputType ${inputType === 'Record<string, any>' ? '{ [key: string]: any }' : inputType}
@@ -77,26 +93,36 @@ declare function fetch(url: string, init?: RequestInit): Promise<Response>;
 /**
  * Wrap user code so TypeScript can analyze it in context.
  *
- * The user writes: export default ({ input, config, context, trigger }) => { ... }
- * We need to type that destructured parameter. Strategy: replace the function
- * signature to add our type annotation.
+ * Handles all common export default function signature patterns:
+ *   - export default ({ input, config }) => { ... }        (destructured arrow)
+ *   - export default async ({ input, config }) => { ... }  (async destructured arrow)
+ *   - export default function({ input, config }) { ... }   (destructured function)
+ *   - export default async function({ input, config }) { } (async destructured function)
+ *   - export default (input) => { ... }                    (single-param arrow)
+ *   - export default function(input) { ... }               (single-param function)
+ *   - export default async function(input) { ... }         (single-param async function)
  */
-function wrapUserCode(code: string, declarations: string): { wrapped: string; offset: number } {
+function wrapUserCode(code: string, declarations: string, nodeType?: string): { wrapped: string; offset: number } {
   const separator = '// --- user code ---\n';
-
-  // Try to inject type annotation into the function signature.
-  // Match patterns like:
-  //   export default ({ input, ... }) =>
-  //   export default function({ input, ... })
-  //   export default async ({ input, ... }) =>
-  //   export default async function({ input, ... })
-  const paramRegex = /^(export\s+default\s+(?:async\s+)?(?:function\s*)?\()(\{[^}]*\})(\))/m;
-  const match = code.match(paramRegex);
+  const paramsType = nodeType === 'code-trigger' ? '__CodeTriggerParams' : '__CodeExecutorParams';
 
   let typedCode = code;
-  if (match) {
-    // Insert type annotation: ({ input, ... }: __CodeExecutorParams) =>
-    typedCode = code.replace(paramRegex, `$1$2: __CodeExecutorParams$3`);
+
+  // Pattern 1: Destructured params — export default ({ ... }) => or function({ ... })
+  const destructuredRegex = /^(export\s+default\s+(?:async\s+)?(?:function\s*)?)\((\{[^}]*\})\)/m;
+  const destructuredMatch = code.match(destructuredRegex);
+
+  if (destructuredMatch) {
+    typedCode = code.replace(destructuredRegex, `$1($2: ${paramsType})`);
+  } else {
+    // Pattern 2: Single param — export default function(input) or (input) =>
+    const singleParamRegex = /^(export\s+default\s+(?:async\s+)?(?:function\s*)?)\((\w+)\)/m;
+    const singleParamMatch = code.match(singleParamRegex);
+
+    if (singleParamMatch) {
+      typedCode = code.replace(singleParamRegex, `$1($2: ${paramsType})`);
+    }
+    // If neither pattern matches, leave code as-is — declarations still provide globals
   }
 
   const prefix = declarations + separator;
@@ -107,12 +133,12 @@ function wrapUserCode(code: string, declarations: string): { wrapped: string; of
 }
 
 export function validateCode(input: ValidateCodeInput): CodeDiagnostic[] {
-  const { code, outputSchema } = input;
+  const { code, outputSchema, nodeType } = input;
 
   if (!code.trim()) return [];
 
-  const declarations = generateDeclarations(outputSchema);
-  const { wrapped, offset } = wrapUserCode(code, declarations);
+  const declarations = generateDeclarations(outputSchema, nodeType);
+  const { wrapped, offset } = wrapUserCode(code, declarations, nodeType);
 
   const fileName = 'user-code.ts';
 

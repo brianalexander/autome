@@ -27,9 +27,10 @@ interface SchemaFormProps {
   value: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
   outputSchema?: Record<string, unknown>;
+  nodeType?: string;
 }
 
-export function SchemaForm({ schema, value, onChange, outputSchema }: SchemaFormProps) {
+export function SchemaForm({ schema, value, onChange, outputSchema, nodeType }: SchemaFormProps) {
   const properties = (schema.properties || {}) as Record<string, JSONSchemaProperty>;
   const required = (schema.required || []) as string[];
 
@@ -72,6 +73,7 @@ export function SchemaForm({ schema, value, onChange, outputSchema }: SchemaForm
           required={required.includes(key)}
           onChange={(val) => updateField(key, val)}
           outputSchema={outputSchema}
+          nodeType={nodeType}
         />
       ))}
     </div>
@@ -85,6 +87,7 @@ function SchemaField({
   required,
   onChange,
   outputSchema,
+  nodeType,
 }: {
   name: string;
   prop: JSONSchemaProperty;
@@ -92,6 +95,7 @@ function SchemaField({
   required: boolean;
   onChange: (val: unknown) => void;
   outputSchema?: Record<string, unknown>;
+  nodeType?: string;
 }) {
   const label = prop.title || name;
 
@@ -105,6 +109,7 @@ function SchemaField({
           value={(value as Record<string, unknown>) || {}}
           onChange={(v) => onChange(v)}
           outputSchema={outputSchema}
+          nodeType={nodeType}
         />
       </fieldset>
     );
@@ -203,6 +208,7 @@ function SchemaField({
           value={String(displayValue)}
           context={editorContext}
           outputSchema={outputSchema}
+          nodeType={nodeType}
           onChange={(raw) => {
             // Try to parse as JSON if it looks like an array/object
             if (raw.startsWith('[') || raw.startsWith('{')) {
