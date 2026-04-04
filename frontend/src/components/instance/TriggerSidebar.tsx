@@ -6,11 +6,13 @@ export function TriggerSidebar({
   trigger,
   triggerEvent,
   workflowId,
+  status,
   onClose,
 }: {
   trigger?: Record<string, unknown> | WorkflowDefinition['trigger'];
   triggerEvent?: { id: string; timestamp: string; provider?: string; payload?: unknown; metadata?: Record<string, unknown> };
   workflowId?: string;
+  status?: string;
   onClose: () => void;
 }) {
   const isWebhook = trigger?.provider === 'webhook';
@@ -19,7 +21,7 @@ export function TriggerSidebar({
   return (
     <SidebarShell
       title={isWebhook ? 'Webhook Trigger' : 'Trigger'}
-      statusBadge="completed"
+      statusBadge={status ?? 'completed'}
       onClose={onClose}
       onCopyConfig={() => navigator.clipboard.writeText(JSON.stringify({ trigger, triggerEvent }, null, 2))}
     >

@@ -24,10 +24,6 @@ export const PositionSchema = z.object({
   y: z.number().meta({ description: 'Y coordinate on the canvas' }),
 });
 
-export const JSONSchemaSchema = z.record(z.string(), z.unknown()).meta({
-  description: 'A JSON Schema object describing the expected shape of data',
-});
-
 // ---------------------------------------------------------------------------
 // Watcher
 // ---------------------------------------------------------------------------
@@ -266,6 +262,7 @@ export const UpdateMetadataBodySchema = z
 
 export type Position = z.infer<typeof PositionSchema>;
 export type WatcherDefinition = z.infer<typeof WatcherDefinitionSchema>;
+export type WorkflowTopLevelTrigger = z.infer<typeof WorkflowTopLevelTriggerSchema>;
 export type RetryConfig = z.infer<typeof RetryConfigSchema>;
 export type StageDefinition = z.infer<typeof StageDefinitionSchema>;
 export type EdgeDefinition = z.infer<typeof EdgeDefinitionSchema>;

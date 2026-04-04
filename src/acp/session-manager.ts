@@ -1,6 +1,12 @@
 /**
  * Manages idle session cleanup.
  * Instance-scoped (no global state) — one per pool.
+ *
+ * NOTE: SessionManager is NOT wired directly into AgentPool by design.
+ * It is initialized and connected to the pool's terminate() method at the
+ * API-route layer via initSessionCull() in agent-utils.ts. This keeps the
+ * low-level pool decoupled from policy decisions (timeouts, cull keys, etc.)
+ * that only make sense in the context of a running HTTP server.
  */
 export class SessionManager {
   private activeTurns = new Set<string>();

@@ -8,21 +8,24 @@ import { sessionInfo } from '../lib/api';
 
 export function useChatSession(options: {
   isStreaming: boolean;
-  streamingText: string;
   sessionKey?: string;
 }) {
-  const { isStreaming, streamingText, sessionKey } = options;
+  const { isStreaming, sessionKey } = options;
 
   // --- Model detection ---
   const [detectedModel, setDetectedModel] = useState<string | null>(null);
+  // Track which sessionKey we've already fetched so the effect doesn't re-fire
+  // when detectedModel changes (avoids needing eslint-disable).
+  const fetchedModelForRef = useRef<string | undefined>(undefined);
 
-  // Fetch persisted model from DB on mount (single attempt, not retried).
+  // Fetch persisted model from DB once per sessionKey (single attempt, not retried).
   useEffect(() => {
-    if (!sessionKey || detectedModel) return;
+    if (!sessionKey || fetchedModelForRef.current === sessionKey) return;
+    fetchedModelForRef.current = sessionKey;
     sessionInfo.get(sessionKey).then((info) => {
-      if (info.model && !detectedModel) setDetectedModel(info.model);
+      if (info.model) setDetectedModel(info.model);
     }).catch(() => {});
-  }, [sessionKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
 
   // --- Context usage ---
   const [contextUsage, setContextUsage] = useState<number | null>(null);
@@ -43,14 +46,19 @@ export function useChatSession(options: {
   const [waitingSince, setWaitingSince] = useState<number | null>(null);
   const [waitingTick, setWaitingTick] = useState(0);
 
-  // Reset the stall clock whenever new text arrives (streamingText changes) or streaming stops.
+  // Reset the stall clock when streaming stops.
   useEffect(() => {
     if (!isStreaming) {
       setWaitingSince(null);
-      return;
     }
+  }, [isStreaming]);
+
+  // resetStallTimer is called directly from the chunk handler so the stall
+  // clock resets on actual chunk arrival, not on a render triggered by
+  // streamingText changing (which can batch multiple chunks into one update).
+  const resetStallTimer = useCallback(() => {
     setWaitingSince(Date.now());
-  }, [isStreaming, streamingText]);
+  }, []);
 
   useEffect(() => {
     if (!isStreaming || waitingSince === null) {
@@ -129,5 +137,6 @@ export function useChatSession(options: {
     startTurn,
     endTurn,
     handleMcpStatus,
+    resetStallTimer,
   };
 }

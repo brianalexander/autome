@@ -4,13 +4,10 @@
  */
 import * as restate from '@restatedev/restate-sdk';
 import { buildAgentPrompt } from '../../engine/context-resolver.js';
-import type { NodeTypeSpec, StepExecutor, StepExecutorContext } from '../types.js';
+import type { NodeTypeSpec, StepExecutor, StepExecutorContext, StageOutput } from '../types.js';
 import type { AgentOverrides } from '../../types/workflow.js';
 import type { WorkflowDefinition } from '../../schemas/pipeline.js';
 import { stageIsInCycle } from '../../utils/graph.js';
-
-/** Output from any stage executor — the agent doesn't know the specific shape */
-type StageOutput = Record<string, unknown>;
 
 const executor: StepExecutor = {
   type: 'step',

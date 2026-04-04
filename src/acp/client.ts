@@ -130,6 +130,7 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
    * Create a new ACP session.
    */
   async newSession(mcpServers: McpServerConfig[] = [], systemPrompt?: string, meta?: Record<string, unknown>): Promise<AcpSessionInfo> {
+    if (this.destroyed) throw new Error('Client has been destroyed');
     this.resetMcpTracker(mcpServers.length);
 
     const params: Record<string, unknown> = { cwd: this.workingDir, mcpServers };
@@ -150,6 +151,7 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
    * Load an existing ACP session by ID.
    */
   async loadSession(sessionId: string, mcpServers: McpServerConfig[] = []): Promise<AcpSessionInfo> {
+    if (this.destroyed) throw new Error('Client has been destroyed');
     this.resetMcpTracker(mcpServers.length);
 
     const timeoutMs = this.provider.sessionCreateTimeoutMs ?? 30000;
@@ -169,7 +171,8 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
    * Send a prompt to the active session.
    * Waits for MCP readiness, retries on "not idle" with backoff.
    */
-  async prompt(text: string): Promise<PromptResponse | undefined> {
+  async prompt(text: string): Promise<PromptResponse> {
+    if (this.destroyed) throw new Error('Client has been destroyed');
     if (!this.sessionId) throw new Error('No active session');
 
     // Wait for MCP servers to settle
@@ -199,6 +202,8 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
         throw err;
       }
     }
+    // Should never reach here — loop always returns or throws
+    throw new Error('prompt() exhausted retries without returning a result');
   }
 
   /**

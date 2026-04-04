@@ -14,7 +14,7 @@ export function StatusBadge({ status, size = 'sm' }: { status: string; size?: 's
     <span
       className={`${sizeClass} rounded-full font-medium ${styles[status] ?? 'bg-surface-tertiary text-text-secondary'}`}
     >
-      {status.replace('_', ' ')}
+      {status.replace(/_/g, ' ')}
     </span>
   );
 }

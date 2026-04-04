@@ -5,18 +5,15 @@
  */
 import { readFile, mkdir, writeFile, rm, cp } from 'fs/promises';
 import { join, dirname } from 'path';
+import { tmpdir } from 'os';
 import { existsSync } from 'fs';
-import { homedir } from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import * as tar from 'tar';
 
 import type { WorkflowDefinition } from '../types/workflow.js';
 import type { OrchestratorDB } from '../db/database.js';
 import { BUNDLE_FORMAT_VERSION, type BundleManifest, type ImportResult, type ImportWarning } from './types.js';
 import { listProviders } from '../acp/provider/registry.js';
-
-const execFileAsync = promisify(execFile);
+import { commandExists } from '../utils/shell.js';
 
 interface ImportOptions {
   /** Base directory for bundle storage. Defaults to ./data/bundles */
@@ -34,8 +31,9 @@ export async function importWorkflow(
 ): Promise<ImportResult> {
   const bundlesBase = options?.bundlesDir || join(process.cwd(), 'data', 'bundles');
 
-  // Extract to a temporary location first to read the manifest
-  const tempDir = join(bundlesBase, `_import-${Date.now()}`);
+  // Extract to OS tmpdir first so the bundles directory stays clean on failure.
+  // The workflow ID is not yet known, so we cannot use the final bundle path yet.
+  const tempDir = join(tmpdir(), `autome-import-${Date.now()}`);
   await mkdir(tempDir, { recursive: true });
 
   try {
@@ -62,12 +60,14 @@ export async function importWorkflow(
 
     const workflowDef: WorkflowDefinition = JSON.parse(await readFile(workflowPath, 'utf-8'));
 
-    // Create the workflow in the database to get a stable ID
+    // Create the workflow in the database FIRST to get a stable ID.
+    // All file operations that use workflowId (e.g., the bundle directory path)
+    // must happen AFTER this point — never before — so the ID is stable.
     const { id: _oldId, ...workflowData } = workflowDef;
     const created = db.createWorkflow(workflowData);
     const workflowId = created.id;
 
-    // Move extracted files to the permanent bundle directory
+    // Copy extracted files to the permanent bundle directory (ID is now stable)
     const bundleDir = join(bundlesBase, workflowId);
     await mkdir(bundleDir, { recursive: true });
     await cp(tempDir, bundleDir, { recursive: true });
@@ -137,7 +137,7 @@ export async function previewBundle(archivePath: string): Promise<{
   manifest: BundleManifest;
   workflow: { name: string; description?: string; stageCount: number; edgeCount: number };
 }> {
-  const tempDir = join(process.cwd(), 'data', '_preview-' + Date.now());
+  const tempDir = join(tmpdir(), `autome-preview-${Date.now()}`);
   await mkdir(tempDir, { recursive: true });
 
   try {
@@ -269,11 +269,3 @@ async function checkRequirements(manifest: BundleManifest): Promise<ImportWarnin
   return warnings;
 }
 
-async function commandExists(command: string): Promise<boolean> {
-  try {
-    await execFileAsync('which', [command]);
-    return true;
-  } catch {
-    return false;
-  }
-}

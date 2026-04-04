@@ -99,11 +99,11 @@ export function GateSidebar({
           {gate.timeout_action && <MetadataRow label="Timeout Action" value={String(gate.timeout_action)} />}
         </>
       )}
-      {stageCtx?.runs?.[0]?.output && (
+      {stageCtx?.runs?.length && stageCtx.runs[stageCtx.runs.length - 1]?.output && (
         <MetadataRow
           label="Result"
           value={
-            stageCtx.runs[0].output.approved ? (
+            stageCtx.runs[stageCtx.runs.length - 1].output.approved ? (
               <span className="text-green-600 dark:text-green-400">Approved</span>
             ) : (
               <span className="text-red-600 dark:text-red-400">Rejected</span>
@@ -128,8 +128,18 @@ export function GateSidebar({
             <textarea
               value={editedData}
               onChange={(e) => {
-                setEditedData(e.target.value);
-                setParseError(null);
+                const value = e.target.value;
+                setEditedData(value);
+                if (value.trim()) {
+                  try {
+                    JSON.parse(value);
+                    setParseError(null);
+                  } catch {
+                    setParseError('Invalid JSON');
+                  }
+                } else {
+                  setParseError(null);
+                }
               }}
               className="w-full bg-surface-secondary border border-border-subtle rounded-lg px-3 py-2 text-xs font-mono text-text-primary focus:outline-none focus:border-blue-500 resize-y min-h-[100px] max-h-[400px]"
               placeholder="No upstream data available"

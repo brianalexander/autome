@@ -3,7 +3,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { BaseProvider } from './base.js';
 import type { CanonicalAgentSpec, VendorNotificationResult, DiscoveredAgent } from './types.js';
-import type { KiroAgentSpec } from '../../types/instance.js';
+import { KiroAgentSpecSchema } from '../../types/instance.js';
 
 export class KiroProvider extends BaseProvider {
   readonly name = 'kiro';
@@ -56,7 +56,7 @@ export class KiroProvider extends BaseProvider {
   }
 
   protected parseAgentFile(content: string, fileName: string): DiscoveredAgent | null {
-    const spec = JSON.parse(content) as KiroAgentSpec;
+    const spec = KiroAgentSpecSchema.parse(JSON.parse(content));
     const name = spec.name || fileName.replace(/\.json$/, '');
     // source and path are set by the base scanAgentDir
     return { name, spec, source: 'local', path: '' };

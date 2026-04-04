@@ -229,11 +229,22 @@ export function useDraftLifecycle(workflowId: string | undefined): DraftLifecycl
 
   const handleResetDraft = useCallback(() => {
     userEditedRef.current = false;
-    sessionStorage.removeItem(DRAFT_ID_KEY);
+    // Clear the old draft chat segments before generating a new ID
     authorChat.clearSegments(effectiveId).catch(() => {});
-    navigate({ to: '/workflows/new' });
-    window.location.reload();
-  }, [effectiveId, navigate]);
+    // Generate a fresh temp ID so the new blank draft doesn't collide with any
+    // in-flight server state from the old session.
+    const newTempId = generateTempId();
+    sessionStorage.setItem(DRAFT_ID_KEY, newTempId);
+    // Reset the undo/redo stack to a blank definition — no reload needed.
+    resetHistory(createBlankDefinition(newTempId));
+    setHasChanges(false);
+    // Seed the new blank draft to the server
+    fetch(`/api/internal/author-draft/${newTempId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(createBlankDefinition(newTempId)),
+    }).catch((err) => console.warn('[draft-sync]', err));
+  }, [effectiveId, resetHistory]);
 
   return {
     definition: currentDefinition as WorkflowDefinition | undefined,

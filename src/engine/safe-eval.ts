@@ -39,11 +39,13 @@ export function safeEval(expression: string, variables: Record<string, unknown>,
 
 /**
  * Evaluate a boolean condition expression. Returns false on error.
+ * Logs a warning so operators can debug misconfigured gate/edge conditions.
  */
 export function safeEvalCondition(expression: string, variables: Record<string, unknown>): boolean {
   try {
     return !!safeEval(expression, variables);
-  } catch {
+  } catch (err) {
+    console.warn(`[safeEvalCondition] Expression evaluation failed — returning false.\n  expression: ${expression}\n  error: ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
 }

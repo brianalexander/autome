@@ -5,6 +5,7 @@
 
 import type { OrchestratorDB } from './db/database.js';
 import type { AcpProvider } from './acp/provider/types.js';
+import { cancelWorkflow } from './restate/client.js';
 
 export async function runCrashRecovery(db: OrchestratorDB, provider: AcpProvider): Promise<void> {
   console.log('[recovery] Running crash recovery...');
@@ -12,12 +13,19 @@ export async function runCrashRecovery(db: OrchestratorDB, provider: AcpProvider
   // 1. Mark all active ACP sessions as errored and clear PIDs
   db.clearAcpSessionPids();
 
-  // 2. Mark any in-progress instances as failed
+  // 2. Mark any in-progress instances as failed, with best-effort Restate cancellation
   try {
     let totalMarked = 0;
     for (const status of ['running', 'waiting_gate', 'waiting_input']) {
       const { data } = db.listInstances({ status, includeTest: true });
       for (const inst of data) {
+        // Best-effort: cancel the Restate workflow before marking failed in DB.
+        // Restate may not be running during recovery, so we swallow errors here.
+        try {
+          await cancelWorkflow(inst.id);
+        } catch {
+          // Restate unavailable or workflow already gone — safe to ignore
+        }
         db.updateInstance(inst.id, { status: 'failed' });
       }
       totalMarked += data.length;

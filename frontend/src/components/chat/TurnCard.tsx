@@ -115,16 +115,22 @@ export function TurnCard({
   // Copy just the agent text (no tool calls)
   const handleCopyText = useCallback(() => {
     const text = extractTextFromSegments(msg.segments);
-    navigator.clipboard.writeText(text);
-    setCopyState('text');
-    setTimeout(() => setCopyState('idle'), 1500);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopyState('text');
+      setTimeout(() => setCopyState('idle'), 1500);
+    }).catch((err) => {
+      console.error('Failed to copy text:', err);
+    });
   }, [msg.segments]);
 
   // Copy full output (text + tool calls in XML transcript format)
   const handleCopyFull = useCallback(() => {
-    navigator.clipboard.writeText(formatSegmentsAsTranscript(msg.segments, liveToolCalls));
-    setCopyState('full');
-    setTimeout(() => setCopyState('idle'), 1500);
+    navigator.clipboard.writeText(formatSegmentsAsTranscript(msg.segments, liveToolCalls)).then(() => {
+      setCopyState('full');
+      setTimeout(() => setCopyState('idle'), 1500);
+    }).catch((err) => {
+      console.error('Failed to copy full output:', err);
+    });
   }, [msg.segments, liveToolCalls]);
 
   return (
@@ -133,7 +139,7 @@ export function TurnCard({
         if (seg.type === 'text' && seg.content) {
           const isLastSeg = isLastMsg && j === msg.segments.length - 1;
           const isLiveStreaming = isStreaming && isLastSeg;
-          return <StreamingMarkdown key={j} content={seg.content} isStreaming={isLiveStreaming} />;
+          return <StreamingMarkdown key={`text-${j}`} content={seg.content} isStreaming={isLiveStreaming} />;
         }
         if (seg.type === 'tool') {
           const tc = liveToolCalls.get(seg.toolCallId);
@@ -142,7 +148,7 @@ export function TurnCard({
           if (parentMap.has(seg.toolCallId)) return null;
           return (
             <ToolCallCard
-              key={j}
+              key={seg.toolCallId}
               toolCall={tc}
               onPermissionResponse={onPermissionResponse}
               childToolCalls={childrenMap.get(seg.toolCallId)}

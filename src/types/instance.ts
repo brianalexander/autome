@@ -76,10 +76,7 @@ export const WorkflowInstanceSchema = z.object({
   completed_at: z.string().optional(),
   restate_workflow_id: z.string().optional(),
   is_test: z.boolean().optional(),
-  context: z.object({
-    trigger: z.any(),
-    stages: z.record(z.string(), StageContextSchema),
-  }),
+  context: WorkflowContextSchema,
   current_stage_ids: z.array(z.string()),
 });
 

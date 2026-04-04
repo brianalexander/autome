@@ -322,7 +322,7 @@ function summarizeOutput(output: unknown): string {
   return `{${keys.slice(0, 3).join(', ')}${keys.length > 3 ? ', ...' : ''}}`;
 }
 
-function generateStageId(type: string, existingIds: string[]): string {
+export function generateStageId(type: string, existingIds: string[]): string {
   const existing = new Set(existingIds);
   let counter = 1;
   while (existing.has(`${type}-${counter}`)) {
@@ -331,7 +331,7 @@ function generateStageId(type: string, existingIds: string[]): string {
   return `${type}-${counter}`;
 }
 
-function createDefaultStage(
+export function createDefaultStage(
   type: string,
   id: string,
   position: { x: number; y: number },
@@ -444,7 +444,7 @@ export function WorkflowCanvas({
       // Initial load — check if all stages already have saved positions.
       // If so, use them directly; otherwise run elkjs for unpositioned stages.
       const allHavePositions = definition.stages.length > 0 &&
-        definition.stages.every((s) => s.position && (s.position.x !== 0 || s.position.y !== 0));
+        definition.stages.every((s) => s.position != null);
 
       if (allHavePositions) {
         // All positions are saved — use them directly, skip elkjs
@@ -456,7 +456,7 @@ export function WorkflowCanvas({
           // For stages that already have saved positions, keep them instead of elkjs output
           const finalNodes = layoutedNodes.map((ln) => {
             const stage = definition.stages.find((s) => s.id === ln.id);
-            if (stage?.position && (stage.position.x !== 0 || stage.position.y !== 0)) {
+            if (stage?.position != null) {
               return { ...ln, position: stage.position };
             }
             return ln;

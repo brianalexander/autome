@@ -8,7 +8,7 @@ export const Route = createFileRoute('/approvals')({
 });
 
 function ApprovalsPage() {
-  const { data: approvals, isLoading } = useApprovals();
+  const { data: approvals, isLoading, error } = useApprovals();
   const approveGate = useApproveGate();
   const rejectGate = useRejectGate();
 
@@ -16,6 +16,18 @@ function ApprovalsPage() {
     return (
       <div className="flex-1 flex items-center justify-center">
         <span className="text-text-muted text-sm">Loading approvals...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <XCircle className="w-12 h-12 text-red-500/30 mx-auto mb-3" />
+          <p className="text-text-secondary text-sm">Failed to load approvals</p>
+          <p className="text-text-muted text-xs mt-1">Check your connection and try again</p>
+        </div>
       </div>
     );
   }
@@ -141,8 +153,18 @@ function ApprovalCard({ approval, onApprove, onReject }: ApprovalCardProps) {
               <textarea
                 value={editedData}
                 onChange={(e) => {
-                  setEditedData(e.target.value);
-                  setParseError(null);
+                  const value = e.target.value;
+                  setEditedData(value);
+                  if (value.trim()) {
+                    try {
+                      JSON.parse(value);
+                      setParseError(null);
+                    } catch {
+                      setParseError('Invalid JSON');
+                    }
+                  } else {
+                    setParseError(null);
+                  }
                 }}
                 className="w-full bg-surface-secondary border border-border-subtle rounded-lg px-3 py-2 text-xs font-mono text-text-primary focus:outline-none focus:border-blue-500 resize-y min-h-[80px] max-h-[300px]"
                 spellCheck={false}

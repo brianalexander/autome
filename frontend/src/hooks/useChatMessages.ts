@@ -7,8 +7,8 @@ import type { ToolCallRecord } from '../lib/api';
 import type { LiveSegment, ChatMessage } from '../lib/chatUtils';
 
 interface InitialMessage {
-  role: 'user' | 'assistant';
-  content: string;
+  role: 'user' | 'assistant' | 'system';
+  content?: string;
   timestamp: string;
   segments?: Array<{ type: 'text'; content: string } | { type: 'tool'; toolCallId: string }>;
   toolCalls?: Array<Record<string, unknown>>;

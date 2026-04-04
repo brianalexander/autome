@@ -4,9 +4,9 @@
  */
 import type { NodeTypeSpec, TriggerExecutor } from '../types.js';
 
-/** Parse a simple cron-like interval string to milliseconds */
-function parseScheduleMs(schedule: string): number {
-  // Support simple formats: "5m", "1h", "30s", "*/5 * * * *" (cron → treated as 5 min)
+/** Parse a simple cron-like interval string to milliseconds. Returns null if unrecognized. */
+function parseScheduleMs(schedule: string): number | null {
+  // Support simple formats: "5m", "1h", "30s"
   const match = schedule.match(/^(\d+)(s|m|h)$/);
   if (match) {
     const value = parseInt(match[1], 10);
@@ -24,15 +24,24 @@ function parseScheduleMs(schedule: string): number {
   if (cronMatch) {
     return parseInt(cronMatch[1], 10) * 60_000;
   }
-  // Default: 5 minutes
-  return 300_000;
+  return null;
 }
 
 const executor: TriggerExecutor = {
   type: 'trigger',
   async activate(workflowId, stageId, config, emit) {
     const schedule = (config.schedule as string) || '5m';
-    const intervalMs = parseScheduleMs(schedule);
+    const parsed = parseScheduleMs(schedule);
+    let intervalMs: number;
+    if (parsed === null) {
+      console.warn(
+        `[cron-trigger] Unrecognized schedule expression "${schedule}" for workflow ${workflowId}. ` +
+        `Falling back to 5 minutes. Supported formats: "30s", "5m", "1h", or "*/N * * * *".`,
+      );
+      intervalMs = 300_000;
+    } else {
+      intervalMs = parsed;
+    }
 
     console.log(`[cron-trigger] Activated for workflow ${workflowId}, schedule: ${schedule} (${intervalMs}ms)`);
 

@@ -1,4 +1,4 @@
-import { createRootRoute, Outlet, Link } from '@tanstack/react-router';
+import { createRootRoute, Outlet, Link, useNavigate } from '@tanstack/react-router';
 import { Toaster, toast } from 'sonner';
 import { useTheme, type ThemeMode } from '../hooks/useTheme';
 import { Sun, Moon, Monitor, ChevronsUpDown, Bell } from 'lucide-react';
@@ -19,9 +19,9 @@ function NotFound() {
       <div className="text-center">
         <h1 className="text-6xl font-bold text-text-muted mb-4">404</h1>
         <p className="text-text-secondary mb-6">Page not found</p>
-        <a href="/" className="text-blue-500 hover:text-blue-400 underline">
+        <Link to="/" className="text-blue-500 hover:text-blue-400 underline">
           ← Back to workflows
-        </a>
+        </Link>
       </div>
     </div>
   );
@@ -133,6 +133,7 @@ function ThemeToggle() {
 function RootLayout() {
   const { on } = useWebSocket();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   // Listen for gate_waiting events and show toast notifications
   useEffect(() => {
@@ -147,7 +148,7 @@ function RootLayout() {
           {
             action: {
               label: 'Review',
-              onClick: () => window.location.href = `/approvals`,
+              onClick: () => navigate({ to: '/approvals' }),
             },
             duration: 10000,
           }

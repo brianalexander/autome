@@ -12,6 +12,7 @@
 import { spawn } from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import type { NodeTypeSpec, TriggerExecutor } from '../types.js';
 import { ensureWorkspace } from '../workspace-manager.js';
 
@@ -56,12 +57,13 @@ const executor: TriggerExecutor = {
     // 1. Ensure workspace with user's dependencies
     const workspace = await ensureWorkspace(workflowId, 1, dependencies);
 
-    // 2. Write user code file and wrapper file to workspace
+    // 2. Write user code file and wrapper file to the system temp directory so
+    //    the OS handles cleanup if the process crashes before deactivation.
     const fileId = `${stageId}-trigger-${Date.now()}`;
     const userCodeFile = `${fileId}_code.mjs`;
     const wrapperFile = `${fileId}_wrapper.mjs`;
-    const userCodePath = join(workspace.runsDir, userCodeFile);
-    const wrapperPath = join(workspace.runsDir, wrapperFile);
+    const userCodePath = join(tmpdir(), userCodeFile);
+    const wrapperPath = join(tmpdir(), wrapperFile);
 
     await writeFile(userCodePath, code, 'utf-8');
     await writeFile(wrapperPath, buildWrapperScript(userCodeFile), 'utf-8');

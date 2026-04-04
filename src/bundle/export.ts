@@ -28,14 +28,20 @@ interface ExportOptions {
   workingDir?: string;
 }
 
+export interface ExportWarning {
+  type: 'missing_agent';
+  agentId: string;
+  message: string;
+}
+
 /**
  * Export a workflow as a .autome bundle.
- * Returns the path to the generated tar.gz file.
+ * Returns the path to the generated tar.gz file and any warnings (e.g. missing agents).
  */
 export async function exportWorkflow(
   definition: WorkflowDefinition,
   options?: ExportOptions,
-): Promise<{ archivePath: string; manifest: BundleManifest }> {
+): Promise<{ archivePath: string; manifest: BundleManifest; warnings: ExportWarning[] }> {
   const workDir = options?.workingDir || process.cwd();
   const stagingDir = await mkdtemp(join(tmpdir(), 'autome-export-'));
 
@@ -48,6 +54,7 @@ export async function exportWorkflow(
     await writeFile(join(stagingDir, 'workflow.json'), JSON.stringify(definition, null, 2));
 
     const agents: Record<string, BundleAgentEntry> = {};
+    const exportWarnings: ExportWarning[] = [];
     const requirements: BundleRequirements = {
       mcpServers: [],
       systemDependencies: [],
@@ -69,7 +76,13 @@ export async function exportWorkflow(
 
       const discovered = discoveredAgents.find((a) => a.name === agentId);
       if (!discovered) {
-        console.warn(`[export] Agent "${agentId}" not found — skipping`);
+        const warning: ExportWarning = {
+          type: 'missing_agent',
+          agentId,
+          message: `Agent "${agentId}" was not found in any agent directory and will not be included in the bundle`,
+        };
+        exportWarnings.push(warning);
+        console.warn(`[export] ${warning.message}`);
         continue;
       }
 
@@ -209,7 +222,7 @@ export async function exportWorkflow(
     const archivePath = join(tmpdir(), `${slugify(definition.name)}.autome`);
     await tar.create({ gzip: true, file: archivePath, cwd: stagingDir }, ['.']);
 
-    return { archivePath, manifest };
+    return { archivePath, manifest, warnings: exportWarnings };
   } finally {
     // Clean up staging directory
     await rm(stagingDir, { recursive: true, force: true }).catch(() => {});

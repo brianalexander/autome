@@ -85,9 +85,12 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
 
   const handleCopyConfig = useCallback(() => {
     const data = { stageDef, agentSpec: agentInfo?.spec };
-    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch((err) => {
+      console.error('Failed to copy config:', err);
+    });
   }, [stageDef, agentInfo]);
 
   const duration =

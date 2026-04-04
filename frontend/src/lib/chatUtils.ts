@@ -12,6 +12,17 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   segments: LiveSegment[];
   timestamp: string;
+  // Optional fields populated by segmentsToMessages for persisted history restore
+  content?: string;
+  toolCalls?: Array<{
+    toolCallId: string;
+    title?: string;
+    kind?: string;
+    status?: string;
+    rawInput?: string;
+    rawOutput?: string;
+    parentToolUseId?: string;
+  }>;
 }
 
 // --- Constants ---

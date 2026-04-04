@@ -16,6 +16,12 @@ const execFileAsync = promisify(execFile);
 
 const BASE_DIR = join(process.cwd(), 'data', 'workspaces', 'code');
 
+/**
+ * Serializes npm install operations per workflow+version to prevent concurrent
+ * installs from racing on the same workspace directory.
+ */
+const installLocks = new Map<string, Promise<void>>();
+
 export interface WorkspaceInfo {
   /** Root of the versioned workspace */
   root: string;
@@ -69,17 +75,32 @@ export async function ensureWorkspace(
 
   if (needsInstall && Object.keys(dependencies).length > 0) {
     await writeFile(pkgPath, desiredPkg, 'utf-8');
-    console.log(`[workspace] Installing deps for ${workflowId}/v${version}:`, Object.keys(dependencies).join(', '));
-    try {
-      await execFileAsync('npm', ['install', '--production', '--no-audit', '--no-fund'], {
+
+    // Serialize installs for the same workspace to avoid concurrent npm races.
+    const lockKey = `${workflowId}/v${version}`;
+    const pending = installLocks.get(lockKey);
+    if (pending) {
+      console.log(`[workspace] Waiting for in-progress install for ${lockKey}`);
+      await pending;
+    } else {
+      console.log(`[workspace] Installing deps for ${lockKey}:`, Object.keys(dependencies).join(', '));
+      const installPromise = execFileAsync('npm', ['install', '--production', '--no-audit', '--no-fund'], {
         cwd: root,
         timeout: 120_000,
         env: { ...process.env, NODE_ENV: 'production' },
-      });
-      console.log(`[workspace] Deps installed for ${workflowId}/v${version}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to install dependencies: ${msg}`);
+      })
+        .then(() => {
+          console.log(`[workspace] Deps installed for ${lockKey}`);
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(`Failed to install dependencies: ${msg}`);
+        })
+        .finally(() => {
+          installLocks.delete(lockKey);
+        });
+      installLocks.set(lockKey, installPromise);
+      await installPromise;
     }
   } else if (Object.keys(dependencies).length === 0) {
     // No deps — just ensure package.json exists for module resolution

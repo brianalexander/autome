@@ -300,9 +300,11 @@ export function useSetSystemProvider() {
 }
 
 export function useApprovals() {
+  const wsConnected = useUIStore((s) => s.wsConnected);
   return useQuery({
     queryKey: ['approvals'],
     queryFn: () => approvals.list(),
-    refetchInterval: 10000, // poll every 10s for pending approvals
+    // Only poll when WS is down; WS pushes real-time approval updates when connected.
+    refetchInterval: wsConnected ? false : 10_000,
   });
 }

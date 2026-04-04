@@ -16,7 +16,7 @@ import { SessionInfoChip } from './SessionInfoChip';
 import { UserMessage } from './UserMessage';
 import { TurnCard } from './TurnCard';
 import { ExpandedMessageModal } from './ExpandedMessageModal';
-import { Wand2, RotateCcw, CheckCircle2, XCircle, Loader2, Copy, Check, Trash2 } from 'lucide-react';
+import { RotateCcw, CheckCircle2, XCircle, Loader2, Copy, Check, Trash2 } from 'lucide-react';
 import { formatElapsed } from '../../lib/format';
 import type { ToolCallRecord } from '../../lib/api';
 
@@ -57,8 +57,8 @@ export interface AcpChatPaneProps {
   onClearChat?: () => Promise<void>;
   /** Pre-loaded messages (from DB persistence) */
   initialMessages?: Array<{
-    role: 'user' | 'assistant';
-    content: string;
+    role: 'user' | 'assistant' | 'system';
+    content?: string;
     timestamp: string;
     segments?: Array<{ type: 'text'; content: string } | { type: 'tool'; toolCallId: string }>;
     toolCalls?: Array<Record<string, unknown>>;
@@ -89,7 +89,6 @@ export function AcpChatPane({
   const chat = useChatMessages(initialMessages);
   const session = useChatSession({
     isStreaming: chat.isStreaming,
-    streamingText: chat.streamingText,
     sessionKey,
   });
 
@@ -125,6 +124,8 @@ export function AcpChatPane({
         if (!matchesFilter(data)) return;
         const d = data as Record<string, unknown>;
         chat.appendChunk((d.text as string) || '');
+        // Reset stall detector on every chunk arrival (not on render cycle)
+        session.resetStallTimer();
       }),
 
       on(`${eventPrefix}:tool_call`, (data: unknown) => {
@@ -302,9 +303,12 @@ export function AcpChatPane({
         parts.push(formatSegmentsAsTranscript(msg.segments, chat.liveToolCalls));
       }
     }
-    navigator.clipboard.writeText(parts.join('\n\n'));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    navigator.clipboard.writeText(parts.join('\n\n')).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch((err) => {
+      console.error('Failed to copy chat:', err);
+    });
   }, [chat.messages, chat.liveToolCalls]);
 
   const handleRestartSession = useCallback(async () => {
@@ -404,7 +408,7 @@ export function AcpChatPane({
         )}
 
         {chat.messages.map((msg, i) => (
-          <div key={i}>
+          <div key={`${msg.role}-${msg.timestamp}`}>
             {msg.role === 'system' ? (
               <div className="border border-amber-300 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3">
                 <div className="text-xs text-amber-700 dark:text-amber-300 whitespace-pre-wrap font-mono">
@@ -524,16 +528,6 @@ export function AcpChatPane({
             </button>
           ) : (
             <>
-              {eventPrefix === 'author' && (
-                <button
-                  onClick={() => { /* placeholder */ }}
-                  disabled={chat.isStreaming || sessionState === 'starting'}
-                  className="p-2 border border-border hover:bg-interactive text-text-secondary hover:text-text-primary rounded-lg disabled:opacity-50 flex-shrink-0 transition-colors"
-                  title="Magic actions (coming soon)"
-                >
-                  <Wand2 size={16} />
-                </button>
-              )}
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || chat.isStreaming || sessionState === 'starting'}

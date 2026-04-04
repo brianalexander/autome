@@ -25,15 +25,21 @@ export function ExpandedMessageModal({
 
   const handleCopyText = useCallback(() => {
     const text = extractTextFromSegments(msg.segments);
-    navigator.clipboard.writeText(text);
-    setCopyState('text');
-    setTimeout(() => setCopyState('idle'), 1500);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopyState('text');
+      setTimeout(() => setCopyState('idle'), 1500);
+    }).catch((err) => {
+      console.error('Failed to copy text:', err);
+    });
   }, [msg.segments]);
 
   const handleCopyFull = useCallback(() => {
-    navigator.clipboard.writeText(formatSegmentsAsTranscript(msg.segments, liveToolCalls));
-    setCopyState('full');
-    setTimeout(() => setCopyState('idle'), 1500);
+    navigator.clipboard.writeText(formatSegmentsAsTranscript(msg.segments, liveToolCalls)).then(() => {
+      setCopyState('full');
+      setTimeout(() => setCopyState('idle'), 1500);
+    }).catch((err) => {
+      console.error('Failed to copy full output:', err);
+    });
   }, [msg.segments, liveToolCalls]);
 
   // Compute turn duration

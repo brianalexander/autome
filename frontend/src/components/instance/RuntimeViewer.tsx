@@ -175,6 +175,7 @@ export function RuntimeViewer({
               trigger={selectedStageDef?.config as Record<string, unknown> | undefined ?? definition.trigger}
               triggerEvent={instance.trigger_event}
               workflowId={instance.definition_id}
+              status={selectedStageId ? stages[selectedStageId]?.status : undefined}
               onClose={() => setSelectedStageId(null)}
             />
           ) : selectedStageDef?.type === 'gate' ? (
@@ -221,7 +222,7 @@ export function RuntimeViewer({
             workflow={definition}
             isActive={isActive}
             instanceId={instanceId}
-            onCancel={() => cancelInstance.mutate(instanceId)}
+            onCancel={onCancel ?? (() => cancelInstance.mutate(instanceId))}
             onClose={onClose}
             onCleanup={onCleanup}
           />

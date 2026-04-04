@@ -45,22 +45,23 @@ const executor: StepExecutor = {
 
       // Validate response against expected schema if configured
       if (config.response_schema && typeof config.response_schema === 'object') {
+        let responseSchema;
         try {
-          const responseSchema = jsonSchemaToZod(config.response_schema as Record<string, unknown>);
+          responseSchema = jsonSchemaToZod(config.response_schema as Record<string, unknown>);
+        } catch (err) {
+          console.warn(
+            `[http-request] stage "${stageId}": failed to compile response_schema — ` +
+            `validation skipped. Error: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        if (responseSchema) {
           const validation = responseSchema.safeParse(parsedBody);
           if (!validation.success) {
             const issues = validation.error.issues
               .map(i => `${i.path.join('.')}: ${i.message}`)
               .join('; ');
-            throw new Error(
-              `Response schema validation failed: ${issues}`
-            );
+            throw new Error(`Response schema validation failed: ${issues}`);
           }
-        } catch (err) {
-          if (err instanceof Error && err.message.startsWith('Response schema validation')) {
-            throw err; // Re-throw validation errors
-          }
-          console.warn(`[http-request] Failed to validate response schema: ${err}`);
         }
       }
 

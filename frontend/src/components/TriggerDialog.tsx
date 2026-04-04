@@ -170,10 +170,10 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
           }
         }
         setFieldValues(defaults);
-        setTimeout(() => firstInputRef.current?.focus(), 50);
+        requestAnimationFrame(() => firstInputRef.current?.focus());
       } else {
         setFieldValues({});
-        setTimeout(() => textareaRef.current?.focus(), 50);
+        requestAnimationFrame(() => textareaRef.current?.focus());
       }
     }
   }, [isOpen, schemaProperties]);

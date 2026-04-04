@@ -1,20 +1,5 @@
 import type { SegmentRecord } from './api';
-
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  segments?: Array<{ type: 'text'; content: string } | { type: 'tool'; toolCallId: string }>;
-  toolCalls?: Array<{
-    toolCallId: string;
-    title?: string;
-    kind?: string;
-    status?: string;
-    rawInput?: string;
-    rawOutput?: string;
-    parentToolUseId?: string;
-  }>;
-}
+import type { ChatMessage } from './chatUtils';
 
 /**
  * Convert an ordered list of SegmentRecords into grouped ChatMessages.

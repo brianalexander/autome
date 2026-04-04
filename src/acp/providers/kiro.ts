@@ -3,7 +3,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import type { AcpProvider, AgentDiscoveryOptions, VendorNotificationResult, CanonicalAgentSpec } from '../provider/types.js';
-import type { DiscoveredAgent, KiroAgentSpec } from '../../types/instance.js';
+import type { DiscoveredAgent } from '../../types/instance.js';
+import { KiroAgentSpecSchema } from '../../types/instance.js';
 
 export class KiroProvider implements AcpProvider {
   readonly name = 'kiro';
@@ -164,7 +165,7 @@ export class KiroProvider implements AcpProvider {
         const filePath = join(dir, file);
         try {
           const content = await readFile(filePath, 'utf-8');
-          const spec = JSON.parse(content) as KiroAgentSpec;
+          const spec = KiroAgentSpecSchema.parse(JSON.parse(content));
           const name = spec.name || file.replace('.json', '');
           agents.push({ name, spec, source, path: filePath });
         } catch (err) {

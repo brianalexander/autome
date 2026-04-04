@@ -220,11 +220,10 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
             }
           }
 
-          // Give Restate a moment to process cancellations before we pull the
-          // instances out from under any in-flight context-sync calls.
-          if (runningInstances.length > 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-          }
+          // NOTE: Previously there was a 1s sleep here to "give Restate a moment".
+          // That was a race condition, not a fix — context-sync calls that arrive
+          // after deletion are already guarded by the `instance_deleted` check in
+          // the workflow-context-sync handler. The sleep has been removed.
 
           db.deleteWorkflow(id);
         }
@@ -392,11 +391,16 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
       if (!workflow) return reply.code(404).send({ error: 'Workflow not found' });
 
       try {
-        const { archivePath, manifest } = await exportWorkflow(workflow);
+        const { archivePath, manifest, warnings } = await exportWorkflow(workflow);
 
         const filename = `${workflow.name.replace(/[^a-zA-Z0-9_-]/g, '_')}${BUNDLE_EXTENSION}`;
         reply.header('Content-Disposition', `attachment; filename="${filename}"`);
         reply.header('Content-Type', 'application/gzip');
+        // Surface any export warnings (e.g. missing agents) via a header so the
+        // caller can display them alongside the download without altering the binary body.
+        if (warnings.length > 0) {
+          reply.header('X-Export-Warnings', JSON.stringify(warnings));
+        }
         reply.raw.on('finish', () => { unlink(archivePath).catch(() => {}); });
         return reply.send(createReadStream(archivePath));
       } catch (err) {

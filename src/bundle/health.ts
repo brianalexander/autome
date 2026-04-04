@@ -3,13 +3,10 @@
  * (MCP server commands, hook binaries, secrets) are available on the system.
  * Runs on demand, not just at import time.
  */
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { discoverAgents } from '../agents/discovery.js';
 import type { WorkflowDefinition } from '../types/workflow.js';
 import type { KiroAgentSpec } from '../types/instance.js';
-
-const execFileAsync = promisify(execFile);
+import { commandExists } from '../utils/shell.js';
 
 export interface HealthWarning {
   type: 'missing_mcp_command' | 'missing_hook_command' | 'missing_secret' | 'missing_agent';
@@ -125,15 +122,6 @@ export async function checkWorkflowHealth(
     warnings,
     checkedAt: new Date().toISOString(),
   };
-}
-
-async function commandExists(command: string): Promise<boolean> {
-  try {
-    await execFileAsync('which', [command]);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Heuristic: env var is likely a secret if the key contains common secret patterns. */

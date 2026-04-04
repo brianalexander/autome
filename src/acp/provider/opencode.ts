@@ -17,8 +17,16 @@ export class OpenCodeProvider extends BaseProvider {
     return process.env.OPENCODE_BIN || 'opencode';
   }
 
-  getSpawnArgs(_options: { agent?: string; model?: string }): string[] {
-    // OpenCode uses `opencode acp` — agent selection is done via config, not CLI flags
+  getSpawnArgs(options: { agent?: string; model?: string }): string[] {
+    // OpenCode uses `opencode acp` — agent and model selection are not supported as
+    // CLI flags in the `acp` subcommand. They must be configured via agent config files
+    // (agent is selected by the session/new prompt) or OpenCode's config file.
+    if (options.agent) {
+      console.warn(`[opencode] agent="${options.agent}" requested but OpenCode ACP does not support --agent CLI flag; configure via agent file instead`);
+    }
+    if (options.model) {
+      console.warn(`[opencode] model="${options.model}" requested but OpenCode ACP does not support --model CLI flag; configure via opencode config instead`);
+    }
     return ['acp'];
   }
 

@@ -104,9 +104,12 @@ export class OrchestratorDB {
       migrationFiles = readdirSync(MIGRATIONS_DIR)
         .filter((f) => f.endsWith('.sql'))
         .sort();
-    } catch {
-      // Migrations directory not readable — skip (shouldn't happen in normal use)
-      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // Migrations directory doesn't exist — nothing to apply
+        return;
+      }
+      throw err;
     }
 
     const runMigration = this.db.transaction((name: string, sql: string) => {
@@ -229,15 +232,17 @@ export class OrchestratorDB {
   }
 
   deleteWorkflow(id: string): void {
-    // Delete author chat segments (instanceId='author', stageId=workflowId)
-    this.db.prepare('DELETE FROM segments WHERE instance_id = ? AND stage_id = ?').run('author', id);
-    this.db.prepare('DELETE FROM tool_calls WHERE instance_id = ? AND stage_id = ?').run('author', id);
-    // Delete version history
-    this.db.prepare('DELETE FROM workflow_versions WHERE workflow_id = ?').run(id);
-    // Detach instances so they survive workflow deletion (FK is enforced)
-    this.db.prepare('UPDATE instances SET definition_id = NULL WHERE definition_id = ?').run(id);
-    // Delete the workflow itself
-    this.db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+    this.db.transaction(() => {
+      // Delete author chat segments (instanceId='author', stageId=workflowId)
+      this.db.prepare('DELETE FROM segments WHERE instance_id = ? AND stage_id = ?').run('author', id);
+      this.db.prepare('DELETE FROM tool_calls WHERE instance_id = ? AND stage_id = ?').run('author', id);
+      // Delete version history
+      this.db.prepare('DELETE FROM workflow_versions WHERE workflow_id = ?').run(id);
+      // Detach instances so they survive workflow deletion (FK is enforced)
+      this.db.prepare('UPDATE instances SET definition_id = NULL WHERE definition_id = ?').run(id);
+      // Delete the workflow itself
+      this.db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+    })();
   }
 
   deleteTestWorkflows(): number {
@@ -697,12 +702,15 @@ export class OrchestratorDB {
         data.rawOutput ?? null,
         data.parentToolUseId ?? null,
       );
-    // Always update — the second phase may bring new data
+    // Always update — the second phase may bring new data.
+    // title/kind/status are set directly so null can clear a previously-set value.
+    // raw_input, raw_output, parent_tool_use_id use COALESCE because they arrive in
+    // separate phases and a missing value in one phase must not wipe the other phase's data.
     this.db
       .prepare(
         `UPDATE tool_calls SET
-         title = COALESCE(?, title),
-         kind = COALESCE(?, kind),
+         title = ?,
+         kind = ?,
          status = ?,
          raw_input = COALESCE(?, raw_input),
          raw_output = COALESCE(?, raw_output),

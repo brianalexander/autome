@@ -381,7 +381,9 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
           },
         });
 
-        // Store session for future resume (e.g. user sends follow-up after completion)
+        // Persist ACP session to DB *before* sending the initial prompt.
+        // If the process crashes between spawn and prompt, we can still find
+        // and clean up the session — avoiding an orphaned agent process.
         const sessionKey = stageKey;
         const sid = state.acpPool.getSessionId(instanceId, stageId);
         if (sid) db.upsertAcpSession(sessionKey, sid, client.pid);

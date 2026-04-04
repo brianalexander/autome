@@ -16,7 +16,7 @@ import {
   useInstanceStatus,
 } from '../hooks/queries';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { WorkflowCanvas, findBackEdgeIds, type WorkflowCanvasHandle } from './canvas/WorkflowCanvas';
+import { WorkflowCanvas, findBackEdgeIds, generateStageId, createDefaultStage, type WorkflowCanvasHandle } from './canvas/WorkflowCanvas';
 import { ConfigPanel, EdgeConfigPanel } from './canvas/ConfigPanel';
 import { AuthorChat } from './author/AuthorChat';
 import { TriggerDialog } from './TriggerDialog';
@@ -351,30 +351,25 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     // No-op — draft changes arrive via author:draft WebSocket events
   }, []);
 
-  // Add a node from the palette
+  // Add a node from the palette — uses the same ID generation and default-stage
+  // creation as WorkflowCanvas.onAddStage so the two code paths stay in sync.
   const handleAddNodeFromPalette = useCallback(
     (type: string) => {
       if (!currentDefinition) return;
       const existingIds = currentDefinition.stages.map((s) => s.id);
-      const base = type;
-      let counter = 1;
-      while (existingIds.includes(`${base}-${counter}`)) counter++;
-      const id = `${base}-${counter}`;
+      const id = generateStageId(type, existingIds);
       const lowestY =
         currentDefinition.stages.length > 0
           ? Math.max(...currentDefinition.stages.map((s) => (s.position?.y ?? 0))) + 150
           : 100;
       const position = { x: 200, y: lowestY };
-      const label = type
-        .split('-')
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(' ');
+      const newStage = createDefaultStage(type, id, position, nodeTypeList ?? undefined);
       handleDefinitionChange({
         ...currentDefinition,
-        stages: [...currentDefinition.stages, { id, type, position, label, config: {} }],
+        stages: [...currentDefinition.stages, newStage],
       });
     },
-    [currentDefinition, handleDefinitionChange],
+    [currentDefinition, handleDefinitionChange, nodeTypeList],
   );
 
   // Restore a previous version

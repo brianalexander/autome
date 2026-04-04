@@ -141,6 +141,16 @@ export function deactivateWorkflowTriggers(workflowId: string): void {
 }
 
 /**
+ * Reset all module-level state. For use in tests only.
+ * Clears the activeTriggers map and the eventBus reference without
+ * invoking cleanup callbacks (tests manage their own teardown).
+ */
+export function resetForTesting(): void {
+  activeTriggers.clear();
+  eventBus = null;
+}
+
+/**
  * Deactivate all active triggers across all workflows.
  * Called during graceful server shutdown.
  */
