@@ -10,7 +10,7 @@ import { githubDark } from '@uiw/codemirror-theme-github';
 import { autocompletion, type CompletionContext, type Completion } from '@codemirror/autocomplete';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
 import { EditorView, hoverTooltip, type Tooltip } from '@codemirror/view';
-import { Maximize2, Minimize2, BookOpen } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 
 // --- Autocompletion definitions ---
 
@@ -19,12 +19,6 @@ interface TypeMember {
   detail: string;
   info: string;
 }
-
-const INPUT_MEMBERS: TypeMember[] = [
-  { label: 'data', detail: 'upstream output', info: 'The data returned by the previous stage' },
-  { label: 'status', detail: 'string', info: '"completed" | "failed" — result status of upstream stage' },
-  { label: 'error', detail: 'string | undefined', info: 'Error message if upstream stage failed' },
-];
 
 const CONTEXT_MEMBERS: TypeMember[] = [
   { label: 'trigger', detail: 'Event', info: 'The event that kicked off this workflow run' },
@@ -58,7 +52,6 @@ const TOP_LEVEL_COMPLETIONS: Completion[] = [
 ];
 
 const MEMBER_MAP: Record<string, TypeMember[]> = {
-  input: INPUT_MEMBERS,
   context: CONTEXT_MEMBERS,
   trigger: TRIGGER_MEMBERS,
 };
@@ -82,7 +75,7 @@ const HOVER_MAP: Record<string, HoverInfo> = {
   Date: { type: 'DateConstructor', description: 'new Date(), Date.now()' },
 };
 
-// Build member hover entries: "input.data", "trigger.payload", etc.
+// Build member hover entries: "trigger.payload", "context.stages", etc.
 for (const [parent, members] of Object.entries(MEMBER_MAP)) {
   for (const m of members) {
     HOVER_MAP[`${parent}.${m.label}`] = { type: m.detail, description: m.info };
@@ -135,7 +128,7 @@ const codeHoverTooltip = hoverTooltip((view, pos): Tooltip | null => {
   };
 });
 
-function codeExecutorCompletions(ctx: CompletionContext, hasSchema = false) {
+function codeExecutorCompletions(ctx: CompletionContext) {
   // Deep member access: context.stages["x"].
   const deepDot = ctx.matchBefore(/context\.stages\[.*?\]\.\w*/);
   if (deepDot) {
@@ -151,13 +144,10 @@ function codeExecutorCompletions(ctx: CompletionContext, hasSchema = false) {
     };
   }
 
-  // Single-level member access: "input.", "context.", etc.
+  // Single-level member access: "context.", "trigger.", etc.
   const dotMatch = ctx.matchBefore(/(\w+)\.\w*/);
   if (dotMatch) {
     const objName = dotMatch.text.split('.')[0];
-    // Skip hardcoded input members when we have a real schema —
-    // the schema-aware completions already handled input.X
-    if (hasSchema && objName === 'input') return null;
     const members = MEMBER_MAP[objName];
     if (members) {
       const from = dotMatch.from + objName.length + 1;
@@ -247,9 +237,7 @@ function createSchemaAwareCompletions(outputSchema?: Record<string, unknown>) {
       }
     }
 
-    // Fall through to generic completions — but skip hardcoded input members
-    // when we have a real schema (they'd be stale/wrong)
-    return codeExecutorCompletions(ctx, !!outputSchema);
+    return codeExecutorCompletions(ctx);
   };
 }
 
@@ -327,8 +315,8 @@ interface CodeEditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   minHeight?: string;
-  /** Context hint for choosing the right placeholder and language */
-  context?: 'code' | 'condition' | 'json';
+  /** Mode hint for choosing the right placeholder and language */
+  editorMode?: 'code' | 'condition' | 'json';
   /** JSON Schema of the upstream node's output — used for autocomplete suggestions */
   outputSchema?: Record<string, unknown>;
   /** Node type hint for the backend validation (e.g. 'code-executor', 'code-trigger') */
@@ -340,14 +328,11 @@ export function CodeEditor({
   onChange,
   placeholder,
   minHeight = '120px',
-  context = 'code',
+  editorMode = 'code',
   outputSchema,
   nodeType,
 }: CodeEditorProps) {
   const [expanded, setExpanded] = useState(false);
-  const [showApiRef, setShowApiRef] = useState(false);
-
-  const effectiveMinHeight = expanded ? '60vh' : minHeight;
 
   const outputSchemaKey = JSON.stringify(outputSchema);
 
@@ -358,17 +343,17 @@ export function CodeEditor({
   );
 
   const codeLinter = useMemo(
-    () => context === 'code' ? createCodeLinter(outputSchema, nodeType) : null,
+    () => editorMode === 'code' ? createCodeLinter(outputSchema, nodeType) : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [context, outputSchemaKey, nodeType],
+    [editorMode, outputSchemaKey, nodeType],
   );
 
-  const fillTheme = useMemo(() => editorFillTheme(effectiveMinHeight), [effectiveMinHeight]);
+  const fillTheme = useMemo(() => editorFillTheme(expanded ? '60vh' : minHeight), [expanded, minHeight]);
 
   const extensions = useMemo(
     () => [
-      context === 'json' ? json() : javascript({ jsx: false, typescript: true }),
-      ...(context !== 'json'
+      editorMode === 'json' ? json() : javascript({ jsx: false, typescript: true }),
+      ...(editorMode !== 'json'
         ? [
             autocompletion({
               override: [completionFn],
@@ -380,106 +365,32 @@ export function CodeEditor({
       ...(codeLinter ? [codeLinter, lintGutter()] : []),
       fillTheme,
     ],
-    [context, completionFn, codeLinter, fillTheme],
+    [editorMode, completionFn, codeLinter, fillTheme],
   );
 
-  const apiReference = showApiRef ? (
-    <div className="border border-border rounded bg-surface-secondary/50 px-3 py-2.5 text-[11px] font-mono space-y-2 mb-3">
-      <div className="flex items-center justify-between">
-        <span className="text-text-tertiary text-[10px] uppercase tracking-wider">API Reference</span>
-        <button onClick={() => setShowApiRef(false)} className="text-text-tertiary hover:text-text-primary text-[10px]">
-          Hide
-        </button>
-      </div>
-      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-        <span className="text-orange-400 font-semibold">input</span>
-        <span className="text-text-secondary">Upstream stage output</span>
+  return (
+    <div className="relative group w-full">
+      {/* Backdrop when expanded */}
+      {expanded && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setExpanded(false)} />
+      )}
 
-        <span className="text-text-muted pl-3">.data</span>
-        <span className="text-text-tertiary">The returned data from the previous stage</span>
-
-        <span className="text-text-muted pl-3">.status</span>
-        <span className="text-text-tertiary">"completed" | "failed"</span>
-
-        <span className="text-orange-400 font-semibold mt-1">config</span>
-        <span className="text-text-secondary mt-1">This node's configuration values</span>
-
-        <span className="text-orange-400 font-semibold mt-1">context</span>
-        <span className="text-text-secondary mt-1">Workflow execution context</span>
-
-        <span className="text-text-muted pl-3">.stages["id"].latest</span>
-        <span className="text-text-tertiary">Most recent output of any stage</span>
-
-        <span className="text-text-muted pl-3">.stages["id"].run_count</span>
-        <span className="text-text-tertiary">Number of executions</span>
-
-        <span className="text-text-muted pl-3">.variables</span>
-        <span className="text-text-tertiary">Shared workflow variables (read/write)</span>
-
-        <span className="text-orange-400 font-semibold mt-1">trigger</span>
-        <span className="text-text-secondary mt-1">Event that started this workflow</span>
-
-        <span className="text-text-muted pl-3">.type</span>
-        <span className="text-text-tertiary">"webhook" | "manual" | "schedule"</span>
-
-        <span className="text-text-muted pl-3">.payload</span>
-        <span className="text-text-tertiary">Raw event data (webhook body, form fields, etc.)</span>
-
-        <span className="text-text-muted pl-3">.source</span>
-        <span className="text-text-tertiary">Event source identifier</span>
-
-        <span className="text-text-muted pl-3">.timestamp</span>
-        <span className="text-text-tertiary">ISO 8601 timestamp</span>
-      </div>
-    </div>
-  ) : null;
-
-  const editorNode = (
-    <CodeMirror
-      value={value}
-      onChange={onChange}
-      extensions={extensions}
-      theme={githubDark}
-      placeholder={placeholder || (context === 'json' ? PLACEHOLDER_JSON : context === 'condition' ? PLACEHOLDER_CONDITION : PLACEHOLDER_CODE)}
-      basicSetup={{
-        lineNumbers: true,
-        foldGutter: true,
-        highlightActiveLine: true,
-        highlightSelectionMatches: true,
-        bracketMatching: true,
-        closeBrackets: true,
-        autocompletion: false,
-        indentOnInput: true,
-      }}
-      style={{
-        fontSize: '12px',
-        width: '100%',
-      }}
-      className="overflow-hidden rounded border border-border"
-    />
-  );
-
-  if (expanded) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setExpanded(false)}>
-        <div
-          className="bg-surface border border-border rounded-xl w-[90vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Modal header */}
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
-            <div className="flex items-center gap-2 text-xs text-text-secondary">
-              <span className="font-mono font-medium">Code Editor</span>
-              <span className="text-text-tertiary">{context === 'json' ? 'JSON' : 'JavaScript'}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setShowApiRef((p) => !p)}
-                className={`flex items-center gap-1 text-xs transition-colors px-2 py-1 rounded hover:bg-surface-secondary ${showApiRef ? 'text-blue-400' : 'text-text-tertiary hover:text-text-primary'}`}
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                {showApiRef ? 'Hide' : 'Show'} API Reference
-              </button>
+      {/* Editor container — always in the same DOM position */}
+      <div className={expanded
+        ? "fixed inset-0 z-50 flex items-center justify-center p-8 pointer-events-none"
+        : ""
+      }>
+        <div className={expanded
+          ? "bg-surface border border-border rounded-xl w-[90vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl pointer-events-auto"
+          : ""
+        }>
+          {/* Modal header — only when expanded */}
+          {expanded && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
+              <div className="flex items-center gap-2 text-xs text-text-secondary">
+                <span className="font-mono font-medium">Code Editor</span>
+                <span className="text-text-tertiary">{editorMode === 'json' ? 'JSON' : 'JavaScript'}</span>
+              </div>
               <button
                 onClick={() => setExpanded(false)}
                 className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded hover:bg-surface-secondary"
@@ -488,27 +399,43 @@ export function CodeEditor({
                 Collapse
               </button>
             </div>
-          </div>
-          {/* Editor body */}
-          <div className="flex-1 overflow-auto p-3">
-            {apiReference}
-            {editorNode}
+          )}
+
+          {/* Editor body — always rendered, same instance */}
+          <div className={expanded ? "flex-1 overflow-auto p-3" : ""}>
+            <CodeMirror
+              value={value}
+              onChange={onChange}
+              extensions={extensions}
+              theme={githubDark}
+              placeholder={placeholder || (editorMode === 'json' ? PLACEHOLDER_JSON : editorMode === 'condition' ? PLACEHOLDER_CONDITION : PLACEHOLDER_CODE)}
+              basicSetup={{
+                lineNumbers: true,
+                foldGutter: true,
+                highlightActiveLine: true,
+                highlightSelectionMatches: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                autocompletion: false,
+                indentOnInput: true,
+              }}
+              style={{ fontSize: '12px', width: '100%' }}
+              className="overflow-hidden rounded border border-border"
+            />
           </div>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div className="relative group w-full">
-      {editorNode}
-      <button
-        onClick={() => setExpanded(true)}
-        className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-secondary/90 border border-border rounded p-1 text-text-tertiary hover:text-text-primary"
-        title="Expand editor"
-      >
-        <Maximize2 className="w-3.5 h-3.5" />
-      </button>
+      {/* Expand button — only when not expanded */}
+      {!expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-secondary/90 border border-border rounded p-1 text-text-tertiary hover:text-text-primary"
+          title="Expand editor"
+        >
+          <Maximize2 className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   );
 }

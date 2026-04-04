@@ -267,7 +267,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
                     update('config.output_schema', val || undefined);
                   }
                 }}
-                context="json"
+                editorMode="json"
                 placeholder={'{\n  "type": "object",\n  "properties": {\n    "decision": {\n      "type": "string",\n      "enum": ["approved", "rejected"],\n      "description": "The review verdict"\n    },\n    "reason": {\n      "type": "string",\n      "description": "Explanation of the decision"\n    }\n  },\n  "required": ["decision", "reason"]\n}'}
                 minHeight="120px"
               />
@@ -521,27 +521,12 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
 }
 
 function findUpstreamStages(stageId: string, definition: WorkflowDefinition): StageDefinition[] {
-  const visited = new Set<string>();
-  const queue: string[] = [];
-
-  for (const edge of definition.edges) {
-    if (edge.target === stageId && !visited.has(edge.source)) {
-      queue.push(edge.source);
-      visited.add(edge.source);
-    }
-  }
-
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    for (const edge of definition.edges) {
-      if (edge.target === current && !visited.has(edge.source)) {
-        queue.push(edge.source);
-        visited.add(edge.source);
-      }
-    }
-  }
-
-  return definition.stages.filter((s) => visited.has(s.id));
+  // Only return direct upstream stages (one edge hop), not transitive ancestors.
+  // Transitive ancestors are accessible via context.stages["id"].latest
+  const directSourceIds = definition.edges
+    .filter(e => e.target === stageId)
+    .map(e => e.source);
+  return definition.stages.filter(s => directSourceIds.includes(s.id));
 }
 
 function canStageCycle(stageId: string, definition: WorkflowDefinition): boolean {
@@ -938,7 +923,7 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
                   <CodeEditor
                     value={edge.condition || ''}
                     onChange={(val) => debouncedOnSave({ ...edge, condition: val || undefined })}
-                    context="condition"
+                    editorMode="condition"
                     minHeight="60px"
                     outputSchema={sourceOutputSchema}
                   />

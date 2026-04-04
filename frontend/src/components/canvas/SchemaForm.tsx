@@ -194,7 +194,7 @@ function SchemaField({
   }
 
   // String with format: 'code' or 'json' → CodeMirror editor with syntax highlighting
-  if (prop.format === 'code' || prop.format === 'json' || name === 'code' || name === 'expression') {
+  if (prop.format === 'code' || prop.format === 'json') {
     const displayValue =
       value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     const editorContext = prop.format === 'json'
@@ -206,7 +206,7 @@ function SchemaField({
       <Field label={label} description={prop.description} required={required}>
         <CodeEditor
           value={String(displayValue)}
-          context={editorContext}
+          editorMode={editorContext}
           outputSchema={outputSchema}
           nodeType={nodeType}
           onChange={(raw) => {
@@ -221,6 +221,11 @@ function SchemaField({
           }}
           minHeight={name === 'code' ? '160px' : '80px'}
         />
+        {prop.format === 'json' && typeof value === 'string' && value.trim() && (() => {
+          try { JSON.parse(value); return null; } catch (e) {
+            return <p className="text-[10px] text-red-500 mt-1">Invalid JSON: {(e as Error).message}</p>;
+          }
+        })()}
       </Field>
     );
   }
