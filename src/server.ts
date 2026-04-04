@@ -12,7 +12,7 @@ import { websocketPlugin } from './api/websocket.js';
 import { EventBus } from './events/bus.js';
 import { ManualTriggerProvider } from './events/providers/manual.js';
 import { AgentPool } from './acp/pool.js';
-import { createProvider } from './acp/provider/registry.js';
+import { createProvider, initializeProviders } from './acp/provider/registry.js';
 import { setDefaultProvider } from './agents/discovery.js';
 import { runCrashRecovery } from './recovery.js';
 import { launchWorkflow } from './workflow/launch.js';
@@ -78,6 +78,9 @@ async function start() {
 
   // Initialize node type registry before accepting connections
   await initializeRegistry();
+
+  // Discover and register custom ACP providers from ./providers/ and ~/.autome/providers/
+  await initializeProviders();
 
   // Resolve the effective provider: DB setting takes priority, env var is fallback.
   // If neither is set, default to 'kiro' so the server starts up in a usable state

@@ -1,0 +1,145 @@
+/**
+ * Example ACP Provider Template
+ *
+ * Copy this file to one of the auto-discovered directories and remove the .template extension:
+ *   - ./providers/my-provider.ts       (project-local, tracked in this repo)
+ *   - ~/.autome/providers/my-provider.ts  (user-global, available in every project)
+ *
+ * The provider will be auto-discovered and registered at startup.
+ * Custom providers with the same name as a built-in will override it.
+ */
+
+// =============================================================================
+// Pattern 1: For ./providers/ (project-local) — extend BaseProvider
+//
+// Use this when the project's src/ directory is on the module resolution path.
+// You get shared agent-discovery logic for free.
+// =============================================================================
+
+import { BaseProvider } from '../src/acp/provider/base.js';
+import type { DiscoveredAgent, VendorNotificationResult } from '../src/acp/provider/types.js';
+
+export default class MyProvider extends BaseProvider {
+  // -- Identity --
+  readonly name = 'my-provider';           // unique key used in createProvider('my-provider')
+  readonly displayName = 'My Provider';    // shown in the UI
+
+  // -- Capabilities --
+  readonly supportsSessionResume = false;
+  readonly tracksMcpReadiness = false;
+
+  // -- Agent file extensions this provider recognises --
+  protected readonly agentFileExtensions = ['.json'];
+
+  // -- Process spawning --
+
+  /** The CLI binary to spawn (must be on PATH) */
+  getCommand(): string {
+    return 'my-agent-cli';
+  }
+
+  /** CLI arguments passed before the connection handshake */
+  getSpawnArgs(options: { agent?: string; model?: string }): string[] {
+    const args = ['--acp'];
+    if (options.agent) args.push('--agent', options.agent);
+    if (options.model) args.push('--model', options.model);
+    return args;
+  }
+
+  /** Extra environment variables injected into the spawned process */
+  getSpawnEnv(): Record<string, string> {
+    return {};
+    // Example: return { MY_PROVIDER_API_KEY: process.env.MY_PROVIDER_API_KEY ?? '' };
+  }
+
+  // -- Agent discovery --
+
+  /** Where project-local agent files live */
+  getLocalAgentDir(workingDir: string): string {
+    return `${workingDir}/.my-provider/agents`;
+  }
+
+  /** Where user-global agent files live */
+  getGlobalAgentDir(): string {
+    return `${process.env.HOME}/.my-provider/agents`;
+  }
+
+  /**
+   * Parse a single agent file into a DiscoveredAgent.
+   * Return null to skip the file.
+   */
+  protected parseAgentFile(content: string, fileName: string): DiscoveredAgent | null {
+    try {
+      const raw = JSON.parse(content) as Record<string, unknown>;
+      const agentName = String(raw['name'] ?? fileName.replace(/\.json$/, ''));
+      return {
+        name: agentName,
+        spec: raw,
+        source: 'local',
+        path: '',   // will be overwritten by BaseProvider.scanAgentDir
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // -- Vendor notifications --
+
+  /**
+   * Handle vendor-specific JSON-RPC notifications sent by the CLI.
+   * Return null (or { type: 'ignore' }) for notifications you don't care about.
+   */
+  handleVendorNotification(
+    _method: string,
+    _params: Record<string, unknown>,
+  ): VendorNotificationResult | null {
+    return null;
+  }
+}
+
+
+// =============================================================================
+// Pattern 2: For ~/.autome/providers/ (user-global) — plain object export
+//
+// Use this when you can't import from the project's src/ directory.
+// All required methods must be implemented inline.
+// Copy everything from "const myProvider" downward into your standalone file.
+// =============================================================================
+
+/*
+
+const myProvider = {
+  // -- Identity --
+  name: 'my-provider',
+  displayName: 'My Provider',
+
+  // -- Capabilities --
+  supportsSessionResume: false,
+  tracksMcpReadiness: false,
+
+  // -- Process spawning --
+  getCommand() { return 'my-agent-cli'; },
+
+  getSpawnArgs(options) {
+    const args = ['--acp'];
+    if (options.agent) args.push('--agent', options.agent);
+    if (options.model) args.push('--model', options.model);
+    return args;
+  },
+
+  getSpawnEnv() { return {}; },
+
+  // -- Agent discovery --
+  getLocalAgentDir(workingDir) { return `${workingDir}/.my-provider/agents`; },
+  getGlobalAgentDir() { return `${process.env.HOME}/.my-provider/agents`; },
+
+  async discoverAgents(_opts) { return []; },
+  async getAgentSpec(_name, _opts) { return null; },
+
+  // -- Vendor notifications --
+  handleVendorNotification(_method, _params) { return null; },
+};
+
+export default myProvider;
+
+*/
