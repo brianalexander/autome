@@ -150,7 +150,9 @@ export function useDraftLifecycle(workflowId: string | undefined): DraftLifecycl
 
   const handleDefinitionChange = useCallback(
     (def: WorkflowDefinition) => {
-      const changed = JSON.stringify(def) !== JSON.stringify(definitionRef.current);
+      // Reference inequality is sufficient: callers always produce a new object when
+      // the definition actually changed (ConfigPanel, EdgeConfigPanel, etc.).
+      const changed = def !== definitionRef.current;
       pushDefinition(def);
       if (changed) userEditedRef.current = true;
       if (!isNew && changed) setHasChanges(true);

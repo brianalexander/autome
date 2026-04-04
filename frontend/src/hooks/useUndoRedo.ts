@@ -18,8 +18,10 @@ type Action<T> =
 function reducer<T>(state: HistoryState<T>, action: Action<T>): HistoryState<T> {
   switch (action.type) {
     case 'PUSH':
-      // Skip duplicate pushes — avoids phantom history entries from no-op changes
-      if (JSON.stringify(action.value) === JSON.stringify(state.present)) return state;
+      // Skip duplicate pushes — avoids phantom history entries from no-op changes.
+      // Reference equality is sufficient: ConfigPanel always produces a new object when
+      // the value actually changed, and the debounce already prevents rapid-fire pushes.
+      if (action.value === state.present) return state;
       return {
         past: [...state.past.slice(-(MAX_HISTORY - 1)), state.present],
         present: action.value,

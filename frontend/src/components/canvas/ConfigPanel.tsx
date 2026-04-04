@@ -27,8 +27,23 @@ interface ConfigPanelProps {
 
 export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDefinitionChange }: ConfigPanelProps) {
   const { data: specs } = useNodeTypes();
+
+  // Local edit state — updated synchronously on every keystroke for responsiveness.
+  // Only reset when a DIFFERENT stage is selected (stage.id changes), not when the
+  // parent's version of the same stage updates (which would cause the cursor to jump).
+  const [editState, setEditState] = useState<StageDefinition>(stage);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  // The debounced flush receives the latest value via a ref so the closure never goes stale.
+  const pendingValueRef = useRef<StageDefinition>(stage);
+
+  useEffect(() => {
+    setEditState(stage);
+    pendingValueRef.current = stage;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage.id]);
+
   // Stage config is Record<string, unknown> at the type level, but we know the actual shape by node type
-  const cfg = (stage.config || {}) as {
+  const cfg = (editState.config || {}) as {
     // Webhook trigger config
     secret?: string;
     payload_filter?: string;
@@ -42,11 +57,12 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
     timeout_minutes?: number;
     [key: string]: unknown;
   };
-
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const debouncedOnSave = useCallback((updated: StageDefinition) => {
+  const debouncedFlush = useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => onSave(updated), 300);
+    saveTimeoutRef.current = setTimeout(() => {
+      // structuredClone happens ONCE per debounce period, not on every keystroke.
+      onSave(structuredClone(pendingValueRef.current));
+    }, 300);
   }, [onSave]);
 
   useEffect(() => () => {
@@ -54,20 +70,26 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
   }, []);
 
   const update = useCallback((path: string, value: unknown) => {
-    const next = structuredClone(stage);
-    const parts = path.split('.');
-    let obj: Record<string, unknown> = next as unknown as Record<string, unknown>;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (obj[parts[i]] === undefined) obj[parts[i]] = {};
-      obj = obj[parts[i]] as Record<string, unknown>;
-    }
-    if (value === undefined) {
-      delete obj[parts[parts.length - 1]];
-    } else {
-      obj[parts[parts.length - 1]] = value;
-    }
-    debouncedOnSave(next);
-  }, [stage, debouncedOnSave]);
+    setEditState((prev) => {
+      const parts = path.split('.');
+      // Shallow-clone each level along the path so we don't mutate existing objects.
+      const next = { ...prev } as Record<string, unknown>;
+      let obj = next;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const child = obj[parts[i]];
+        obj[parts[i]] = child !== null && typeof child === 'object' ? { ...(child as Record<string, unknown>) } : {};
+        obj = obj[parts[i]] as Record<string, unknown>;
+      }
+      if (value === undefined) {
+        delete obj[parts[parts.length - 1]];
+      } else {
+        obj[parts[parts.length - 1]] = value;
+      }
+      pendingValueRef.current = next as unknown as StageDefinition;
+      return next as unknown as StageDefinition;
+    });
+    debouncedFlush();
+  }, [debouncedFlush]);
 
   // Compute upstream output schema(s) for autocomplete and reference
   const upstreamSchema = useMemo(() => {
@@ -122,7 +144,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
     <div className="w-full h-full bg-surface flex flex-col min-h-0 overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
-        <h3 className="font-semibold text-sm">Configure: {stage.id}</h3>
+        <h3 className="font-semibold text-sm">Configure: {editState.id}</h3>
         <button onClick={onClose} className="text-text-tertiary hover:text-text-primary transition-colors p-1" title="Close">
           <X className="w-3.5 h-3.5" />
         </button>
@@ -131,21 +153,21 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {/* Stage ID (read-only) */}
         <Field label="Stage ID">
-          <input value={stage.id} disabled className="input-field opacity-60" />
+          <input value={editState.id} disabled className="input-field opacity-60" />
         </Field>
 
         {/* Stage Type */}
         <Field label="Type">
-          <span className="text-sm capitalize">{stage.type}</span>
+          <span className="text-sm capitalize">{editState.type}</span>
         </Field>
 
         {/* Node Label */}
         <Field label="Label">
           <input
-            value={stage.label || ''}
+            value={editState.label || ''}
             onChange={(e) => update('label', e.target.value || undefined)}
             className="input-field"
-            placeholder={stage.type
+            placeholder={editState.type
               .split('-')
               .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
               .join(' ')}
@@ -155,7 +177,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         {/* Node Description */}
         <Field label="Description">
           <input
-            value={stage.description || ''}
+            value={editState.description || ''}
             onChange={(e) => update('description', e.target.value || undefined)}
             className="input-field"
             placeholder="Short description of what this node does"
@@ -163,7 +185,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         </Field>
 
         {/* Upstream input schema reference */}
-        {upstreamSchema?.properties != null && !isTriggerType(stage.type) && (
+        {upstreamSchema?.properties != null && !isTriggerType(editState.type) && (
           <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3 mb-4">
             <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
               Input
@@ -185,9 +207,9 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         )}
 
         {/* Agent-specific config */}
-        {stage.type === 'agent' && (
+        {editState.type === 'agent' && (
           <AgentConfigSection
-            stage={stage}
+            stage={editState}
             definition={definition}
             update={update}
             onDefinitionChange={onDefinitionChange}
@@ -195,7 +217,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         )}
 
         {/* === Manual Trigger config === */}
-        {stage.type === 'manual-trigger' && (
+        {editState.type === 'manual-trigger' && (
           <>
             <ExpectedInputsBlock fields={expectedPayloadFields} />
 
@@ -218,7 +240,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         )}
 
         {/* === Webhook Trigger config === */}
-        {stage.type === 'webhook-trigger' && (
+        {editState.type === 'webhook-trigger' && (
           <>
             <ExpectedInputsBlock fields={expectedPayloadFields} />
 
@@ -291,7 +313,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         )}
 
         {/* === Cron Trigger config === */}
-        {stage.type === 'cron-trigger' && (
+        {editState.type === 'cron-trigger' && (
           <>
             <Field label="Schedule" description="How often the workflow should run">
               <input
@@ -326,7 +348,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         )}
 
         {/* Gate-specific config */}
-        {stage.type === 'gate' && (
+        {editState.type === 'gate' && (
           <>
             <Field label="Gate Type">
               <select
@@ -388,13 +410,22 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         )}
 
         {/* Generic config for new node types — driven by SchemaForm */}
-        {!['agent', 'gate', 'manual-trigger', 'webhook-trigger', 'cron-trigger'].includes(stage.type) && (
-          <GenericNodeConfig editState={stage} onUpdate={(updated) => debouncedOnSave(updated)} upstreamSchema={upstreamSchema} nodeType={stage.type} />
+        {!['agent', 'gate', 'manual-trigger', 'webhook-trigger', 'cron-trigger'].includes(editState.type) && (
+          <GenericNodeConfig
+            editState={editState}
+            onUpdate={(updated) => {
+              pendingValueRef.current = updated;
+              setEditState(updated);
+              debouncedFlush();
+            }}
+            upstreamSchema={upstreamSchema}
+            nodeType={editState.type}
+          />
         )}
 
         {/* --- Advanced: Fan-in, Retry, Map (all step types) --- */}
-        {!isTriggerType(stage.type) && (
-          <AdvancedStageConfig editState={stage} definition={definition} onUpdate={update} />
+        {!isTriggerType(editState.type) && (
+          <AdvancedStageConfig editState={editState} definition={definition} onUpdate={update} />
         )}
       </div>
     </div>

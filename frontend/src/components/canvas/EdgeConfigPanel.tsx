@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X } from 'lucide-react';
 import { useNodeTypes } from '../../hooks/queries';
 import {
@@ -43,11 +43,26 @@ export interface EdgeConfigPanelProps {
 export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelete, onClose }: EdgeConfigPanelProps) {
   const { data: specs } = useNodeTypes();
 
+  // Local edit state — updated immediately for responsive typing.
+  // Only reset when a DIFFERENT edge is selected.
+  const [editState, setEditState] = useState<EdgeDefinition>(edge);
+  useEffect(() => {
+    setEditState(edge);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edge.id]);
+
   const edgeSaveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const debouncedOnSave = useCallback((updated: EdgeDefinition) => {
+  const pendingEdgeRef = useRef<EdgeDefinition>(editState);
+  const debouncedFlush = useCallback(() => {
     if (edgeSaveTimeoutRef.current) clearTimeout(edgeSaveTimeoutRef.current);
-    edgeSaveTimeoutRef.current = setTimeout(() => onSave(updated), 300);
+    edgeSaveTimeoutRef.current = setTimeout(() => onSave(pendingEdgeRef.current), 300);
   }, [onSave]);
+
+  const updateEdge = useCallback((updated: EdgeDefinition) => {
+    pendingEdgeRef.current = updated;
+    setEditState(updated);
+    debouncedFlush();
+  }, [debouncedFlush]);
 
   useEffect(() => () => {
     if (edgeSaveTimeoutRef.current) clearTimeout(edgeSaveTimeoutRef.current);
@@ -70,12 +85,12 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         <Field label="Edge ID">
-          <input value={edge.id} disabled className="input-field opacity-60" />
+          <input value={editState.id} disabled className="input-field opacity-60" />
         </Field>
 
         <Field label="Connection">
           <div className="text-sm text-text-primary font-mono">
-            {edge.source} → {edge.target}
+            {editState.source} → {editState.target}
           </div>
           <div className="text-[10px] text-text-tertiary mt-0.5">
             {sourceSpec?.name || sourceStage?.type} → {targetSpec?.name || targetStage?.type}
@@ -96,7 +111,7 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
           return (
             <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3">
               <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
-                Available from {sourceStage?.label || edge.source}
+                Available from {sourceStage?.label || editState.source}
               </div>
               <div className="space-y-1">
                 {Object.entries(props).map(([key, ps]) => {
@@ -117,8 +132,8 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
 
         <Field label="Label">
           <input
-            value={edge.label || ''}
-            onChange={(e) => debouncedOnSave({ ...edge, label: e.target.value || undefined })}
+            value={editState.label || ''}
+            onChange={(e) => updateEdge({ ...editState, label: e.target.value || undefined })}
             className="input-field"
             placeholder="e.g., Approved, Needs revision"
           />
@@ -126,10 +141,10 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
 
         <Field label="Trigger">
           <select
-            value={edge.trigger || 'on_success'}
+            value={editState.trigger || 'on_success'}
             onChange={(e) =>
-              debouncedOnSave({
-                ...edge,
+              updateEdge({
+                ...editState,
                 trigger: e.target.value === 'on_success' ? undefined : (e.target.value as 'on_error'),
               })
             }
@@ -138,7 +153,7 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
             <option value="on_success">On Success (default)</option>
             <option value="on_error">On Error (fallback path)</option>
           </select>
-          {edge.trigger === 'on_error' && (
+          {editState.trigger === 'on_error' && (
             <div className="text-[10px] text-orange-600 dark:text-orange-400 mt-0.5">
               This edge fires when the source stage fails after exhausting retries. The target receives{' '}
               {'{ error, stageId, lastOutput }'} as input.
@@ -152,8 +167,8 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
             <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-3">From: {sourceSpec.name}</div>
             <SchemaForm
               schema={sourceSpec.outEdgeSchema}
-              value={edge as Record<string, unknown>}
-              onChange={(updated) => debouncedOnSave({ ...edge, ...updated })}
+              value={editState as Record<string, unknown>}
+              onChange={(updated) => updateEdge({ ...editState, ...updated })}
             />
           </div>
         )}
@@ -164,8 +179,8 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
             <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-3">To: {targetSpec.name}</div>
             <SchemaForm
               schema={targetSpec.inEdgeSchema}
-              value={edge as Record<string, unknown>}
-              onChange={(updated) => debouncedOnSave({ ...edge, ...updated })}
+              value={editState as Record<string, unknown>}
+              onChange={(updated) => updateEdge({ ...editState, ...updated })}
             />
           </div>
         )}
@@ -179,8 +194,8 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
               {!sourceSpec?.outEdgeSchema && !targetSpec?.inEdgeSchema && (
                 <Field label="Condition (JS expression)">
                   <CodeEditor
-                    value={edge.condition || ''}
-                    onChange={(val) => debouncedOnSave({ ...edge, condition: val || undefined })}
+                    value={editState.condition || ''}
+                    onChange={(val) => updateEdge({ ...editState, condition: val || undefined })}
                     editorMode="condition"
                     minHeight="60px"
                     outputSchema={sourceOutputSchema}
@@ -191,7 +206,7 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
               {/* Design-time validation warnings */}
               {(() => {
                 const outputSchema = sourceOutputSchema;
-                const conditionExpr = edge.condition;
+                const conditionExpr = editState.condition;
                 if (!outputSchema?.properties || !conditionExpr) return null;
 
                 const refs = extractFieldReferences(conditionExpr);
