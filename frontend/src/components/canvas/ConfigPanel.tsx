@@ -673,50 +673,6 @@ function Field({ label, description, children }: { label: string; description?: 
   );
 }
 
-function JsonTextarea({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: Record<string, unknown> | undefined;
-  onChange: (val: Record<string, unknown> | undefined) => void;
-  placeholder?: string;
-}) {
-  const [raw, setRaw] = useState(value ? JSON.stringify(value, null, 2) : '');
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    setRaw(value ? JSON.stringify(value, null, 2) : '');
-    setError(false);
-  }, [value]);
-
-  return (
-    <>
-      <textarea
-        value={raw}
-        onChange={(e) => {
-          setRaw(e.target.value);
-          if (!e.target.value.trim()) {
-            setError(false);
-            onChange(undefined);
-            return;
-          }
-          try {
-            const parsed = JSON.parse(e.target.value);
-            setError(false);
-            onChange(parsed);
-          } catch {
-            setError(true);
-          }
-        }}
-        className={`input-field min-h-[80px] resize-y font-mono text-xs ${error ? 'border-red-500' : ''}`}
-        placeholder={placeholder}
-      />
-      {error && <p className="text-xs text-red-600 dark:text-red-400 mt-1">Invalid JSON</p>}
-    </>
-  );
-}
-
 // Read-only view of the agent's canonical spec
 function AgentSpecView({ spec }: { spec: KiroAgentSpec }) {
   const [expanded, setExpanded] = useState(false);

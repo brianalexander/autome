@@ -2,7 +2,7 @@
  * CodeEditor — CodeMirror-based editor with syntax highlighting, autocompletion,
  * and an expand-to-modal feature for comfortable code editing.
  */
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
@@ -24,11 +24,6 @@ const INPUT_MEMBERS: TypeMember[] = [
   { label: 'data', detail: 'upstream output', info: 'The data returned by the previous stage' },
   { label: 'status', detail: 'string', info: '"completed" | "failed" — result status of upstream stage' },
   { label: 'error', detail: 'string | undefined', info: 'Error message if upstream stage failed' },
-];
-
-const CONFIG_MEMBERS: TypeMember[] = [
-  { label: 'code', detail: 'string', info: 'This node\'s source code' },
-  { label: 'timeout_seconds', detail: 'number', info: 'Max execution time (default: 30)' },
 ];
 
 const CONTEXT_MEMBERS: TypeMember[] = [
@@ -64,7 +59,6 @@ const TOP_LEVEL_COMPLETIONS: Completion[] = [
 
 const MEMBER_MAP: Record<string, TypeMember[]> = {
   input: INPUT_MEMBERS,
-  config: CONFIG_MEMBERS,
   context: CONTEXT_MEMBERS,
   trigger: TRIGGER_MEMBERS,
 };
@@ -114,8 +108,7 @@ const codeHoverTooltip = hoverTooltip((view, pos): Tooltip | null => {
   const word = lineText.slice(start, end);
   if (!word) return null;
 
-  // Try full dotted path first (e.g. "input.data"), then just the identifier
-  const info = HOVER_MAP[word] || HOVER_MAP[word.split('.').pop() || ''];
+  const info = HOVER_MAP[word];
   if (!info) return null;
 
   return {
@@ -354,24 +347,23 @@ export function CodeEditor({
   const [expanded, setExpanded] = useState(false);
   const [showApiRef, setShowApiRef] = useState(false);
 
-  const handleChange = useCallback(
-    (val: string) => {
-      onChange(val);
-    },
-    [onChange],
-  );
-
   const effectiveMinHeight = expanded ? '60vh' : minHeight;
+
+  const outputSchemaKey = JSON.stringify(outputSchema);
 
   const completionFn = useMemo(
     () => createSchemaAwareCompletions(outputSchema),
-    [outputSchema],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [outputSchemaKey],
   );
 
   const codeLinter = useMemo(
     () => context === 'code' ? createCodeLinter(outputSchema, nodeType) : null,
-    [context, outputSchema, nodeType],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [context, outputSchemaKey, nodeType],
   );
+
+  const fillTheme = useMemo(() => editorFillTheme(effectiveMinHeight), [effectiveMinHeight]);
 
   const extensions = useMemo(
     () => [
@@ -386,9 +378,9 @@ export function CodeEditor({
           ]
         : []),
       ...(codeLinter ? [codeLinter, lintGutter()] : []),
-      editorFillTheme(effectiveMinHeight),
+      fillTheme,
     ],
-    [context, effectiveMinHeight, completionFn, codeLinter],
+    [context, completionFn, codeLinter, fillTheme],
   );
 
   const apiReference = showApiRef ? (
@@ -445,7 +437,7 @@ export function CodeEditor({
   const editorNode = (
     <CodeMirror
       value={value}
-      onChange={handleChange}
+      onChange={onChange}
       extensions={extensions}
       theme={githubDark}
       placeholder={placeholder || (context === 'json' ? PLACEHOLDER_JSON : context === 'condition' ? PLACEHOLDER_CONDITION : PLACEHOLDER_CODE)}
@@ -478,7 +470,7 @@ export function CodeEditor({
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
             <div className="flex items-center gap-2 text-xs text-text-secondary">
               <span className="font-mono font-medium">Code Editor</span>
-              <span className="text-text-tertiary">JavaScript</span>
+              <span className="text-text-tertiary">{context === 'json' ? 'JSON' : 'JavaScript'}</span>
             </div>
             <div className="flex items-center gap-1">
               <button
