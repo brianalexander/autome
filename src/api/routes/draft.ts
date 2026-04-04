@@ -60,15 +60,9 @@ import {
   type EdgeDefinition,
 } from '../../schemas/pipeline.js';
 import type { RouteDeps, SharedState } from './shared.js';
-import {
-  getDraft,
-  saveDraft,
-  mergePatch,
-  getValidAgentIds,
-  validateAgentId,
-  validateStageConfig,
-  validateGraphStructure,
-} from './shared.js';
+import { getDraft, saveDraft, mergePatch } from './shared.js';
+import { getValidAgentIds, validateAgentId } from './agent-utils.js';
+import { validateStageConfig, validateGraphStructure, findUpstreamOutputSchema } from './validation.js';
 import { errorMessage } from '../../utils/errors.js';
 import { nodeRegistry } from '../../nodes/registry.js';
 import { validateCode } from '../../api/validate-code.js';
@@ -84,23 +78,6 @@ function getDraftWarnings(draft: WorkflowDefinition): string[] {
   if (!draft.stages?.length && !draft.edges?.length) return [];
   const { warnings } = validateGraphStructure(draft.stages, draft.edges);
   return warnings;
-}
-
-/** Looks up the first upstream stage's output_schema for the given stage. */
-function findUpstreamOutputSchema(
-  draft: WorkflowDefinition,
-  stageId: string,
-): Record<string, unknown> | undefined {
-  const incomingEdge = draft.edges?.find((e) => e.target === stageId);
-  if (!incomingEdge) return undefined;
-  const sourceStage = draft.stages?.find((s) => s.id === incomingEdge.source);
-  const sourceConfig = sourceStage?.config as Record<string, unknown> | undefined;
-  let schema = sourceConfig?.output_schema as Record<string, unknown> | undefined;
-  if (!schema && sourceStage) {
-    const spec = nodeRegistry.get(sourceStage.type);
-    schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
-  }
-  return schema;
 }
 
 /**

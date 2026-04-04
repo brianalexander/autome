@@ -110,6 +110,20 @@ function toolKindIcon(kind?: string | null, isAgent?: boolean): ReactNode {
   }
 }
 
+// --- RunningDuration ---
+// Small component with its own interval so elapsed time ticks for running children
+// without requiring the parent to manage their timers.
+
+function RunningDuration({ startMs, className }: { startMs: number; className?: string }) {
+  const [elapsed, setElapsed] = useState(() => Math.max(0, (Date.now() - startMs) / 1000));
+  useEffect(() => {
+    const tick = () => setElapsed(Math.max(0, (Date.now() - startMs) / 1000));
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startMs]);
+  return <span className={className}>{formatElapsed(elapsed)}</span>;
+}
+
 // --- Main Component ---
 
 export function ToolCallCard({
@@ -246,9 +260,7 @@ export function ToolCallCard({
                     : child.title || 'Tool call';
                   const childStart = new Date(child.created_at).getTime();
                   const childEnd = new Date(child.updated_at).getTime();
-                  const childDuration = childIsRunning
-                    ? Math.max(0, (Date.now() - childStart) / 1000)
-                    : Math.max(0, (childEnd - childStart) / 1000);
+                  const completedDuration = Math.max(0, (childEnd - childStart) / 1000);
 
                   return (
                     <div
@@ -267,9 +279,16 @@ export function ToolCallCard({
                         </span>
                       )}
                       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${childStyle.dot}`} />
-                      <span className={`text-[10px] font-mono tabular-nums flex-shrink-0 ${childIsRunning ? 'text-blue-400' : 'text-text-muted'}`}>
-                        {formatElapsed(childDuration)}
-                      </span>
+                      {childIsRunning ? (
+                        <RunningDuration
+                          startMs={childStart}
+                          className="text-[10px] font-mono tabular-nums flex-shrink-0 text-blue-400"
+                        />
+                      ) : (
+                        <span className="text-[10px] font-mono tabular-nums flex-shrink-0 text-text-muted">
+                          {formatElapsed(completedDuration)}
+                        </span>
+                      )}
                     </div>
                   );
                 })}

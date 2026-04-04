@@ -155,6 +155,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'workflow_get_context': {
         const response = await fetch(`${baseUrl}/api/internal/workflow-context/${instanceId}/${stageId}`);
+        if (!response.ok) {
+          const body = await response.text();
+          return {
+            content: [{ type: 'text', text: `Error fetching context (HTTP ${response.status}): ${body}` }],
+            isError: true,
+          };
+        }
         const context = await response.json();
         return { content: [{ type: 'text', text: JSON.stringify(context, null, 2) }] };
       }

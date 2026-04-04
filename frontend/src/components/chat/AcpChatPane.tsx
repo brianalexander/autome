@@ -100,7 +100,10 @@ export function AcpChatPane({
   const [expandedModal, setExpandedModal] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // isAtBottomRef is used in the scroll handler (hot path) to avoid re-render storms.
+  // isAtBottom is state so the button visibility actually re-renders.
   const isAtBottomRef = useRef(true);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   const { on } = useWebSocket();
 
@@ -233,7 +236,11 @@ export function AcpChatPane({
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    // Update the ref immediately (no re-render) for auto-scroll logic.
+    isAtBottomRef.current = atBottom;
+    // Sync state so the button visibility re-renders.
+    setIsAtBottom(atBottom);
   }, []);
 
   // --- Send message ---
@@ -482,7 +489,7 @@ export function AcpChatPane({
         )}
 
         {/* Scroll-to-bottom button */}
-        {!isAtBottomRef.current && chat.isStreaming && (
+        {!isAtBottom && chat.isStreaming && (
           <button
             onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })}
             className="fixed bottom-20 right-8 bg-surface-tertiary text-text-secondary hover:text-text-primary px-3 py-1.5 rounded-full text-xs shadow-lg border border-border-subtle"

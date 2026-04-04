@@ -1,5 +1,6 @@
 import { StatusBadge } from '../ui/StatusBadge';
 import { formatDuration } from '../../lib/format';
+import { getStatusCardClasses } from '../../lib/statusColors';
 import type { StageRun } from '../../lib/api';
 
 function formatTimestamp(ts: string): string {
@@ -16,13 +17,7 @@ export function RunHistory({ runs }: { runs: StageRun[] }) {
         {runs.map((run, i) => (
           <div
             key={i}
-            className={`rounded-lg border p-3 ${
-              run.status === 'completed'
-                ? 'border-green-300 dark:border-green-500/30 bg-status-success-muted'
-                : run.status === 'failed'
-                  ? 'border-red-300 dark:border-red-500/30 bg-status-error-muted'
-                  : 'border-blue-300 dark:border-blue-500/30 bg-status-info-muted'
-            }`}
+            className={`rounded-lg border p-3 ${getStatusCardClasses(run.status)}`}
           >
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">

@@ -127,30 +127,30 @@ export function useInstances(filter?: { status?: string; definitionId?: string; 
   });
 }
 
-export function useInstance(id: string) {
+export function useInstance(id: string | undefined) {
   const wsConnected = useUIStore((s) => s.wsConnected);
   return useQuery({
     queryKey: ['instance', id],
-    queryFn: () => instances.get(id),
+    queryFn: () => instances.get(id!),
     enabled: !!id,
     refetchInterval: wsConnected ? false : 3000, // Poll every 3s as fallback when WS is down
   });
 }
 
-export function useInstanceStatus(id: string) {
+export function useInstanceStatus(id: string | undefined) {
   const wsConnected = useUIStore((s) => s.wsConnected);
   return useQuery({
     queryKey: ['instance', id, 'status'],
-    queryFn: () => instances.getStatus(id),
+    queryFn: () => instances.getStatus(id!),
     enabled: !!id,
     refetchInterval: wsConnected ? false : 2000, // Poll every 2s as fallback when WS is down
   });
 }
 
-export function useInstanceDefinition(instanceId: string) {
+export function useInstanceDefinition(instanceId: string | undefined) {
   return useQuery({
     queryKey: ['instance-definition', instanceId],
-    queryFn: () => instances.getDefinition(instanceId),
+    queryFn: () => instances.getDefinition(instanceId!),
     enabled: !!instanceId,
   });
 }

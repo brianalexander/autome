@@ -8,14 +8,13 @@ import * as restateClient from '../../restate/client.js';
 import { launchWorkflow } from '../../workflow/launch.js';
 import { WorkflowDefinitionSchema } from '../../schemas/pipeline.js';
 import type { RouteDeps, SharedState } from './shared.js';
-import { validateAllStagesConfig, validateGraphStructure } from './shared.js';
+import { validateAllStagesConfig, validateGraphStructure } from './validation.js';
 import { errorMessage } from '../../utils/errors.js';
 import { exportWorkflow } from '../../bundle/export.js';
 import { importWorkflow, previewBundle } from '../../bundle/import.js';
 import { BUNDLE_EXTENSION } from '../../bundle/types.js';
 import { checkWorkflowHealth } from '../../bundle/health.js';
-import { nodeRegistry } from '../../nodes/registry.js';
-import { activateWorkflowTriggers, deactivateWorkflowTriggers } from '../../engine/trigger-lifecycle.js';
+import { activateWorkflowTriggers, createTriggerSubscriptions, deactivateWorkflowTriggers } from '../../engine/trigger-lifecycle.js';
 
 // Zod schemas for workflow routes
 const WorkflowIdParams = z.object({ id: z.string() });
@@ -338,30 +337,11 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
 
         deps.db.updateWorkflow(id, { active: true });
 
-        // Create a subscription for each trigger stage so events match by stage type
-        const triggerStages = (workflow.stages || []).filter(
-          (s: { type: string }) => nodeRegistry.isTriggerType(s.type)
-        );
-        if (triggerStages.length === 0) {
-          // Fallback: use legacy top-level trigger.provider for backwards compat
-          deps.eventBus.addSubscription({
-            id: `sub-${workflow.id}`,
-            provider: workflow.trigger.provider,
-            eventType: 'trigger',
-            filter: workflow.trigger.filter,
-            workflowDefinitionId: workflow.id,
-          });
-        } else {
-          for (const stage of triggerStages) {
-            deps.eventBus.addSubscription({
-              id: `sub-${workflow.id}-${stage.id}`,
-              provider: stage.type,
-              eventType: 'trigger',
-              filter: workflow.trigger.filter,
-              workflowDefinitionId: workflow.id,
-            });
-          }
-        }
+        // Remove any existing subscriptions first to prevent duplicates from
+        // repeated activate/deactivate cycles.
+        deps.eventBus.removeSubscriptionsForWorkflow(workflow.id);
+
+        createTriggerSubscriptions(workflow, deps.eventBus);
 
         // Start trigger executor processes (code-trigger, cron, etc.)
         await activateWorkflowTriggers(workflow);

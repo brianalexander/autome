@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { validateStageConfig, validateAllStagesConfig } from '../shared.js';
+import { validateStageConfig, validateAllStagesConfig } from '../validation.js';
 import { initializeRegistry } from '../../../nodes/registry.js';
 
 beforeAll(async () => {

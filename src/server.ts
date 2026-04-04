@@ -20,46 +20,20 @@ import { initializeRegistry, nodeRegistry } from './nodes/registry.js';
 import {
   initTriggerLifecycle,
   activateWorkflowTriggers,
+  createTriggerSubscriptions,
   deactivateAll as deactivateAllTriggers,
 } from './engine/trigger-lifecycle.js';
 import { config } from './config.js';
 
 const PORT = config.port;
 
-// Initialize database
-const db = new OrchestratorDB();
-
-// Initialize event system
-const eventBus = new EventBus();
-const manualTrigger = new ManualTriggerProvider();
-
-// These are assigned during start() after async provider initialization
+// Declared at module scope so signal handlers and start() share references.
+// All are assigned inside start() so errors are covered by start().catch().
+let db: OrchestratorDB;
+let eventBus: EventBus;
+let manualTrigger: ManualTriggerProvider;
 let authorPool: AgentPool;
 let acpPool: AgentPool;
-eventBus.registerProvider(manualTrigger);
-
-// Initialize trigger lifecycle manager with the event bus
-initTriggerLifecycle(eventBus);
-
-// Listen for trigger events and spawn workflow instances
-eventBus.on('trigger', async ({ subscription, event }) => {
-  try {
-    const workflow = db.getWorkflow(subscription.workflowDefinitionId);
-    if (!workflow || !workflow.active) return;
-
-    const allStageIds = workflow.stages.map((s) => s.id);
-    const { restateError, validationError } = await launchWorkflow(db, workflow, event, allStageIds, workflow.id);
-    if (validationError) {
-      console.error(`[event-bus] Payload validation failed for ${workflow.id}: ${validationError}`);
-      return;
-    }
-    if (restateError) {
-      console.error('[event-bus] Failed to start Restate workflow:', restateError);
-    }
-  } catch (err) {
-    console.error('[event-bus] Error spawning instance:', err);
-  }
-});
 
 // Create Fastify app
 const app = Fastify({ logger: false });
@@ -69,6 +43,39 @@ app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
 async function start() {
+  // Initialize database
+  db = new OrchestratorDB();
+
+  // Initialize event system
+  eventBus = new EventBus();
+  manualTrigger = new ManualTriggerProvider();
+  eventBus.registerProvider(manualTrigger);
+
+  // Initialize trigger lifecycle manager with the event bus
+  initTriggerLifecycle(eventBus);
+
+  // Listen for trigger events and spawn workflow instances
+  eventBus.on('trigger', async ({ subscription, event }) => {
+    try {
+      const workflow = db.getWorkflow(subscription.workflowDefinitionId);
+      if (!workflow || !workflow.active) return;
+
+      const nonTriggerStageIds = workflow.stages
+        .filter((s) => !nodeRegistry.isTriggerType(s.type))
+        .map((s) => s.id);
+      const { restateError, validationError } = await launchWorkflow(db, workflow, event, nonTriggerStageIds, workflow.id);
+      if (validationError) {
+        console.error(`[event-bus] Payload validation failed for ${workflow.id}: ${validationError}`);
+        return;
+      }
+      if (restateError) {
+        console.error('[event-bus] Failed to start Restate workflow:', restateError);
+      }
+    } catch (err) {
+      console.error('[event-bus] Error spawning instance:', err);
+    }
+  });
+
   // Initialize node type registry before accepting connections
   await initializeRegistry();
 
@@ -124,8 +131,8 @@ async function start() {
     console.log('Shutting down...');
     deactivateAllTriggers();
     await eventBus.stopAll().catch(() => {});
-    await authorPool.terminateAll().catch(() => {});
-    await acpPool.terminateAll().catch(() => {});
+    await authorPool?.terminateAll().catch(() => {});
+    await acpPool?.terminateAll().catch(() => {});
     db.close();
   });
 
@@ -136,30 +143,7 @@ async function start() {
   const { data: workflows } = db.listWorkflows();
   for (const workflow of workflows) {
     if (workflow.active) {
-      // Create a subscription for each trigger stage so events match by stage type
-      const triggerStages = (workflow.stages || []).filter(
-        (s: { type: string }) => nodeRegistry.isTriggerType(s.type)
-      );
-      if (triggerStages.length === 0) {
-        // Fallback: use legacy top-level trigger.provider for backwards compat
-        eventBus.addSubscription({
-          id: `sub-${workflow.id}`,
-          provider: workflow.trigger.provider,
-          eventType: 'trigger',
-          filter: workflow.trigger.filter,
-          workflowDefinitionId: workflow.id,
-        });
-      } else {
-        for (const stage of triggerStages) {
-          eventBus.addSubscription({
-            id: `sub-${workflow.id}-${stage.id}`,
-            provider: stage.type,
-            eventType: 'trigger',
-            filter: workflow.trigger.filter,
-            workflowDefinitionId: workflow.id,
-          });
-        }
-      }
+      createTriggerSubscriptions(workflow, eventBus);
       // Activate trigger executors (e.g., cron intervals) for this workflow
       activateWorkflowTriggers(workflow).catch((err) =>
         console.error(`[trigger-lifecycle] Failed to activate triggers for workflow "${workflow.name}":`, err),

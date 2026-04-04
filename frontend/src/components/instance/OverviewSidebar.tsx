@@ -3,6 +3,7 @@ import { StageDataCard } from './StageDataCard';
 import { EdgeCard } from './EdgeCard';
 import { RunningTimer } from '../ui/RunningTimer';
 import { formatDuration } from '../../lib/format';
+import { getTimelineDotClasses } from '../../lib/statusColors';
 import type { WorkflowDefinition, WorkflowInstance, StageContext, StageRun, StageDefinition } from '../../lib/api';
 
 function formatTimestamp(ts: string): string {
@@ -175,18 +176,7 @@ export function OverviewSidebar({
           ) : (
             <div className="space-y-1">
               {timeline.map((entry, i) => {
-                const statusColor =
-                  entry.run.status === 'completed'
-                    ? 'border-green-500 bg-green-500'
-                    : entry.run.status === 'failed'
-                      ? 'border-red-500 bg-red-500'
-                      : 'border-blue-500 bg-blue-500';
-                const lineColor =
-                  entry.run.status === 'completed'
-                    ? 'bg-green-300 dark:bg-green-800'
-                    : entry.run.status === 'failed'
-                      ? 'bg-red-300 dark:bg-red-800'
-                      : 'bg-blue-300 dark:bg-blue-800';
+                const { dot: statusColor, line: lineColor } = getTimelineDotClasses(entry.run.status);
 
                 return (
                   <div key={`${entry.stageId}-${entry.run.iteration}`} className="flex gap-3">

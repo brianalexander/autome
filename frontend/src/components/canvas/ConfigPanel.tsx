@@ -532,15 +532,6 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
   );
 }
 
-function findUpstreamStages(stageId: string, definition: WorkflowDefinition): StageDefinition[] {
-  // Only return direct upstream stages (one edge hop), not transitive ancestors.
-  // Transitive ancestors are accessible via context.stages["id"].latest
-  const directSourceIds = definition.edges
-    .filter(e => e.target === stageId)
-    .map(e => e.source);
-  return definition.stages.filter(s => directSourceIds.includes(s.id));
-}
-
 function canStageCycle(stageId: string, definition: WorkflowDefinition): boolean {
   const reachable = new Set<string>();
   const queue = [stageId];
@@ -554,69 +545,6 @@ function canStageCycle(stageId: string, definition: WorkflowDefinition): boolean
     }
   }
   return definition.edges.some((e) => e.target === stageId && reachable.has(e.source));
-}
-
-function ContextTemplateHelp({ stageId, definition }: { stageId: string; definition: WorkflowDefinition }) {
-  const upstreamStages = findUpstreamStages(stageId, definition);
-  const canCycle = canStageCycle(stageId, definition);
-
-  return (
-    <div className="bg-surface-secondary/50 border border-border rounded-lg p-3 space-y-2">
-      <div className="text-xs font-medium text-text-secondary uppercase tracking-wider">Available Variables</div>
-
-      {/* Trigger data */}
-      <div className="space-y-1">
-        <div className="text-[11px] text-text-primary font-medium">Trigger</div>
-        <code className="block text-[10px] text-blue-600 dark:text-blue-300 bg-surface-secondary px-2 py-1 rounded font-mono cursor-pointer select-all">
-          {'{{ trigger.payload }}'}
-        </code>
-        <code className="block text-[10px] text-blue-600 dark:text-blue-300 bg-surface-secondary px-2 py-1 rounded font-mono cursor-pointer select-all">
-          {'{{ trigger.payload.prompt }}'}
-        </code>
-      </div>
-
-      {/* Upstream stages */}
-      {upstreamStages.length > 0 && (
-        <div className="space-y-1">
-          <div className="text-[11px] text-text-primary font-medium">Upstream Stages</div>
-          {upstreamStages.map((stage) => (
-            <div key={stage.id} className="space-y-0.5">
-              <div className="text-[10px] text-text-secondary">
-                {stage.id} ({stage.type})
-              </div>
-              <code className="block text-[10px] text-green-600 dark:text-green-300 bg-surface-secondary px-2 py-1 rounded font-mono cursor-pointer select-all">
-                {`{{ stages.${stage.id}.latest }}`}
-              </code>
-              <code className="block text-[10px] text-text-secondary bg-surface-secondary px-2 py-1 rounded font-mono cursor-pointer select-all">
-                {`{{ stages.${stage.id}.run_count }}`}
-              </code>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Self-reference (if stage can cycle) */}
-      {canCycle && (
-        <div className="space-y-1">
-          <div className="text-[11px] text-rose-600 dark:text-rose-300 font-medium">Cycle (own prior output)</div>
-          <code className="block text-[10px] text-rose-600 dark:text-rose-300 bg-surface-secondary px-2 py-1 rounded font-mono cursor-pointer select-all">
-            {`{{ stages.${stageId}.latest }}`}
-          </code>
-          <code className="block text-[10px] text-rose-600 dark:text-rose-300 bg-surface-secondary px-2 py-1 rounded font-mono cursor-pointer select-all">
-            {`{{ stages.${stageId}.run_count + 1 }}`}
-          </code>
-        </div>
-      )}
-
-      {/* Conditional syntax hint */}
-      <div className="space-y-1">
-        <div className="text-[11px] text-text-primary font-medium">Conditionals</div>
-        <code className="block text-[10px] text-purple-600 dark:text-purple-300 bg-surface-secondary px-2 py-1 rounded font-mono">
-          {`{% if stages.${upstreamStages[0]?.id || 'stage-id'}.latest %}...{% endif %}`}
-        </code>
-      </div>
-    </div>
-  );
 }
 
 function ExpectedInputsBlock({ fields }: { fields: string[] }) {

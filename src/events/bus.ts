@@ -73,7 +73,9 @@ export class EventBus extends EventEmitter {
       });
     }
 
-    // Also emit for watchers on running instances
+    // TODO: watcher_event has no listeners in production yet — reserved for a
+    // future "live watch" feature where running instances can react to new
+    // events mid-execution. Remove this TODO when a listener is added.
     this.emit('watcher_event', event);
   }
 

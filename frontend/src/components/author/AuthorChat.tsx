@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AcpChatPane } from '../chat/AcpChatPane';
-import { useSegments, useAgent, useActiveProvider } from '../../hooks/queries';
+import { useSegments, useActiveProvider } from '../../hooks/queries';
 import { segmentsToMessages } from '../../lib/segmentsToMessages';
 import { authorChat } from '../../lib/api';
 
@@ -14,7 +14,6 @@ interface AuthorChatProps {
 export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }: AuthorChatProps) {
   const [sessionState, setSessionState] = useState<'idle' | 'starting' | 'error'>('idle');
   const queryClient = useQueryClient();
-  const { data: agentInfo } = useAgent('workflow-author');
   const { data: activeProvider } = useActiveProvider();
 
   // Load persisted segments (author chat uses instance_id='author', stage_id=workflowId)

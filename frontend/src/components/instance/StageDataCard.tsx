@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { StatusBadge } from '../ui/StatusBadge';
+import { getStageBorderClass } from '../../lib/statusColors';
 
 export function StageDataCard({
   stageId,
@@ -18,14 +19,7 @@ export function StageDataCard({
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  const borderColor =
-    status === 'completed'
-      ? 'border-green-300 dark:border-green-800'
-      : status === 'failed'
-        ? 'border-red-300 dark:border-red-500/30'
-        : status === 'running'
-          ? 'border-blue-300 dark:border-blue-800'
-          : 'border-border';
+  const borderColor = getStageBorderClass(status);
 
   const hasContent = output || error;
 

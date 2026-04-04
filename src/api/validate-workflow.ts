@@ -4,7 +4,7 @@
  * per-stage code/expression type checking, edge conditions, and schema chain warnings.
  */
 import { validateCode, type CodeDiagnostic } from './validate-code.js';
-import { validateStageConfig, validateGraphStructure } from './routes/shared.js';
+import { validateStageConfig, validateGraphStructure, findUpstreamOutputSchema } from './routes/validation.js';
 import { nodeRegistry } from '../nodes/registry.js';
 import type { WorkflowDefinition, StageDefinition, EdgeDefinition } from '../schemas/pipeline.js';
 
@@ -38,26 +38,6 @@ const SCHEMA_CHAIN_NODE_TYPES = new Set([
   'transform',
   'agent',
 ]);
-
-/**
- * Walk the incoming edge of a stage to find the source stage's output_schema.
- */
-function findUpstreamOutputSchema(
-  draft: WorkflowDefinition,
-  stageId: string,
-): Record<string, unknown> | undefined {
-  const incomingEdge = draft.edges?.find((e) => e.target === stageId);
-  if (!incomingEdge) return undefined;
-  const sourceStage = draft.stages?.find((s) => s.id === incomingEdge.source);
-  const sourceConfig = sourceStage?.config as Record<string, unknown> | undefined;
-  let schema = sourceConfig?.output_schema as Record<string, unknown> | undefined;
-  // Fallback to node type spec's default output_schema
-  if (!schema && sourceStage) {
-    const spec = nodeRegistry.get(sourceStage.type);
-    schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
-  }
-  return schema;
-}
 
 /**
  * Return the edge key used in the `edges` diagnostics record.

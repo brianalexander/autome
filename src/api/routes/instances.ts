@@ -3,8 +3,9 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { broadcast } from '../websocket.js';
 import * as restateClient from '../../restate/client.js';
-import type { RouteDeps, SharedState, SessionConfig } from './shared.js';
-import { sendChatMessage } from './shared.js';
+import type { RouteDeps, SharedState } from './shared.js';
+import type { SessionConfig } from './agent-utils.js';
+import { sendChatMessage } from './agent-utils.js';
 import { errorMessage } from '../../utils/errors.js';
 
 // Zod schemas for instance routes

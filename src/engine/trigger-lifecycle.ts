@@ -7,7 +7,7 @@ import { v4 as uuid } from 'uuid';
 import { nodeRegistry } from '../nodes/registry.js';
 import type { TriggerExecutor } from '../nodes/types.js';
 import type { WorkflowDefinition } from '../types/workflow.js';
-import type { EventBus } from '../events/bus.js';
+import type { EventBus, EventSubscription } from '../events/bus.js';
 
 /** Map of workflowId -> array of cleanup functions for active triggers */
 const activeTriggers = new Map<string, Array<() => void>>();
@@ -21,6 +21,46 @@ let eventBus: EventBus | null = null;
  */
 export function initTriggerLifecycle(bus: EventBus): void {
   eventBus = bus;
+}
+
+/**
+ * Build and register EventBus subscriptions for a workflow's trigger stages.
+ * Handles both the multi-stage path (one sub per trigger stage) and the
+ * legacy fallback path (single sub keyed on the top-level trigger.provider).
+ *
+ * Called both during server startup (restoring active workflows) and from
+ * the activate route handler.
+ */
+export function createTriggerSubscriptions(
+  workflow: WorkflowDefinition,
+  bus: EventBus,
+): void {
+  const triggerStages = (workflow.stages || []).filter(
+    (s: { type: string }) => nodeRegistry.isTriggerType(s.type),
+  );
+
+  if (triggerStages.length === 0) {
+    // Fallback: use legacy top-level trigger.provider for backwards compat
+    const sub: EventSubscription = {
+      id: `sub-${workflow.id}`,
+      provider: workflow.trigger.provider,
+      eventType: 'trigger',
+      filter: workflow.trigger.filter,
+      workflowDefinitionId: workflow.id,
+    };
+    bus.addSubscription(sub);
+  } else {
+    for (const stage of triggerStages) {
+      const sub: EventSubscription = {
+        id: `sub-${workflow.id}-${stage.id}`,
+        provider: stage.type,
+        eventType: 'trigger',
+        filter: workflow.trigger.filter,
+        workflowDefinitionId: workflow.id,
+      };
+      bus.addSubscription(sub);
+    }
+  }
 }
 
 /**
