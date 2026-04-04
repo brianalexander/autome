@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { discoverAgents, getAgentSpec } from '../../agents/discovery.js';
-import { createProvider, createProviderAsync, listProviders } from '../../acp/provider/registry.js';
+import { createProvider, listProviders } from '../../acp/provider/registry.js';
 import { generateAgentConfigs } from '../../agents/adapter.js';
 import { config } from '../../config.js';
 import type { RouteDeps, SharedState } from './shared.js';
@@ -156,7 +156,7 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps, state
       if (!providerName) {
         return reply.code(400).send({ error: 'No ACP provider configured' });
       }
-      const provider = await createProviderAsync(providerName);
+      const provider = createProvider(providerName);
       const result = await generateAgentConfigs(provider);
       return result;
     } catch (err) {

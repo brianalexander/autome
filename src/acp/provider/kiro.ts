@@ -38,21 +38,96 @@ export class KiroProvider extends BaseProvider {
 
   handleVendorNotification(method: string, params: Record<string, unknown>): VendorNotificationResult | null {
     if (method === '_kiro.dev/mcp/server_initialized') {
-      return { event: 'vendor:mcp_server_initialized', data: params };
+      return { type: 'mcp_server_initialized', serverName: (params.serverName as string | undefined) ?? 'unknown' };
     }
     if (method === '_kiro.dev/mcp/server_init_failure') {
-      return { event: 'vendor:mcp_server_init_failure', data: params };
+      return {
+        type: 'mcp_server_failed',
+        serverName: (params.serverName as string | undefined) ?? 'unknown',
+        error: (params.error as string | undefined) ?? 'Unknown error',
+      };
     }
     if (method === '_kiro.dev/commands/available') {
-      return { event: 'vendor:commands_available', data: params };
+      const serverList = params.mcpServers;
+      const servers = Array.isArray(serverList)
+        ? (serverList as Array<{ name?: string; status?: string }>).map((s) => ({
+            name: String(s.name ?? ''),
+            status: s.status,
+          }))
+        : [];
+      return { type: 'mcp_server_list', servers };
     }
     if (method === '_kiro.dev/metadata') {
-      return { event: 'vendor:metadata', data: params };
+      return { type: 'metadata', data: params };
     }
     if (method === '_kiro.dev/compaction/status') {
-      return { event: 'vendor:compaction', data: params };
+      return { type: 'compaction', data: params };
     }
     return null;
+  }
+
+  /** Drop kiro-cli's spurious empty-body parse-error notifications */
+  filterIncomingMessage(msg: unknown): boolean {
+    if (
+      msg !== null &&
+      typeof msg === 'object' &&
+      'error' in msg &&
+      typeof (msg as Record<string, unknown>).error === 'object' &&
+      (msg as { error: { code?: number; data?: unknown } }).error?.code === -32700 &&
+      (msg as { error: { code?: number; data?: unknown } }).error?.data === ''
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  isRetryableError(err: Error): boolean {
+    return err.message?.includes('not idle') ?? false;
+  }
+
+  extractModelName(sessionResult: unknown): string | null {
+    if (!sessionResult || typeof sessionResult !== 'object') return null;
+    const configOptions = (sessionResult as Record<string, unknown>).configOptions;
+    if (!Array.isArray(configOptions)) return null;
+
+    const modelOption = configOptions.find(
+      (opt: unknown) => opt && typeof opt === 'object' && (opt as Record<string, unknown>).category === 'model',
+    );
+    if (!modelOption) return null;
+
+    const raw = modelOption as Record<string, unknown>;
+    const currentValue = typeof raw.currentValue === 'string' ? raw.currentValue : (typeof raw.value === 'string' ? raw.value : null);
+    if (!currentValue) return null;
+
+    let displayName = currentValue;
+    const options = raw.options;
+    if (Array.isArray(options)) {
+      const selected = options.find(
+        (o: unknown) => o && typeof o === 'object' && (o as Record<string, unknown>).value === currentValue,
+      ) as Record<string, unknown> | undefined;
+      if (selected) {
+        const desc = typeof selected.description === 'string' ? selected.description : '';
+        const modelMatch = desc.match(/^([\w.]+ [\d.]+)/);
+        if (modelMatch) {
+          displayName = modelMatch[1];
+        } else if (typeof selected.name === 'string') {
+          displayName = selected.name.replace(/\s*\(.*?\)\s*$/, '').trim();
+        }
+      }
+    }
+
+    return displayName;
+  }
+
+  getProtocolVersion(): number {
+    return 1;
+  }
+
+  getClientCapabilities(): Record<string, unknown> {
+    return {
+      terminal: true,
+      fs: { readTextFile: true, writeTextFile: true },
+    };
   }
 
   protected parseAgentFile(content: string, fileName: string): DiscoveredAgent | null {

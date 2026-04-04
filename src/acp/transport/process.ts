@@ -9,6 +9,8 @@ export interface ProcessSpawnOptions {
   args: string[];
   cwd: string;
   env?: Record<string, string>;
+  /** Optional filter applied to each incoming message. Return false to drop. */
+  messageFilter?: (msg: unknown) => boolean;
 }
 
 export interface ProcessShutdownOptions {
@@ -51,7 +53,11 @@ export class ProcessHandle {
       env: { ...process.env, ...options.env },
     });
 
-    this._transport = new JsonRpcTransport(this.process.stdout!, this.process.stdin!);
+    this._transport = new JsonRpcTransport(
+      this.process.stdout!,
+      this.process.stdin!,
+      options.messageFilter ? { messageFilter: options.messageFilter } : undefined,
+    );
 
     this.process.stderr!.on('data', (chunk: Buffer) => {
       const text = chunk.toString();

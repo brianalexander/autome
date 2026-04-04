@@ -5,7 +5,6 @@
  */
 import { discoverAgents } from '../agents/discovery.js';
 import type { WorkflowDefinition } from '../types/workflow.js';
-import type { KiroAgentSpec } from '../types/instance.js';
 import { commandExists } from '../utils/shell.js';
 
 export interface HealthWarning {
@@ -78,7 +77,7 @@ export async function checkWorkflowHealth(
             if (checkedSecrets.has(key)) continue;
             checkedSecrets.add(key);
             // Only warn if the value looks like a placeholder/reference (not a hardcoded value)
-            if (isSecretReference(key, value)) {
+            if (isSecretReference(key, String(value))) {
               if (!process.env[key]) {
                 warnings.push({
                   type: 'missing_secret',

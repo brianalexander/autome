@@ -19,10 +19,14 @@ export interface AgentDiscoveryOptions {
   bundlesDir?: string;
 }
 
-export interface VendorNotificationResult {
-  event: string;
-  data: Record<string, unknown>;
-}
+export type VendorNotificationResult =
+  | { type: 'mcp_server_initialized'; serverName: string }
+  | { type: 'mcp_server_failed'; serverName: string; error: string }
+  | { type: 'mcp_server_list'; servers: Array<{ name: string; status?: string }> }
+  | { type: 'metadata'; data: Record<string, unknown> }
+  | { type: 'compaction'; data: Record<string, unknown> }
+  | { type: 'ignore' }
+  | null;
 
 /**
  * ACP Provider — abstracts vendor-specific details of an ACP-compatible CLI.
@@ -58,6 +62,24 @@ export interface AcpProvider {
   cleanupSessionLocks?(): Promise<void>;
   prepareWorkingDir?(workDir: string): Promise<void>;
   writeAgentFile?(dir: string, name: string, canonical: CanonicalAgentSpec, prompt: string): Promise<string>;
+
+  /** Filter incoming JSON-RPC messages. Return false to drop the message. */
+  filterIncomingMessage?(msg: unknown): boolean;
+
+  /** Check if an error from prompt() should be retried */
+  isRetryableError?(err: Error): boolean;
+
+  /** Extract model name from session creation result */
+  extractModelName?(sessionResult: unknown): string | null;
+
+  /** Check if the provider CLI is installed and accessible */
+  checkInstalled?(): Promise<{ ok: boolean; hint?: string }>;
+
+  /** Protocol version for the initialize handshake */
+  getProtocolVersion?(): number;
+
+  /** Client capabilities for the initialize handshake */
+  getClientCapabilities?(): Record<string, unknown>;
 }
 
 // Re-export for convenience

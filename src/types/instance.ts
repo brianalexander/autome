@@ -161,9 +161,29 @@ export const KiroAgentSpecSchema = z.object({
 
 export type KiroAgentSpec = z.infer<typeof KiroAgentSpecSchema>;
 
-// Generic alias — consumers that don't need to know about the provider can use AgentSpec
-export const AgentSpecSchema = KiroAgentSpecSchema;
-export type AgentSpec = KiroAgentSpec;
+// ---------------------------------------------------------------------------
+// CanonicalAgentSpec — provider-neutral spec; all providers normalize to this
+// ---------------------------------------------------------------------------
+
+export const CanonicalAgentSpecSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  model: z.string().optional(),
+  tools: z.array(z.string()).optional(),
+  mcp_servers: z.record(z.string(), z.object({
+    command: z.string(),
+    args: z.array(z.string()),
+    env_keys: z.array(z.string()).optional(),
+  })).optional(),
+  // Allow extra provider-specific fields to pass through
+  prompt: z.string().optional(),
+}).passthrough();
+
+export type CanonicalAgentSpec = z.infer<typeof CanonicalAgentSpecSchema>;
+
+// AgentSpec is the canonical type; KiroAgentSpec is kept as a Kiro-specific extension
+export const AgentSpecSchema = CanonicalAgentSpecSchema;
+export type AgentSpec = CanonicalAgentSpec;
 
 // ---------------------------------------------------------------------------
 // DiscoveredAgent

@@ -8,7 +8,7 @@ import { wireAcpEvents } from './agent-utils.js';
 import { errorMessage } from '../../utils/errors.js';
 import { config as appConfig } from '../../config.js';
 import type { WorkflowInstance } from '../../types/instance.js';
-import { createProviderAsync } from '../../acp/provider/registry.js';
+import { createProvider } from '../../acp/provider/registry.js';
 
 // Zod schemas
 
@@ -327,7 +327,7 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
           deps.db.getSetting('acpProvider') ||
           appConfig.acpProvider ||
           undefined;
-        const providerOverride = resolvedProviderName ? await createProviderAsync(resolvedProviderName) : undefined;
+        const providerOverride = resolvedProviderName ? createProvider(resolvedProviderName) : undefined;
 
         const { client } = await state.acpPool.spawn({
           instanceId,

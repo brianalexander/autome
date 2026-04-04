@@ -43,11 +43,14 @@ export class JsonRpcTransport extends TypedEmitter<TransportEvents> {
     timer?: ReturnType<typeof setTimeout>;
   }>();
   private closed = false;
+  /** Optional provider-supplied filter. Return false to drop the message. */
+  private messageFilter?: (msg: unknown) => boolean;
 
-  constructor(input: Readable, output: Writable) {
+  constructor(input: Readable, output: Writable, options?: { messageFilter?: (msg: unknown) => boolean }) {
     super();
     this.input = input;
     this.output = output;
+    this.messageFilter = options?.messageFilter;
 
     this.input.on('data', (chunk: Buffer) => this.onData(chunk));
     this.input.on('end', () => this.handleClose());
@@ -133,16 +136,17 @@ export class JsonRpcTransport extends TypedEmitter<TransportEvents> {
       return; // Skip unparseable lines
     }
 
-    // Filter empty-line parse errors from kiro-cli
-    if ('error' in msg && (msg as JsonRpcResponse).error?.code === -32700 && (msg as JsonRpcResponse).error?.data === '') {
+    // Apply provider-supplied message filter (e.g., Kiro's spurious -32700 parse errors)
+    if (this.messageFilter && !this.messageFilter(msg)) {
       return;
     }
 
-    // Response to a pending request
-    if ('id' in msg && msg.id) {
-      if (this.pendingRequests.has(msg.id as string)) {
-        const pending = this.pendingRequests.get(msg.id as string)!;
-        this.pendingRequests.delete(msg.id as string);
+    // Response to a pending request — normalize id to string to handle integer IDs from providers
+    if ('id' in msg && msg.id != null) {
+      const msgId = String(msg.id);
+      if (this.pendingRequests.has(msgId)) {
+        const pending = this.pendingRequests.get(msgId)!;
+        this.pendingRequests.delete(msgId);
         const resp = msg as JsonRpcResponse;
         if ('error' in resp && resp.error) {
           pending.reject(new Error(`${resp.error.message} (code: ${resp.error.code})`));
@@ -153,7 +157,7 @@ export class JsonRpcTransport extends TypedEmitter<TransportEvents> {
       }
       // Request from agent (has both method and id)
       if ('method' in msg) {
-        this.emit('request', { id: msg.id as string, method: (msg as JsonRpcRequest).method, params: (msg as JsonRpcRequest).params });
+        this.emit('request', { id: String(msg.id), method: (msg as JsonRpcRequest).method, params: (msg as JsonRpcRequest).params });
         return;
       }
     }

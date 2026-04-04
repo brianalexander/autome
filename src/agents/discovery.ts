@@ -1,11 +1,11 @@
 import { createProvider } from '../acp/provider/registry.js';
 import type { AcpProvider, AgentDiscoveryOptions } from '../acp/provider/types.js';
 import type { DiscoveredAgent } from '../types/instance.js';
-import { config } from '../config.js';
+import { config, DEFAULT_ACP_PROVIDER } from '../config.js';
 
 // Re-export types for existing consumers
 export type { DiscoveredAgent, AgentDiscoveryOptions };
-export type { KiroAgentSpec } from '../types/instance.js';
+export type { AgentSpec } from '../types/instance.js';
 
 let _defaultProvider: AcpProvider | null = null;
 
@@ -21,7 +21,7 @@ export function resetDefaultProvider(): void {
 
 /** Discover all available agents from the active provider. */
 export async function discoverAgents(workingDirOrOpts?: string | AgentDiscoveryOptions): Promise<DiscoveredAgent[]> {
-  const provider = _defaultProvider || createProvider(config.acpProvider ?? 'kiro');
+  const provider = _defaultProvider || createProvider(config.acpProvider ?? DEFAULT_ACP_PROVIDER);
   const opts: AgentDiscoveryOptions =
     typeof workingDirOrOpts === 'string' ? { workingDir: workingDirOrOpts } : workingDirOrOpts || {};
   return provider.discoverAgents(opts);
@@ -32,7 +32,7 @@ export async function getAgentSpec(
   name: string,
   workingDirOrOpts?: string | AgentDiscoveryOptions,
 ): Promise<DiscoveredAgent | null> {
-  const provider = _defaultProvider || createProvider(config.acpProvider ?? 'kiro');
+  const provider = _defaultProvider || createProvider(config.acpProvider ?? DEFAULT_ACP_PROVIDER);
   const opts: AgentDiscoveryOptions =
     typeof workingDirOrOpts === 'string' ? { workingDir: workingDirOrOpts } : workingDirOrOpts || {};
   return provider.getAgentSpec(name, opts);

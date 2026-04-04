@@ -92,8 +92,9 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
     const command = this.provider.getCommand();
     const args = this.provider.getSpawnArgs({ agent: options?.agent, model: options?.model });
     const env = { ...this.provider.getSpawnEnv(), ...options?.env };
+    const messageFilter = this.provider.filterIncomingMessage?.bind(this.provider);
 
-    this.transport = this.processHandle.spawn({ command, args, cwd: this.workingDir, env });
+    this.transport = this.processHandle.spawn({ command, args, cwd: this.workingDir, env, messageFilter });
     console.log(`[acp] Process spawned (pid: ${this.processHandle.pid})`);
 
     // Wire transport events
@@ -115,14 +116,20 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
       error: (err) => this.emit('error', err),
     });
 
+    // Build initialize params using provider hooks for protocol version and capabilities
+    const protocolVersion = this.provider.getProtocolVersion?.() ?? 1;
+    const providerCapabilities = this.provider.getClientCapabilities?.() ?? {};
+    const clientCapabilities = {
+      terminal: true,
+      fs: { readTextFile: true, writeTextFile: true },
+      ...providerCapabilities,
+    };
+
     // Initialize handshake
     await this.transport.request('initialize', {
-      protocolVersion: 1,
+      protocolVersion,
       clientInfo: { name: 'autome', version: '0.1.0' },
-      clientCapabilities: {
-        terminal: true,
-        fs: { readTextFile: true, writeTextFile: true },
-      },
+      clientCapabilities,
     });
   }
 
@@ -140,7 +147,7 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
     const timeoutMs = this.provider.sessionCreateTimeoutMs ?? 30000;
     const result = await this.transport!.request<AcpSessionInfo>('session/new', params, timeoutMs);
     this.sessionId = result.sessionId;
-    this.extractModelFromConfig(result);
+    this.applyModelExtraction(result);
     console.log(`[acp] Session created: ${this.sessionId}`);
 
     // The prompt() method awaits mcpTracker.ready before sending the first message.
@@ -161,7 +168,7 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
       timeoutMs,
     );
     this.sessionId = sessionId;
-    this.extractModelFromConfig(result);
+    this.applyModelExtraction(result);
     console.log(`[acp] Session loaded: ${this.sessionId}`);
 
     return result;
@@ -169,7 +176,7 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
 
   /**
    * Send a prompt to the active session.
-   * Waits for MCP readiness, retries on "not idle" with backoff.
+   * Waits for MCP readiness, retries on retryable errors with backoff.
    */
   async prompt(text: string): Promise<PromptResponse> {
     if (this.destroyed) throw new Error('Client has been destroyed');
@@ -193,9 +200,12 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
         }
         return result;
       } catch (err: unknown) {
-        if (err instanceof Error && err.message?.includes('not idle') && attempt < maxAttempts) {
+        const isRetryable = err instanceof Error
+          ? (this.provider.isRetryableError?.(err) ?? false)
+          : false;
+        if (isRetryable && attempt < maxAttempts) {
           const delay = attempt * 2000;
-          console.log(`[acp] Prompt retry ${attempt}/${maxAttempts} in ${delay}ms: ${err.message}`);
+          console.log(`[acp] Prompt retry ${attempt}/${maxAttempts} in ${delay}ms: ${(err as Error).message}`);
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
@@ -271,7 +281,7 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
     if (method === 'session/update') {
       const notification = params?.notification;
       if (notification === 'config_option_update') {
-        this.extractModelFromConfig(params);
+        this.applyModelExtraction(params);
         return;
       }
 
@@ -294,23 +304,28 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
     const vendorResult = this.provider.handleVendorNotification(method, params);
     if (!vendorResult) return;
 
-    if (vendorResult.event === 'vendor:mcp_server_initialized') {
-      const serverName = (params?.serverName as string | undefined) ?? 'unknown';
-      this.mcpTracker?.onServerInitialized(serverName);
-    } else if (vendorResult.event === 'vendor:mcp_server_init_failure') {
-      const serverName = (params?.serverName as string | undefined) ?? 'unknown';
-      const error = (params?.error as string | undefined) ?? 'Unknown error';
-      this.mcpTracker?.onServerInitFailed(serverName, error);
-    } else if (vendorResult.event === 'vendor:commands_available') {
-      const serverList = params?.mcpServers;
-      if (Array.isArray(serverList) && serverList.length > 0) {
-        const count = (serverList as Array<{ status?: string }>).filter((s) => s.status !== 'disabled').length;
-        this.mcpTracker?.setExpectedCount(count);
+    switch (vendorResult.type) {
+      case 'mcp_server_initialized':
+        this.mcpTracker?.onServerInitialized(vendorResult.serverName);
+        break;
+      case 'mcp_server_failed':
+        this.mcpTracker?.onServerInitFailed(vendorResult.serverName, vendorResult.error);
+        break;
+      case 'mcp_server_list': {
+        const activeCount = vendorResult.servers.filter((s) => s.status !== 'disabled').length;
+        if (activeCount > 0) {
+          this.mcpTracker?.setExpectedCount(activeCount);
+        }
+        break;
       }
-    } else if (vendorResult.event === 'vendor:metadata') {
-      this.emit('metadata', params as AcpClientEvents['metadata']);
-    } else if (vendorResult.event === 'vendor:compaction') {
-      this.emit('compaction', params as AcpClientEvents['compaction']);
+      case 'metadata':
+        this.emit('metadata', vendorResult.data as AcpClientEvents['metadata']);
+        break;
+      case 'compaction':
+        this.emit('compaction', vendorResult.data as AcpClientEvents['compaction']);
+        break;
+      case 'ignore':
+        break;
     }
   }
 
@@ -372,43 +387,11 @@ export class AcpClient extends TypedEmitter<AcpClientEvents> {
   // Private: model extraction
   // ---------------------------------------------------------------------------
 
-  private extractModelFromConfig(result: unknown): void {
-    if (!result || typeof result !== 'object') return;
-    const configOptions = (result as Record<string, unknown>).configOptions;
-    if (!Array.isArray(configOptions)) return;
-
-    const modelOption = configOptions.find(
-      (opt: unknown) => opt && typeof opt === 'object' && (opt as Record<string, unknown>).category === 'model',
-    );
-    if (!modelOption) return;
-
-    const raw = modelOption as Record<string, unknown>;
-    const currentValue = typeof raw.currentValue === 'string' ? raw.currentValue : (typeof raw.value === 'string' ? raw.value : null);
-    if (!currentValue) return;
-
-    // Look up the selected option to get a display name
-    let displayName = currentValue;
-    const options = raw.options;
-    if (Array.isArray(options)) {
-      const selected = options.find(
-        (o: unknown) => o && typeof o === 'object' && (o as Record<string, unknown>).value === currentValue,
-      ) as Record<string, unknown> | undefined;
-      if (selected) {
-        // Try to extract model name from description (e.g. "Opus 4.6 with 1M context · Most capable...")
-        const desc = typeof selected.description === 'string' ? selected.description : '';
-        const modelMatch = desc.match(/^([\w.]+ [\d.]+)/);
-        if (modelMatch) {
-          displayName = modelMatch[1]; // e.g. "Opus 4.6", "Sonnet 4.6", "Haiku 4.5"
-        } else if (typeof selected.name === 'string') {
-          // Strip parenthetical suffixes like "(recommended)"
-          displayName = selected.name.replace(/\s*\(.*?\)\s*$/, '').trim();
-        }
-      }
-    }
-
-    this._modelName = displayName;
+  private applyModelExtraction(result: unknown): void {
+    const modelName = this.provider.extractModelName?.(result) ?? null;
+    if (!modelName) return;
+    this._modelName = modelName;
     console.log(`[acp] Model detected: ${this._modelName}`);
     this.emit('model_info', { model: this._modelName });
   }
 }
-

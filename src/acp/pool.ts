@@ -3,7 +3,7 @@ import { mkdir, symlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import type { MCPServerConfig } from '../types/workflow.js';
-import { config } from '../config.js';
+import { config, DEFAULT_ACP_PROVIDER } from '../config.js';
 import type { AcpProvider } from './provider/types.js';
 import { createProvider } from './provider/registry.js';
 
@@ -48,10 +48,9 @@ export class AgentPool {
   private baseWorkDir: string;
 
   constructor(options?: { provider?: AcpProvider; baseWorkDir?: string }) {
-    // Provider should always be passed explicitly — server.ts initializes it via
-    // createProviderAsync() (which scans plugin dirs) before constructing pools.
-    // The sync createProvider() fallback here only supports built-in providers.
-    this.provider = options?.provider || createProvider(config.acpProvider ?? 'kiro');
+    // Provider should always be passed explicitly — server.ts initializes it before constructing pools.
+    // The createProvider() fallback here supports built-in providers only.
+    this.provider = options?.provider || createProvider(config.acpProvider ?? DEFAULT_ACP_PROVIDER);
     this.baseWorkDir = options?.baseWorkDir || join(process.cwd(), 'data', 'workspaces');
   }
 
@@ -186,6 +185,11 @@ export class AgentPool {
 
   getActiveCount(): number {
     return this.processes.size;
+  }
+
+  /** Update the provider used for future spawns. Does not affect already-running processes. */
+  setProvider(provider: AcpProvider): void {
+    this.provider = provider;
   }
 }
 

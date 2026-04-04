@@ -12,7 +12,7 @@ import { websocketPlugin } from './api/websocket.js';
 import { EventBus } from './events/bus.js';
 import { ManualTriggerProvider } from './events/providers/manual.js';
 import { AgentPool } from './acp/pool.js';
-import { createProviderAsync } from './acp/provider/registry.js';
+import { createProvider } from './acp/provider/registry.js';
 import { setDefaultProvider } from './agents/discovery.js';
 import { runCrashRecovery } from './recovery.js';
 import { launchWorkflow } from './workflow/launch.js';
@@ -23,7 +23,7 @@ import {
   createTriggerSubscriptions,
   deactivateAll as deactivateAllTriggers,
 } from './engine/trigger-lifecycle.js';
-import { config } from './config.js';
+import { config, DEFAULT_ACP_PROVIDER } from './config.js';
 
 const PORT = config.port;
 
@@ -83,10 +83,10 @@ async function start() {
   // If neither is set, default to 'kiro' so the server starts up in a usable state
   // (the UI will prompt the user to configure a provider).
   const dbProviderName = db.getSetting('acpProvider');
-  const effectiveProviderName = dbProviderName || config.acpProvider || 'kiro';
+  const effectiveProviderName = dbProviderName || config.acpProvider || DEFAULT_ACP_PROVIDER;
 
-  // Initialize ACP provider (scans plugin dirs) and configure discovery
-  const acpProvider = await createProviderAsync(effectiveProviderName);
+  // Initialize ACP provider and configure discovery
+  const acpProvider = createProvider(effectiveProviderName);
   setDefaultProvider(acpProvider);
 
   // Initialize ACP process pools

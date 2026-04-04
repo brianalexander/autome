@@ -92,7 +92,7 @@ export const agentNodeSpec: NodeTypeSpec = {
   configSchema: {
     type: 'object',
     properties: {
-      agentId: { type: 'string', title: 'Agent', description: 'Agent ID from .kiro/agents/' },
+      agentId: { type: 'string', title: 'Agent', description: 'Agent ID (discovered from provider agent directory)' },
       max_iterations: {
         type: 'number',
         title: 'Max Iterations',

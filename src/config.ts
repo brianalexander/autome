@@ -2,6 +2,10 @@
  * Centralized configuration — all ports, URLs, and env-derived settings live here.
  * Import `config` instead of reading process.env / hardcoding values in each file.
  */
+
+/** The default ACP provider name when no DB setting or env var is configured. */
+export const DEFAULT_ACP_PROVIDER = 'kiro';
+
 export const config: {
   port: number;
   orchestratorUrl: string;

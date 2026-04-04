@@ -3,7 +3,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { RouteDeps } from './shared.js';
 import { errorMessage } from '../../utils/errors.js';
-import { createProviderAsync } from '../../acp/provider/registry.js';
+import { createProvider } from '../../acp/provider/registry.js';
 import { generateAgentConfigs } from '../../agents/adapter.js';
 import { setDefaultProvider } from '../../agents/discovery.js';
 
@@ -50,19 +50,23 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: RouteDeps): v
         db.setSetting(key, value);
 
         if (key === 'acpProvider') {
-          // Update the default provider used by agent discovery and generate configs
-          createProviderAsync(value)
-            .then((provider) => {
-              setDefaultProvider(provider);
-              console.log(`[settings] Switched ACP provider to "${value}"`);
-              return generateAgentConfigs(provider);
-            })
-            .then((result) => {
-              console.log(`[settings] Generated agent configs for provider "${value}":`, result);
-            })
-            .catch((err) => {
-              console.warn(`[settings] Failed to switch ACP provider to "${value}":`, err);
-            });
+          // Update the default provider used by agent discovery, pools, and generate configs
+          try {
+            const provider = createProvider(value);
+            setDefaultProvider(provider);
+            deps.authorPool?.setProvider(provider);
+            deps.acpPool?.setProvider(provider);
+            console.log(`[settings] Switched ACP provider to "${value}"`);
+            generateAgentConfigs(provider)
+              .then((result) => {
+                console.log(`[settings] Generated agent configs for provider "${value}":`, result);
+              })
+              .catch((err) => {
+                console.warn(`[settings] Failed to generate agent configs for provider "${value}":`, err);
+              });
+          } catch (err) {
+            console.warn(`[settings] Failed to switch ACP provider to "${value}":`, err);
+          }
         }
 
         return { key, value };
