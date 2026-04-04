@@ -55,11 +55,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['method', 'path'],
       },
     },
+    {
+      name: 'validate_workflow',
+      description: [
+        'Validate the entire workflow graph for errors and warnings.',
+        'Returns comprehensive diagnostics: graph structure issues, stage config errors,',
+        'TypeScript code/expression errors, edge problems, and missing schema warnings.',
+        '',
+        'Call this after making changes to verify the workflow is valid.',
+        'No arguments needed — validates the current workflow draft.',
+      ].join('\n'),
+      inputSchema: {
+        type: 'object' as const,
+        properties: {},
+        required: [],
+      },
+    },
   ],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+
+  if (name === 'validate_workflow') {
+    const url = `${baseUrl}/api/draft/${workflowId}/validate`;
+    const response = await fetch(url);
+    const result = await response.json();
+
+    if (!response.ok) {
+      return { content: [{ type: 'text', text: `Validation error: ${JSON.stringify(result)}` }], isError: true };
+    }
+
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
 
   if (name !== 'autome_api') {
     return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };

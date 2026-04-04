@@ -64,6 +64,32 @@ export function useTriggerWorkflow() {
   });
 }
 
+export function useActivateWorkflow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => workflows.activate(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['workflow', id] });
+      toast.success('Workflow activated');
+    },
+    onError: (err: Error) => toast.error(`Failed to activate: ${err.message}`),
+  });
+}
+
+export function useDeactivateWorkflow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => workflows.deactivate(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['workflow', id] });
+      toast.success('Workflow deactivated');
+    },
+    onError: (err: Error) => toast.error(`Failed to deactivate: ${err.message}`),
+  });
+}
+
 // Workflow version queries
 export function useWorkflowVersions(workflowId: string | undefined) {
   return useQuery({
@@ -136,6 +162,7 @@ export function useApproveGate() {
       instances.approveGate(instanceId, stageId, data),
     onSuccess: (_, { instanceId }) => {
       queryClient.invalidateQueries({ queryKey: ['instance', instanceId] });
+      queryClient.invalidateQueries({ queryKey: ['approvals'] });
       toast.success('Gate approved');
     },
     onError: (err: Error) => toast.error(`Failed to approve gate: ${err.message}`),
@@ -149,6 +176,8 @@ export function useRejectGate() {
       instances.rejectGate(instanceId, stageId, reason),
     onSuccess: (_, { instanceId }) => {
       queryClient.invalidateQueries({ queryKey: ['instance', instanceId] });
+      queryClient.invalidateQueries({ queryKey: ['approvals'] });
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
       toast.success('Gate rejected');
     },
     onError: (err: Error) => toast.error(`Failed to reject gate: ${err.message}`),

@@ -24,6 +24,7 @@ interface ConfigPanelProps {
 
 export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDefinitionChange }: ConfigPanelProps) {
   const { data: agentList } = useAgents();
+  const { data: specs } = useNodeTypes();
   // Stage config is Record<string, unknown> at the type level, but we know the actual shape by node type
   const cfg = (stage.config || {}) as {
     // Agent config
@@ -80,7 +81,13 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
     if (incomingEdges.length === 1) {
       const sourceStage = definition.stages.find(s => s.id === incomingEdges[0].source);
       const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
-      return sourceConfig.output_schema as Record<string, unknown> | undefined;
+      let schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+      // Fallback to the node type spec's default output_schema (e.g., cron-trigger always emits a known shape)
+      if (!schema && sourceStage) {
+        const spec = specs?.find((s) => s.id === sourceStage.type);
+        schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+      }
+      return schema;
     }
     // Fan-in: merge upstream schemas into one object with source IDs as keys
     const merged: Record<string, unknown> = { type: 'object', properties: {} };
@@ -88,13 +95,18 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
     for (const edge of incomingEdges) {
       const sourceStage = definition.stages.find(s => s.id === edge.source);
       const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
-      const schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+      let schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+      // Fallback to the node type spec's default output_schema
+      if (!schema && sourceStage) {
+        const spec = specs?.find((s) => s.id === sourceStage.type);
+        schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+      }
       if (schema) {
         mergedProps[edge.source] = schema;
       }
     }
     return Object.keys(mergedProps).length > 0 ? merged : undefined;
-  }, [definition, stage.id]);
+  }, [definition, stage.id, specs]);
 
   // For trigger stages: scan outgoing edge prompt_templates for expected payload fields
   const expectedPayloadFields = useMemo(() => {
@@ -832,7 +844,12 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
         {/* Source output schema reference — shows what fields are available */}
         {(() => {
           const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
-          const outputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+          let outputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+          // Fallback to node type spec's default output_schema (e.g., cron-trigger)
+          if (!outputSchema && sourceStage) {
+            const spec = specs?.find((sp) => sp.id === sourceStage.type);
+            outputSchema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+          }
           if (!outputSchema?.properties) return null;
           const props = outputSchema.properties as Record<string, { type?: string; description?: string }>;
           return (
@@ -1115,6 +1132,7 @@ function GenericNodeConfig({
         onChange={handleChange}
         outputSchema={upstreamSchema}
         nodeType={nodeType}
+        returnSchema={(editState.config as Record<string, unknown>)?.output_schema as Record<string, unknown> | undefined}
       />
     </>
   );

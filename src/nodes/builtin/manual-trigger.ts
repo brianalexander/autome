@@ -25,7 +25,15 @@ export const manualTriggerSpec: NodeTypeSpec = {
       },
     },
   },
-  defaultConfig: { provider: 'manual' },
+  defaultConfig: {
+    provider: 'manual',
+    output_schema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'User-provided prompt or instructions' },
+      },
+    },
+  },
   triggerMode: 'prompt',
   executor,
 };

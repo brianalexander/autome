@@ -30,7 +30,9 @@ export interface WorkflowState {
 // Trigger stages are marked as completed immediately (with the event payload as output)
 // so they appear correctly in the canvas and execution timeline.
 export function initializeContext(triggerEvent: Event, definition: WorkflowDefinition): WorkflowContext {
-  const triggerTimestamp = new Date().toISOString();
+  // Use the trigger event's timestamp — NOT new Date() — so the value is
+  // deterministic on Restate journal replay (no side effects outside ctx.run).
+  const triggerTimestamp = triggerEvent.timestamp || new Date().toISOString();
   const stages: Record<string, StageContext> = {};
 
   for (const stage of definition.stages) {
@@ -489,7 +491,7 @@ async function executeWithRetry(
     }
   }
 
-  throw lastError!;
+  throw new restate.TerminalError(lastError!.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -692,6 +694,10 @@ async function executeMapStage(
           run.status = 'completed';
           run.completed_at = completedAt;
           run.output = result.output;
+          const mapLogs = (result as any).logs as string | undefined;
+          const mapStderr = (result as any).stderr as string | undefined;
+          if (mapLogs) run.logs = mapLogs;
+          if (mapStderr) run.stderr = mapStderr;
         }
         context.stages[mapStageKey].status = 'completed';
         context.stages[mapStageKey].latest = result.output;
@@ -777,6 +783,8 @@ async function executeStepWithLifecycle(
 
     // --- Execute the node (with retry) ---
     let output: unknown;
+    let stageLogs: string | undefined;
+    let stageStderr: string | undefined;
     try {
       const result = await executeWithRetry(
         ctx,
@@ -791,6 +799,8 @@ async function executeStepWithLifecycle(
         iteration,
       );
       output = result.output;
+      stageLogs = (result as any).logs as string | undefined;
+      stageStderr = (result as any).stderr as string | undefined;
     } catch (err) {
       // All retries exhausted — mark failed
       const failedAt = await ctx.run(`timestamp-fail-${stageId}-${iteration}`, () => new Date().toISOString());
@@ -846,6 +856,8 @@ async function executeStepWithLifecycle(
       currentRun.status = 'completed';
       currentRun.completed_at = completedAt;
       currentRun.output = output;
+      if (stageLogs) currentRun.logs = stageLogs;
+      if (stageStderr) currentRun.stderr = stageStderr;
     }
     context.stages[stageId].latest = output;
     context.stages[stageId].status = 'completed';

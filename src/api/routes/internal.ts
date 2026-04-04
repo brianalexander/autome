@@ -81,6 +81,8 @@ const ValidateCodeBody = z.object({
   code: z.string(),
   outputSchema: z.record(z.string(), z.unknown()).optional(),
   nodeType: z.string().optional(),
+  validationMode: z.enum(['function', 'expression']).optional(),
+  returnSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
 const WorkflowStatusBody = z.object({
@@ -172,6 +174,11 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
 
         broadcast('instance:stage_status', { instanceId, stageId, status, message }, { instanceId });
 
+        // Persist status change so the approvals query (and other DB-backed queries) reflect it
+        if (status === 'waiting_gate' || status === 'waiting_input') {
+          db.updateInstance(instanceId, { status });
+        }
+
         // Schedule a gate timeout if requested
         if (status === 'waiting_gate' && timeout_minutes != null) {
           // Clear any pre-existing timer for this key (e.g. from a prior iteration)
@@ -188,6 +195,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
             try {
               if (action === 'approve') {
                 await restateClient.approveGate(instanceId, stageId);
+                db.updateInstance(instanceId, { status: 'running' });
                 broadcast('instance:gate_approved', { instanceId, stageId, reason: 'timeout' }, { instanceId });
               } else {
                 await restateClient.rejectGate(
@@ -195,6 +203,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
                   stageId,
                   `Gate timed out after ${timeout_minutes} minute(s)`,
                 );
+                db.updateInstance(instanceId, { status: 'running' });
                 broadcast(
                   'instance:gate_rejected',
                   { instanceId, stageId, reason: `Gate timed out after ${timeout_minutes} minute(s)` },
@@ -505,6 +514,16 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
       return { ok: true };
     },
   );
+
+  // DELETE /api/internal/author-draft/:workflowId — Clear draft after save
+  typedApp.delete('/api/internal/author-draft/:workflowId', {
+    schema: { params: z.object({ workflowId: z.string() }) },
+  }, async (request) => {
+    const { workflowId } = request.params;
+    state.authorDrafts.delete(workflowId);
+    deps.db.deleteDraft(workflowId);
+    return { deleted: true };
+  });
 
   // POST /api/internal/author-segments/migrate — Migrate draft author segments to a new workflow ID
   typedApp.post(
@@ -819,8 +838,8 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
     { schema: { body: ValidateCodeBody } },
     async (request) => {
       try {
-        const { code, outputSchema, nodeType } = request.body;
-        const diagnostics = validateCode({ code, outputSchema, nodeType });
+        const { code, outputSchema, nodeType, validationMode, returnSchema } = request.body;
+        const diagnostics = validateCode({ code, outputSchema, nodeType, validationMode, returnSchema });
         return { diagnostics };
       } catch (err) {
         console.error('[validate-code] Error:', err);

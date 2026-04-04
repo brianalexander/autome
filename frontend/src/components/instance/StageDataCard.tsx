@@ -49,7 +49,7 @@ export function StageDataCard({
           {error && (
             <div className="mt-2">
               <div className="text-[10px] text-red-500 uppercase tracking-wider mb-1">Error</div>
-              <pre className="text-xs text-red-600 dark:text-red-400 bg-status-error-muted rounded p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-words">
+              <pre className="text-[11px] font-mono text-red-600 dark:text-red-400 bg-status-error-muted rounded p-2 overflow-x-auto max-h-48 whitespace-pre">
                 {error}
               </pre>
             </div>

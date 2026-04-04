@@ -39,7 +39,7 @@ export function RunHistory({ runs }: { runs: StageRun[] }) {
             </div>
             {run.error && (
               <div className="mt-2">
-                <pre className="text-xs text-red-600 dark:text-red-400 bg-status-error-muted rounded p-2 overflow-x-auto max-h-32 whitespace-pre-wrap break-words">
+                <pre className="text-[11px] font-mono text-red-600 dark:text-red-400 bg-status-error-muted rounded p-2 overflow-x-auto max-h-48 whitespace-pre">
                   {run.error}
                 </pre>
               </div>
@@ -71,6 +71,26 @@ export function RunHistory({ runs }: { runs: StageRun[] }) {
                   </pre>
                 )}
               </div>
+            )}
+            {/* Console output / logs */}
+            {(run.logs || run.stderr) && (
+              <details className="mt-2">
+                <summary className="text-[10px] text-text-tertiary cursor-pointer hover:text-text-secondary">
+                  Console Output
+                </summary>
+                <div className="mt-1 space-y-1">
+                  {run.logs && (
+                    <pre className="text-[11px] font-mono text-text-secondary bg-surface-secondary rounded p-2 overflow-x-auto max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                      {run.logs}
+                    </pre>
+                  )}
+                  {run.stderr && (
+                    <pre className="text-[11px] font-mono text-amber-500 bg-amber-950/20 rounded p-2 overflow-x-auto max-h-[200px] overflow-y-auto whitespace-pre-wrap">
+                      {run.stderr}
+                    </pre>
+                  )}
+                </div>
+              </details>
             )}
           </div>
         ))}

@@ -16,7 +16,7 @@ import { createProviderAsync } from './acp/provider/registry.js';
 import { setDefaultProvider } from './agents/discovery.js';
 import { runCrashRecovery } from './recovery.js';
 import { launchWorkflow } from './workflow/launch.js';
-import { initializeRegistry } from './nodes/registry.js';
+import { initializeRegistry, nodeRegistry } from './nodes/registry.js';
 import {
   initTriggerLifecycle,
   activateWorkflowTriggers,
@@ -136,13 +136,30 @@ async function start() {
   const { data: workflows } = db.listWorkflows();
   for (const workflow of workflows) {
     if (workflow.active) {
-      eventBus.addSubscription({
-        id: `sub-${workflow.id}`,
-        provider: workflow.trigger.provider,
-        eventType: 'trigger',
-        filter: workflow.trigger.filter,
-        workflowDefinitionId: workflow.id,
-      });
+      // Create a subscription for each trigger stage so events match by stage type
+      const triggerStages = (workflow.stages || []).filter(
+        (s: { type: string }) => nodeRegistry.isTriggerType(s.type)
+      );
+      if (triggerStages.length === 0) {
+        // Fallback: use legacy top-level trigger.provider for backwards compat
+        eventBus.addSubscription({
+          id: `sub-${workflow.id}`,
+          provider: workflow.trigger.provider,
+          eventType: 'trigger',
+          filter: workflow.trigger.filter,
+          workflowDefinitionId: workflow.id,
+        });
+      } else {
+        for (const stage of triggerStages) {
+          eventBus.addSubscription({
+            id: `sub-${workflow.id}-${stage.id}`,
+            provider: stage.type,
+            eventType: 'trigger',
+            filter: workflow.trigger.filter,
+            workflowDefinitionId: workflow.id,
+          });
+        }
+      }
       // Activate trigger executors (e.g., cron intervals) for this workflow
       activateWorkflowTriggers(workflow).catch((err) =>
         console.error(`[trigger-lifecycle] Failed to activate triggers for workflow "${workflow.name}":`, err),

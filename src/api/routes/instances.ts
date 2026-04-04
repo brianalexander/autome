@@ -318,6 +318,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           state.stageTimeouts.delete(gateKey);
         }
         await restateClient.approveGate(id, stageId, data);
+        db.updateInstance(id, { status: 'running' });
         broadcast(
           'instance:gate_approved',
           {
@@ -351,6 +352,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           state.stageTimeouts.delete(gateKey);
         }
         await restateClient.rejectGate(id, stageId, body.reason);
+        db.updateInstance(id, { status: 'failed' });
         broadcast(
           'instance:gate_rejected',
           {

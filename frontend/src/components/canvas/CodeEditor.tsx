@@ -267,7 +267,12 @@ export default ({ input, config, context, trigger }) => {
 
 // --- Backend TypeScript linting ---
 
-function createCodeLinter(outputSchema?: Record<string, unknown>, nodeType?: string) {
+function createCodeLinter(
+  outputSchema?: Record<string, unknown>,
+  nodeType?: string,
+  validationMode?: 'function' | 'expression',
+  returnSchema?: Record<string, unknown>,
+) {
   return linter(async (view): Promise<Diagnostic[]> => {
     const code = view.state.doc.toString();
     if (!code.trim()) return [];
@@ -276,7 +281,7 @@ function createCodeLinter(outputSchema?: Record<string, unknown>, nodeType?: str
       const res = await fetch('/api/internal/validate-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, outputSchema, nodeType }),
+        body: JSON.stringify({ code, outputSchema, nodeType, validationMode: validationMode || 'function', returnSchema }),
       });
       if (!res.ok) return [];
       const { diagnostics } = await res.json() as { diagnostics: Array<{ from: number; to: number; severity: string; message: string }> };
@@ -321,6 +326,8 @@ interface CodeEditorProps {
   outputSchema?: Record<string, unknown>;
   /** Node type hint for the backend validation (e.g. 'code-executor', 'code-trigger') */
   nodeType?: string;
+  /** The node's OWN output schema — validates the function's return type */
+  returnSchema?: Record<string, unknown>;
 }
 
 export function CodeEditor({
@@ -331,10 +338,12 @@ export function CodeEditor({
   editorMode = 'code',
   outputSchema,
   nodeType,
+  returnSchema,
 }: CodeEditorProps) {
   const [expanded, setExpanded] = useState(false);
 
   const outputSchemaKey = JSON.stringify(outputSchema);
+  const returnSchemaKey = JSON.stringify(returnSchema);
 
   const completionFn = useMemo(
     () => createSchemaAwareCompletions(outputSchema),
@@ -343,9 +352,13 @@ export function CodeEditor({
   );
 
   const codeLinter = useMemo(
-    () => editorMode === 'code' ? createCodeLinter(outputSchema, nodeType) : null,
+    () => {
+      if (editorMode === 'code') return createCodeLinter(outputSchema, nodeType, 'function', returnSchema);
+      if (editorMode === 'condition') return createCodeLinter(outputSchema, undefined, 'expression');
+      return null;
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [editorMode, outputSchemaKey, nodeType],
+    [editorMode, outputSchemaKey, nodeType, returnSchemaKey],
   );
 
   const fillTheme = useMemo(() => editorFillTheme(expanded ? '60vh' : minHeight), [expanded, minHeight]);

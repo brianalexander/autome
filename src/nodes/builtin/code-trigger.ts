@@ -179,7 +179,15 @@ export const codeTriggerSpec: NodeTypeSpec = {
     },
     required: ['code'],
   },
-  defaultConfig: { code: '', dependencies: {}, timeout_seconds: 0 },
+  defaultConfig: {
+    code: '',
+    dependencies: {},
+    timeout_seconds: 0,
+    output_schema: {
+      type: 'object',
+      description: 'Events emitted by this trigger. Define the shape of objects passed to emit().',
+    },
+  },
   triggerMode: 'immediate',
   executor,
 };

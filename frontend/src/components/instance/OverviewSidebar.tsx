@@ -153,7 +153,7 @@ export function OverviewSidebar({
                       {err.run.completed_at ? formatTimestamp(err.run.completed_at) : ''}
                     </span>
                   </div>
-                  <div className="text-xs text-red-600 dark:text-red-400/90 break-words">{err.run.error}</div>
+                  <pre className="text-[11px] font-mono text-red-600 dark:text-red-400/90 bg-status-error-muted rounded p-2 overflow-x-auto max-h-48 whitespace-pre">{err.run.error}</pre>
                   {err.run.started_at && err.run.completed_at && (
                     <div className="text-[10px] text-text-muted mt-1">
                       Duration: {formatDuration(err.run.started_at, err.run.completed_at)}
@@ -228,9 +228,7 @@ export function OverviewSidebar({
                       )}
                       {/* Show error for failed stages */}
                       {entry.run.status === 'failed' && entry.run.error && (
-                        <div className="mt-1 text-[10px] text-red-600 dark:text-red-400 truncate">
-                          {entry.run.error}
-                        </div>
+                        <pre className="mt-1 text-[10px] font-mono text-red-600 dark:text-red-400 overflow-x-auto max-h-20 whitespace-pre">{entry.run.error}</pre>
                       )}
                       <div className="text-[10px] text-text-muted">{formatTimestamp(entry.run.started_at)}</div>
                     </div>

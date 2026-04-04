@@ -8,6 +8,7 @@
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import * as restate from '@restatedev/restate-sdk';
 import type { NodeTypeSpec, StepExecutor, StepExecutorContext } from '../types.js';
 import { ensureWorkspace, writeCodeFile, cleanupCodeFile } from '../workspace-manager.js';
 
@@ -31,9 +32,36 @@ function extractOutput(stdout: string): unknown {
   }
 }
 
+/**
+ * Extract a human-readable error from the raw Node.js child process output.
+ * Strips file paths, internal stack frames, and the "Command failed:" prefix.
+ */
+function cleanCodeError(raw: string): string {
+  // Strip the "Command failed: /path/to/node /path/to/file.mjs\n" prefix
+  let msg = raw.replace(/^Command failed:.*?\n/s, '');
+
+  // Strip absolute file paths, keep just the filename
+  msg = msg.replace(/file:\/\/\/[^\s]+\//g, '');
+
+  // Strip "at ..." stack frames from Node internals
+  msg = msg.replace(/\s+at\s+\S+\s+\(node:internal\/[^)]+\)/g, '');
+
+  // Strip trailing "Node.js vX.X.X" line
+  msg = msg.replace(/\s*Node\.js v[\d.]+\s*$/, '');
+
+  // Strip repeated "Error: Command failed..." block that echoes the same info
+  const errorIdx = msg.indexOf('\nError: Command failed:');
+  if (errorIdx > 0) msg = msg.slice(0, errorIdx);
+
+  // Collapse multiple blank lines
+  msg = msg.replace(/\n{3,}/g, '\n\n');
+
+  return msg.trim() || raw.trim();
+}
+
 const executor: StepExecutor = {
   type: 'step',
-  async execute(execCtx: StepExecutorContext): Promise<{ output: unknown }> {
+  async execute(execCtx: StepExecutorContext): Promise<{ output: unknown; logs?: string; stderr?: string }> {
     const { ctx, stageId, config, input, workflowContext, definition, iteration } = execCtx;
     const code = (config.code as string) || 'export default ({ input }) => input;';
     const timeoutMs = ((config.timeout_seconds as number) || 30) * 1000;
@@ -42,51 +70,68 @@ const executor: StepExecutor = {
     const workflowId = definition.id;
     const version = definition.version ?? 1;
 
-    const output = await ctx.run(`code-exec-${stageId}-${iteration}`, async () => {
-      // 1. Ensure workspace with dependencies
-      const workspace = await ensureWorkspace(workflowId, version, dependencies);
-
-      // 2. Build input payload
-      const inputPayload = {
-        input: input?.sourceOutput ?? {},
-        config,
-        context: workflowContext,
-        trigger: workflowContext.trigger,
-      };
-
-      // 3. Write temp code file
-      const fileId = `${stageId}-${iteration}-${Date.now()}`;
-      const codePath = await writeCodeFile(workspace.runsDir, fileId, code, inputPayload);
-
+    const result = await ctx.run(`code-exec-${stageId}-${iteration}`, async () => {
       try {
-        // 4. Execute in child process
-        const { stdout, stderr } = await execFileAsync(
-          process.execPath, // use current node binary
-          [codePath],
-          {
-            cwd: workspace.root,
-            timeout: timeoutMs,
-            env: {
-              ...process.env,
-              NODE_PATH: workspace.nodeModules,
+        // 1. Ensure workspace with dependencies
+        const workspace = await ensureWorkspace(workflowId, version, dependencies);
+
+        // 2. Build input payload
+        const inputPayload = {
+          input: input?.sourceOutput ?? {},
+          config,
+          context: workflowContext,
+          trigger: workflowContext.trigger,
+        };
+
+        // 3. Write temp code file
+        const fileId = `${stageId}-${iteration}-${Date.now()}`;
+        const codePath = await writeCodeFile(workspace.runsDir, fileId, code, inputPayload);
+
+        try {
+          // 4. Execute in child process
+          const { stdout, stderr } = await execFileAsync(
+            process.execPath, // use current node binary
+            [codePath],
+            {
+              cwd: workspace.root,
+              timeout: timeoutMs,
+              env: {
+                ...process.env,
+                NODE_PATH: workspace.nodeModules,
+              },
+              maxBuffer: 10 * 1024 * 1024, // 10MB
             },
-            maxBuffer: 10 * 1024 * 1024, // 10MB
-          },
-        );
+          );
 
-        if (stderr?.trim()) {
-          console.warn(`[code-executor] stderr from ${stageId}:`, stderr.trim().slice(0, 500));
+          if (stderr?.trim()) {
+            console.warn(`[code-executor] stderr from ${stageId}:`, stderr.trim().slice(0, 500));
+          }
+
+          // 5. Extract user console output (everything before the sentinel markers)
+          const sentinelIdx = stdout.lastIndexOf(OUTPUT_START);
+          const userLogs = sentinelIdx > 0 ? stdout.slice(0, sentinelIdx).trim() : '';
+
+          // 6. Extract output from stdout
+          return {
+            output: extractOutput(stdout),
+            logs: userLogs || undefined,
+            stderr: stderr?.trim() || undefined,
+          };
+        } finally {
+          // 7. Cleanup temp file
+          await cleanupCodeFile(codePath);
         }
-
-        // 5. Extract output from stdout
-        return extractOutput(stdout);
-      } finally {
-        // 6. Cleanup temp file
-        await cleanupCodeFile(codePath);
+      } catch (err) {
+        // User code failures (syntax errors, runtime errors, timeouts) won't fix on retry.
+        // Throw TerminalError so Restate stops retrying this step.
+        // Clean up the raw Node.js error to extract just the useful parts.
+        const raw = err instanceof Error ? err.message : String(err);
+        const cleaned = cleanCodeError(raw);
+        throw new restate.TerminalError(cleaned);
       }
     });
 
-    return { output };
+    return { output: result.output, logs: result.logs, stderr: result.stderr };
   },
 };
 

@@ -90,8 +90,9 @@ function ApprovalCard({ approval, onApprove, onReject }: ApprovalCardProps) {
   }, [editedData, onApprove]);
 
   const waitingDuration = (() => {
-    const ms = Date.now() - new Date(approval.waitingSince).getTime();
-    const secs = Math.floor(ms / 1000);
+    const ts = approval.waitingSince.endsWith('Z') ? approval.waitingSince : approval.waitingSince + 'Z';
+    const ms = Date.now() - new Date(ts).getTime();
+    const secs = Math.max(0, Math.floor(ms / 1000));
     if (secs < 60) return `${secs}s ago`;
     const mins = Math.floor(secs / 60);
     if (mins < 60) return `${mins}m ago`;

@@ -17,6 +17,10 @@ export interface ValidateCodeInput {
   outputSchema?: Record<string, unknown>;
   /** Node type — determines the function parameter shape ('code-executor' vs 'code-trigger') */
   nodeType?: string;
+  /** Validation mode — 'function' wraps as a function body (default), 'expression' wraps as a typed expression */
+  validationMode?: 'function' | 'expression';
+  /** The node's OWN output schema — validates the function's return value */
+  returnSchema?: Record<string, unknown>;
 }
 
 /**
@@ -60,14 +64,18 @@ function jsonSchemaToTsType(schema: Record<string, unknown>, indent = 2): string
  * For code-trigger nodes the parameter shape is different: { config, emit, signal }
  * instead of { input, config, context, trigger }.
  */
-function generateDeclarations(outputSchema?: Record<string, unknown>, nodeType?: string): string {
+function generateDeclarations(outputSchema?: Record<string, unknown>, nodeType?: string, returnSchema?: Record<string, unknown>): string {
   const inputType = outputSchema ? jsonSchemaToTsType(outputSchema) : 'Record<string, any>';
+  const returnTypeDecl = returnSchema ? `\ntype __ReturnType = ${jsonSchemaToTsType(returnSchema)};\n` : '';
 
   if (nodeType === 'code-trigger') {
-    return `
+    // For code-triggers, returnSchema describes what's passed to emit(), not the function return.
+    const emitType = returnSchema ? '__EmitType' : 'any';
+    const emitTypeDecl = returnSchema ? `\ntype __EmitType = ${jsonSchemaToTsType(returnSchema)};\n` : '';
+    return `${emitTypeDecl}
 interface __CodeTriggerParams {
   config: Record<string, any>;
-  emit: (event: any) => void;
+  emit: (event: ${emitType}) => void;
   signal: AbortSignal;
 }
 declare function fetch(url: string, init?: RequestInit): Promise<Response>;
@@ -87,6 +95,26 @@ interface __CodeExecutorParams {
   trigger: { type: string; payload: any; source?: string; timestamp?: string };
 }
 declare function fetch(url: string, init?: RequestInit): Promise<Response>;
+${returnTypeDecl}`;
+}
+
+/**
+ * Generate standalone declare constants for expression validation mode.
+ * Provides typed `output`, `context`, and `trigger` as ambient declarations
+ * rather than function parameters.
+ */
+function generateExpressionDeclarations(outputSchema?: Record<string, unknown>): string {
+  const outputType = outputSchema ? jsonSchemaToTsType(outputSchema) : 'Record<string, any>';
+
+  return `
+type __OutputType = ${outputType === 'Record<string, any>' ? 'Record<string, any>' : outputType};
+declare const output: __OutputType;
+declare const context: {
+  trigger: { type: string; payload: any; source?: string; timestamp?: string };
+  stages: Record<string, { latest: any; run_count: number; status: string; runs: any[] }>;
+  variables: Record<string, any>;
+};
+declare const trigger: { type: string; payload: any; source?: string; timestamp?: string };
 `;
 }
 
@@ -102,7 +130,7 @@ declare function fetch(url: string, init?: RequestInit): Promise<Response>;
  *   - export default function(input) { ... }               (single-param function)
  *   - export default async function(input) { ... }         (single-param async function)
  */
-function wrapUserCode(code: string, declarations: string, nodeType?: string): { wrapped: string; offset: number; injectionPos: number; injectionLen: number } {
+function wrapUserCode(code: string, declarations: string, nodeType?: string, returnSchema?: Record<string, unknown>): { wrapped: string; offset: number; injectionPos: number; injectionLen: number } {
   const separator = '// --- user code ---\n';
   const destructuredType = nodeType === 'code-trigger' ? '__CodeTriggerParams' : '__CodeExecutorParams';
   // For single-param pattern like function(input), type as the input data directly
@@ -116,21 +144,32 @@ function wrapUserCode(code: string, declarations: string, nodeType?: string): { 
   const destructuredRegex = /^(export\s+default\s+(?:async\s+)?(?:function\s*)?)\((\{[^}]*\})\)/m;
   const destructuredMatch = code.match(destructuredRegex);
 
+  // Code-triggers return void (they call emit() instead), so no return annotation
+  const shouldAnnotateReturn = returnSchema && nodeType !== 'code-trigger';
+
   if (destructuredMatch) {
-    const annotation = `: ${destructuredType}`;
-    typedCode = code.replace(destructuredRegex, `$1($2${annotation})`);
+    const paramAnnotation = `: ${destructuredType}`;
+    const isAsync = destructuredMatch[1].includes('async');
+    const returnAnnotation = shouldAnnotateReturn
+      ? (isAsync ? ': Promise<__ReturnType>' : ': __ReturnType')
+      : '';
+    typedCode = code.replace(destructuredRegex, `$1($2${paramAnnotation})${returnAnnotation}`);
     injectionPos = destructuredMatch.index! + destructuredMatch[1].length + 1 + destructuredMatch[2].length;
-    injectionLen = annotation.length;
+    injectionLen = paramAnnotation.length + returnAnnotation.length;
   } else {
     // Pattern 2: Single param — export default function(input) or (input) =>
     const singleParamRegex = /^(export\s+default\s+(?:async\s+)?(?:function\s*)?)\((\w+)\)/m;
     const singleParamMatch = code.match(singleParamRegex);
 
     if (singleParamMatch) {
-      const annotation = `: ${singleParamType}`;
-      typedCode = code.replace(singleParamRegex, `$1($2${annotation})`);
+      const paramAnnotation = `: ${singleParamType}`;
+      const isAsync = singleParamMatch[1].includes('async');
+      const returnAnnotation = shouldAnnotateReturn
+        ? (isAsync ? ': Promise<__ReturnType>' : ': __ReturnType')
+        : '';
+      typedCode = code.replace(singleParamRegex, `$1($2${paramAnnotation})${returnAnnotation}`);
       injectionPos = singleParamMatch.index! + singleParamMatch[1].length + 1 + singleParamMatch[2].length;
-      injectionLen = annotation.length;
+      injectionLen = paramAnnotation.length + returnAnnotation.length;
     }
   }
 
@@ -143,13 +182,41 @@ function wrapUserCode(code: string, declarations: string, nodeType?: string): { 
   };
 }
 
+/**
+ * Wrap user code as an expression for expression validation mode.
+ * The expression is assigned to `__expr_result` so TypeScript evaluates it.
+ * No function signature injection is performed — offset tracks the prefix only.
+ */
+function wrapUserExpression(code: string, declarations: string): { wrapped: string; offset: number; injectionPos: number; injectionLen: number } {
+  const separator = '// --- user code ---\n';
+  const prefix = declarations + separator;
+  const wrapper = `const __expr_result = (${code}\n);`;
+  return {
+    wrapped: prefix + wrapper,
+    // The user's code starts after the prefix and the `const __expr_result = (` leader
+    offset: prefix.length + 'const __expr_result = ('.length,
+    injectionPos: -1,
+    injectionLen: 0,
+  };
+}
+
 export function validateCode(input: ValidateCodeInput): CodeDiagnostic[] {
-  const { code, outputSchema, nodeType } = input;
+  const { code, outputSchema, nodeType, validationMode = 'function', returnSchema } = input;
 
   if (!code.trim()) return [];
 
-  const declarations = generateDeclarations(outputSchema, nodeType);
-  const { wrapped, offset, injectionPos, injectionLen } = wrapUserCode(code, declarations, nodeType);
+  let wrapped: string;
+  let offset: number;
+  let injectionPos: number;
+  let injectionLen: number;
+
+  if (validationMode === 'expression') {
+    const declarations = generateExpressionDeclarations(outputSchema);
+    ({ wrapped, offset, injectionPos, injectionLen } = wrapUserExpression(code, declarations));
+  } else {
+    const declarations = generateDeclarations(outputSchema, nodeType, returnSchema);
+    ({ wrapped, offset, injectionPos, injectionLen } = wrapUserCode(code, declarations, nodeType, returnSchema));
+  }
 
   const fileName = 'user-code.ts';
 
@@ -230,6 +297,10 @@ export function validateCode(input: ValidateCodeInput): CodeDiagnostic[] {
     // user's code is expected to use them.
     if (message.includes("'export'")) continue;
     if (message.includes("'import'")) continue;
+
+    // Suppress false positive: "Did you forget to include 'void' in your type
+    // argument to 'Promise'?" — common JS async pattern, not a real bug.
+    if (message.includes("Did you forget to include 'void' in your type argument to 'Promise'?")) continue;
 
     const severity: CodeDiagnostic['severity'] =
       diag.category === ts.DiagnosticCategory.Error

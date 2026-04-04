@@ -71,6 +71,8 @@ import {
 } from './shared.js';
 import { errorMessage } from '../../utils/errors.js';
 import { nodeRegistry } from '../../nodes/registry.js';
+import { validateCode } from '../../api/validate-code.js';
+import { validateWorkflow } from '../validate-workflow.js';
 
 // Schemas for test-run
 const TestRunBody = z.object({
@@ -82,6 +84,61 @@ function getDraftWarnings(draft: WorkflowDefinition): string[] {
   if (!draft.stages?.length && !draft.edges?.length) return [];
   const { warnings } = validateGraphStructure(draft.stages, draft.edges);
   return warnings;
+}
+
+/** Looks up the first upstream stage's output_schema for the given stage. */
+function findUpstreamOutputSchema(
+  draft: WorkflowDefinition,
+  stageId: string,
+): Record<string, unknown> | undefined {
+  const incomingEdge = draft.edges?.find((e) => e.target === stageId);
+  if (!incomingEdge) return undefined;
+  const sourceStage = draft.stages?.find((s) => s.id === incomingEdge.source);
+  const sourceConfig = sourceStage?.config as Record<string, unknown> | undefined;
+  let schema = sourceConfig?.output_schema as Record<string, unknown> | undefined;
+  if (!schema && sourceStage) {
+    const spec = nodeRegistry.get(sourceStage.type);
+    schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+  }
+  return schema;
+}
+
+/**
+ * After saving a stage, run code/expression validation and attach diagnostics
+ * to the response if any issues are found.
+ */
+function autoValidateStage(
+  draft: WorkflowDefinition,
+  stage: StageDefinition,
+): StageDefinition & { _validation?: { diagnostics: ReturnType<typeof validateCode>; isValid: boolean } } {
+  const stageConfig = stage.config as Record<string, unknown> | undefined;
+
+  if (stageConfig?.code && (stage.type === 'code-executor' || stage.type === 'code-trigger')) {
+    const upstreamSchema = findUpstreamOutputSchema(draft, stage.id);
+    const diagnostics = validateCode({
+      code: stageConfig.code as string,
+      outputSchema: upstreamSchema,
+      nodeType: stage.type,
+      returnSchema: stageConfig.output_schema as Record<string, unknown> | undefined,
+    });
+    if (diagnostics.length > 0) {
+      return { ...stage, _validation: { diagnostics, isValid: false } };
+    }
+  }
+
+  if (stageConfig?.expression && stage.type === 'transform') {
+    const upstreamSchema = findUpstreamOutputSchema(draft, stage.id);
+    const diagnostics = validateCode({
+      code: stageConfig.expression as string,
+      outputSchema: upstreamSchema,
+      validationMode: 'expression',
+    });
+    if (diagnostics.length > 0) {
+      return { ...stage, _validation: { diagnostics, isValid: false } };
+    }
+  }
+
+  return stage;
 }
 
 export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state: SharedState): void {
@@ -154,8 +211,9 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
       }
       draft.stages.push(stage as unknown as StageDefinition);
       saveDraft(db, state.authorDrafts, request.params.workflowId, draft);
+      const finalStage = autoValidateStage(draft, draft.stages[draft.stages.length - 1]);
       const warnings = getDraftWarnings(draft);
-      return reply.code(201).send(warnings.length > 0 ? { ...stage, warnings } : stage);
+      return reply.code(201).send(warnings.length > 0 ? { ...finalStage, warnings } : finalStage);
     },
   );
 
@@ -213,7 +271,7 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
       // Preserve id and position if not provided
       draft.stages[idx] = { id: stageId, position: draft.stages[idx].position, ...body } as unknown as StageDefinition;
       saveDraft(db, state.authorDrafts, workflowId, draft);
-      return draft.stages[idx];
+      return autoValidateStage(draft, draft.stages[idx]);
     },
   );
 
@@ -254,7 +312,7 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
       // RFC 7396: recursive merge, null deletes
       draft.stages[idx] = mergePatch(existing, changes);
       saveDraft(db, state.authorDrafts, workflowId, draft);
-      return draft.stages[idx];
+      return autoValidateStage(draft, draft.stages[idx]);
     },
   );
 
@@ -557,6 +615,23 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
         console.error('[test-run] Error:', err);
         return reply.code(500).send({ error: errorMessage(err) });
       }
+    },
+  );
+
+  // GET /api/draft/:workflowId/validate — comprehensive graph-level validation
+  typedApp.get(
+    '/api/draft/:workflowId/validate',
+    {
+      schema: {
+        params: z.object({ workflowId: z.string() }),
+        tags: ['Draft Validation'],
+        summary: 'Validate the entire workflow graph — returns all errors, warnings, and code diagnostics',
+      },
+    },
+    async (request) => {
+      const { workflowId } = request.params;
+      const draft = getDraft(db, state.authorDrafts, workflowId);
+      return validateWorkflow(draft);
     },
   );
 }

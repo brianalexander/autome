@@ -441,14 +441,43 @@ export function WorkflowCanvas({
     setEdges(newEdges);
 
     if (!initialLayoutDoneRef.current) {
-      // Initial load — run elkjs to compute positions, then lock in.
-      // Guard against concurrent layouts from rapid definition changes.
-      if (!layoutPendingRef.current) {
+      // Initial load — check if all stages already have saved positions.
+      // If so, use them directly; otherwise run elkjs for unpositioned stages.
+      const allHavePositions = definition.stages.length > 0 &&
+        definition.stages.every((s) => s.position && (s.position.x !== 0 || s.position.y !== 0));
+
+      if (allHavePositions) {
+        // All positions are saved — use them directly, skip elkjs
+        setNodes(newNodes);
+        initialLayoutDoneRef.current = true;
+      } else if (!layoutPendingRef.current) {
         layoutPendingRef.current = true;
         layoutGraph(newNodes, newEdges).then((layoutedNodes) => {
-          setNodes(layoutedNodes);
+          // For stages that already have saved positions, keep them instead of elkjs output
+          const finalNodes = layoutedNodes.map((ln) => {
+            const stage = definition.stages.find((s) => s.id === ln.id);
+            if (stage?.position && (stage.position.x !== 0 || stage.position.y !== 0)) {
+              return { ...ln, position: stage.position };
+            }
+            return ln;
+          });
+          setNodes(finalNodes);
           initialLayoutDoneRef.current = true;
           layoutPendingRef.current = false;
+
+          // Persist computed positions back to the definition for stages that lacked them.
+          if (mode === 'author' && onDefinitionChange) {
+            const posMap = new Map(finalNodes.map((n) => [n.id, n.position]));
+            const needsUpdate = definition.stages.some((s) => !s.position && posMap.has(s.id));
+            if (needsUpdate) {
+              onDefinitionChange({
+                ...definition,
+                stages: definition.stages.map((s) =>
+                  s.position ? s : { ...s, position: posMap.get(s.id) || s.position }
+                ),
+              });
+            }
+          }
         });
       }
     } else {
@@ -465,15 +494,27 @@ export function WorkflowCanvas({
   }, [definition, instance, callbacks, nodeTypeSpecs, setNodes, setEdges]);
 
   // Expose a manual re-layout trigger (used by the toolbar Re-layout button).
+  // Writes new positions to both React Flow state AND the workflow definition.
   const onRelayout = useCallback(() => {
     setNodes((currentNodes) => {
       const currentEdges = edges;
       layoutGraph(currentNodes, currentEdges).then((layoutedNodes) => {
         setNodes(layoutedNodes);
+        // Persist relayout positions to the definition so they can be saved
+        if (onDefinitionChange) {
+          const posMap = new Map(layoutedNodes.map((n) => [n.id, n.position]));
+          onDefinitionChange({
+            ...definition,
+            stages: definition.stages.map((s) => ({
+              ...s,
+              position: posMap.get(s.id) || s.position,
+            })),
+          });
+        }
       });
-      return currentNodes; // return unchanged while layout is pending
+      return currentNodes;
     });
-  }, [edges, setNodes]);
+  }, [edges, setNodes, definition, onDefinitionChange]);
 
   const onNodeClick = useCallback(
     (event: React.MouseEvent, node: Node) => {

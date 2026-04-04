@@ -1,9 +1,9 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { Boxes } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { useWorkflows, useTriggerWorkflow, useDeleteWorkflow } from '../hooks/queries';
+import { useWorkflows, useTriggerWorkflow, useDeleteWorkflow, useActivateWorkflow, useDeactivateWorkflow } from '../hooks/queries';
 import { TriggerDialog } from '../components/TriggerDialog';
 import { workflows as workflowsApi, isTriggerType, type BundlePreview, type ImportResult } from '../lib/api';
 
@@ -15,9 +15,18 @@ function WorkflowsPage() {
   const { data: workflowList, isLoading, error } = useWorkflows();
   const triggerMutation = useTriggerWorkflow();
   const deleteMutation = useDeleteWorkflow();
+  const activateMutation = useActivateWorkflow();
+  const deactivateMutation = useDeactivateWorkflow();
   const navigate = useNavigate();
   const [triggerTarget, setTriggerTarget] = useState<{ id: string; name: string } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+
+  const triggerSchema = useMemo(() => {
+    if (!triggerTarget) return undefined;
+    const wf = workflowList?.data?.find((w) => w.id === triggerTarget.id);
+    const triggerStage = wf?.stages.find((s) => isTriggerType(s.type));
+    return (triggerStage?.config as Record<string, unknown>)?.output_schema as Record<string, unknown> | undefined;
+  }, [triggerTarget, workflowList]);
   const queryClient = useQueryClient();
 
   if (isLoading) {
@@ -85,82 +94,63 @@ function WorkflowsPage() {
             return (
               <div
                 key={workflow.id}
-                className="border border-border rounded-xl bg-surface p-5 shadow-sm hover:shadow-md hover:border-border-subtle transition-all flex flex-col"
+                className="group border border-border rounded-xl bg-surface hover:border-border-subtle transition-all overflow-hidden"
               >
-                {/* Header: name + active badge */}
-                <div className="flex items-start justify-between mb-2">
-                  <Link
-                    to="/workflows/$workflowId"
-                    params={{ workflowId: workflow.id }}
-                    className="text-lg font-semibold hover:text-blue-600 dark:hover:text-blue-400 transition-colors leading-tight"
-                  >
+                {/* Top section — clickable */}
+                <Link
+                  to="/workflows/$workflowId"
+                  params={{ workflowId: workflow.id }}
+                  className="block p-4 pb-3"
+                >
+                  <h3 className="text-sm font-semibold text-text-primary group-hover:text-blue-500 transition-colors leading-tight mb-1.5">
                     {workflow.name}
-                  </Link>
-                  <span
-                    className={`ml-2 flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                  </h3>
+                  {workflow.description && (
+                    <p className="text-xs text-text-tertiary line-clamp-2 mb-2">
+                      {workflow.description}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 text-[10px] text-text-muted">
+                    <span>{workflow.stages.length} stages</span>
+                    <span>·</span>
+                    <span className="capitalize">{triggerLabel}</span>
+                  </div>
+                </Link>
+
+                {/* Bottom bar — actions, only visible on hover */}
+                <div className="px-4 py-2 border-t border-border/50 flex items-center gap-2">
+                  {/* Activate/deactivate toggle */}
+                  <button
+                    onClick={() => workflow.active
+                      ? deactivateMutation.mutate(workflow.id)
+                      : activateMutation.mutate(workflow.id)
+                    }
+                    className={`text-[11px] px-2 py-0.5 rounded-md transition-colors ${
                       workflow.active
-                        ? 'bg-status-success-muted text-green-600 dark:text-green-400'
-                        : 'bg-surface-tertiary text-text-tertiary'
+                        ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20'
+                        : 'text-text-tertiary hover:bg-surface-secondary hover:text-text-secondary'
                     }`}
                   >
-                    <span
-                      className={`inline-block w-1.5 h-1.5 rounded-full ${workflow.active ? 'bg-green-400' : 'bg-text-muted'}`}
-                    />
-                    {workflow.active ? 'Active' : 'Inactive'}
-                  </span>
-                </div>
+                    {workflow.active ? 'Active' : 'Activate'}
+                  </button>
 
-                {/* Description */}
-                <p className="text-sm text-text-secondary mb-3 line-clamp-2 min-h-[1.25rem]">
-                  {workflow.description || '\u00A0'}
-                </p>
-
-                {/* Stats */}
-                <div className="flex flex-wrap gap-2 mb-4 text-xs">
-                  <span className="px-2 py-1 rounded bg-surface-tertiary text-text-secondary">
-                    {workflow.stages.length} stages
-                  </span>
-                  <span className="px-2 py-1 rounded bg-surface-tertiary text-text-secondary">
-                    {workflow.edges.length} edges
-                  </span>
-                  <span
-                    className={`px-2 py-1 rounded font-medium ${
-                      isWebhook
-                        ? 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300'
-                        : 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
-                    }`}
-                  >
-                    {triggerLabel}
-                  </span>
-                </div>
-
-                {/* Spacer to push actions to bottom */}
-                <div className="flex-1" />
-
-                {/* Actions */}
-                <div className="flex gap-2 pt-3 border-t border-border">
                   {hasManualTrigger && (
                     <button
                       onClick={() => setTriggerTarget({ id: workflow.id, name: workflow.name })}
                       disabled={triggerMutation.isPending}
-                      className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+                      className="text-[11px] text-text-tertiary hover:text-blue-500 px-2 py-0.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                     >
-                      Start
+                      Trigger
                     </button>
                   )}
-                  <button
-                    onClick={() => toast.info('Export coming soon')}
-                    className="px-3 py-1.5 text-sm border border-border hover:bg-interactive text-text-secondary hover:text-text-primary rounded-lg transition-colors"
-                  >
-                    Export
-                  </button>
+
+                  <div className="flex-1" />
+
                   <button
                     onClick={() => {
-                      if (confirm('Delete this workflow?')) {
-                        deleteMutation.mutate(workflow.id);
-                      }
+                      if (confirm('Delete this workflow?')) deleteMutation.mutate(workflow.id);
                     }}
-                    className="px-3 py-1.5 text-sm border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg ml-auto transition-colors"
+                    className="text-[11px] text-text-muted hover:text-red-500 px-2 py-0.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                   >
                     Delete
                   </button>
@@ -179,6 +169,7 @@ function WorkflowsPage() {
           triggerMutation.mutate({ id: triggerTarget!.id, payload }, { onSuccess: () => setTriggerTarget(null) });
         }}
         isPending={triggerMutation.isPending}
+        outputSchema={triggerSchema}
       />
 
       {importOpen && (

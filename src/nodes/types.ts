@@ -73,7 +73,7 @@ export interface StepExecutor {
    * Execute the node's logic. Must wrap side effects in ctx.run() for Restate
    * deterministic replay. Returns the node's output, which flows to downstream edges.
    */
-  execute(execCtx: StepExecutorContext): Promise<{ output: unknown }>;
+  execute(execCtx: StepExecutorContext): Promise<{ output: unknown; logs?: string; stderr?: string }>;
 }
 
 // ---------------------------------------------------------------------------

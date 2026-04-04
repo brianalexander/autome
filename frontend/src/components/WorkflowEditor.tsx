@@ -12,6 +12,8 @@ import {
   useUpdateWorkflow,
   useTriggerWorkflow,
   useDeleteWorkflow,
+  useActivateWorkflow,
+  useDeactivateWorkflow,
   useInstance,
   useInstanceStatus,
   useWorkflowVersions,
@@ -33,10 +35,12 @@ import { WorkflowSettings } from './canvas/WorkflowSettings';
 import {
   authorChat,
   workflows as workflowsApi,
+  isTriggerType,
   type WorkflowDefinition,
   type StageDefinition,
   type EdgeDefinition,
 } from '../lib/api';
+
 
 export interface WorkflowEditorProps {
   /** If provided, load existing workflow from DB. If omitted, create a blank draft. */
@@ -97,6 +101,8 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   const updateMutation = useUpdateWorkflow();
   const triggerMutation = useTriggerWorkflow();
   const deleteWorkflow = useDeleteWorkflow();
+  const activateMutation = useActivateWorkflow();
+  const deactivateMutation = useDeactivateWorkflow();
   const queryClient = useQueryClient();
 
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
@@ -110,9 +116,17 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   const [testRunInstanceId, setTestRunInstanceId] = useState<string | null>(null);
   const [testRunWorkflowId, setTestRunWorkflowId] = useState<string | null>(null);
   const [testRunStarting, setTestRunStarting] = useState(false);
+  const [testRunValidation, setTestRunValidation] = useState<{
+    valid: boolean;
+    summary: string;
+    errors: string[];
+    warnings: string[];
+  } | null>(null);
 
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
   const [resetModalOpen, setResetModalOpen] = useState(false);
+  const skipBlockerRef = useRef(false);
+  const userEditedRef = useRef(false);
 
   // Subscribe to workflow-scoped events plus the active test run instance
   const wsSubscriptions = testRunInstanceId
@@ -144,7 +158,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
 
   // Block navigation when there are unsaved changes (browser back, link clicks, etc.)
   // useBlocker with withResolver gives us proceed/reset to control our own modal.
-  const blocker = useBlocker({ condition: hasChanges || (isNew && canUndo) });
+  const blocker = useBlocker({ condition: !skipBlockerRef.current && (hasChanges || (isNew && userEditedRef.current)) });
 
   // When the existing workflow first loads, seed the undo stack with it,
   // then check if there's an in-flight draft that differs (survives page refresh).
@@ -195,27 +209,39 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
 
   const handleDefinitionChange = useCallback(
     (def: WorkflowDefinition) => {
+      // Only mark as changed if the definition actually differs
+      const changed = JSON.stringify(def) !== JSON.stringify(definitionRef.current);
       pushDefinition(def);
-      if (!isNew) setHasChanges(true);
+      if (changed) userEditedRef.current = true;
+      if (!isNew && changed) setHasChanges(true);
       // Sync to server draft so the AI Author MCP server sees the latest state
-      fetch(`/api/internal/author-draft/${effectiveId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(def),
-      }).catch((err) => console.warn('[draft-sync]', err));
+      if (changed) {
+        fetch(`/api/internal/author-draft/${effectiveId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(def),
+        }).catch((err) => console.warn('[draft-sync]', err));
+      }
     },
     [effectiveId, isNew, pushDefinition],
   );
 
   const handleSave = useCallback(() => {
     if (isNew) {
+      skipBlockerRef.current = true;  // Bypass blocker for save-triggered navigation
       // Strip the temp id and create in DB
       const { id: _id, ...data } = currentDefinition as WorkflowDefinition;
       createMutation.mutate(data, {
         onSuccess: async (created) => {
+          userEditedRef.current = false;
           // Migrate draft author messages to the real workflow ID
           await authorChat.migrateSegments(tempId, created.id).catch(() => {});
+          // Clear the temp draft — it now lives under the real workflow ID
+          fetch(`/api/internal/author-draft/${tempId}`, { method: 'DELETE' }).catch(() => {});
           navigate({ to: '/workflows/$workflowId', params: { workflowId: created.id } });
+        },
+        onError: () => {
+          skipBlockerRef.current = false;  // Re-enable blocker if save fails
         },
       });
     } else {
@@ -227,7 +253,10 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
             // Set query cache directly so there's no flash of stale data
             queryClient.setQueryData(['workflow', workflowId], editedDefinition);
             setHasChanges(false);
+            userEditedRef.current = false;
             resetHistory(editedDefinition);
+            // Clear server draft — it now matches the saved version
+            fetch(`/api/internal/author-draft/${workflowId}`, { method: 'DELETE' }).catch(() => {});
           },
         },
       );
@@ -420,16 +449,31 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     }
   }, [currentDefinition, nodeTypeList, workflowId, triggerMutation]);
 
-  const handleTestRunClick = useCallback(() => {
+  const handleTestRunClick = useCallback(async () => {
     const triggerStage = currentDefinition?.stages.find((s) => s.type.endsWith('-trigger'));
     const triggerNodeInfo = nodeTypeList?.find((nt) => nt.id === triggerStage?.type);
     const triggerMode = triggerNodeInfo?.triggerMode ?? 'prompt';
     if (triggerMode === 'immediate') {
       handleTestRunTrigger({ source: 'cron', scheduled_at: new Date().toISOString() });
     } else {
+      // Fetch validation results before opening dialog
+      try {
+        const res = await fetch(`/api/draft/${effectiveId}/validate`);
+        if (res.ok) {
+          const validation = await res.json();
+          setTestRunValidation(validation);
+        }
+      } catch {
+        // Don't block test run if validation fails to fetch
+      }
       setTestRunTriggerOpen(true);
     }
-  }, [currentDefinition, nodeTypeList, handleTestRunTrigger]);
+  }, [currentDefinition, nodeTypeList, handleTestRunTrigger, effectiveId]);
+
+  const triggerSchema = useMemo(() => {
+    const triggerStage = currentDefinition?.stages.find((s) => isTriggerType(s.type));
+    return (triggerStage?.config as Record<string, unknown>)?.output_schema as Record<string, unknown> | undefined;
+  }, [currentDefinition]);
 
   const handleExport = useCallback(async () => {
     try {
@@ -470,6 +514,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   }, [isNew, workflow, workflowId, effectiveId, resetHistory, blocker]);
 
   const handleResetDraft = useCallback(() => {
+    userEditedRef.current = false;
     // Clear sessionStorage draft ID
     sessionStorage.removeItem(DRAFT_ID_KEY);
     // Clear chat segments on the server
@@ -630,6 +675,22 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
               </button>
             )}
 
+            {!isNew && workflow && (
+              <button
+                onClick={() => workflow.active
+                  ? deactivateMutation.mutate(workflowId!)
+                  : activateMutation.mutate(workflowId!)
+                }
+                className={`px-2.5 py-1.5 text-xs rounded-lg border shadow-sm backdrop-blur-sm transition-colors ${
+                  workflow.active
+                    ? 'border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20'
+                    : 'border-border bg-surface text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                {workflow.active ? '● Active' : '○ Inactive'}
+              </button>
+            )}
+
             <button
               onClick={handleTestRunClick}
               className="px-2.5 py-1.5 text-xs rounded-lg border bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] shadow-sm backdrop-blur-sm transition-colors"
@@ -718,6 +779,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
             );
           }}
           isPending={triggerMutation.isPending}
+          outputSchema={triggerSchema}
         />
       )}
 
@@ -727,6 +789,8 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
         onClose={() => setTestRunTriggerOpen(false)}
         onTrigger={handleTestRunTrigger}
         isPending={testRunStarting}
+        outputSchema={triggerSchema}
+        validation={testRunValidation}
       />
 
       {/* Command palette and shortcuts help — fixed-position overlays */}

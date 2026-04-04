@@ -26,6 +26,8 @@ export const StageRunSchema = z.object({
   output: z.any().optional(),
   error: z.string().optional(),
   transcript: z.array(ACPMessageSchema).optional(),
+  logs: z.string().optional(),    // console output from code/shell execution
+  stderr: z.string().optional(),  // stderr output
 });
 
 export type StageRun = z.infer<typeof StageRunSchema>;

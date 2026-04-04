@@ -39,7 +39,13 @@ export const webhookTriggerSpec: NodeTypeSpec = {
     },
     required: ['payload_schema'],
   },
-  defaultConfig: { provider: 'webhook' },
+  defaultConfig: {
+    provider: 'webhook',
+    output_schema: {
+      type: 'object',
+      description: 'Incoming webhook payload. Define payload_schema above to validate and type this.',
+    },
+  },
   triggerMode: 'prompt',
   executor,
 };

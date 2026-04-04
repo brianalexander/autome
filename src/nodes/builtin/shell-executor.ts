@@ -11,6 +11,7 @@
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import * as restate from '@restatedev/restate-sdk';
 import type { NodeTypeSpec, StepExecutor, StepExecutorContext } from '../types.js';
 import { safeEval } from '../../engine/safe-eval.js';
 
@@ -80,12 +81,12 @@ const executor: StepExecutor = {
         exitCode = typeof execErr.code === 'number' ? execErr.code : 1;
 
         if (execErr.killed) {
-          throw new Error(
+          throw new restate.TerminalError(
             `[shell-executor] command timed out after ${timeoutMs / 1000}s\nstderr: ${stderr.slice(0, 500)}`,
           );
         }
 
-        throw new Error(
+        throw new restate.TerminalError(
           `[shell-executor] command exited with code ${exitCode}\nstderr: ${stderr.slice(0, 500)}`,
         );
       }
