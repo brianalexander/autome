@@ -52,7 +52,7 @@ const STAGES_DEEP_MEMBERS: TypeMember[] = [
 ];
 
 const TOP_LEVEL_COMPLETIONS: Completion[] = [
-  { label: 'input', type: 'variable', detail: '{ data, status, error }', info: 'Output from the upstream stage. Access data via input.data' },
+  { label: 'input', type: 'variable', detail: 'upstream output', info: 'Output from the upstream stage. Access fields via input.fieldName' },
   { label: 'config', type: 'variable', detail: '{ code, timeout_seconds, ... }', info: 'This node\'s configuration values' },
   { label: 'context', type: 'variable', detail: '{ trigger, stages, variables }', info: 'Full workflow context. Access other stages via context.stages["id"].latest' },
   { label: 'trigger', type: 'variable', detail: '{ type, payload, source, timestamp }', info: 'Shorthand for context.trigger — the event that started this workflow' },
@@ -78,7 +78,7 @@ interface HoverInfo {
 
 const HOVER_MAP: Record<string, HoverInfo> = {
   // Top-level identifiers
-  input: { type: '{ data, status, error }', description: 'Output from the upstream stage' },
+  input: { type: 'upstream output', description: 'Output from the upstream stage — fields depend on the source node\'s output schema' },
   config: { type: '{ code, timeout_seconds, ... }', description: "This node's configuration values" },
   context: { type: '{ trigger, stages, variables }', description: 'Full workflow execution context' },
   trigger: { type: '{ type, payload, source, timestamp }', description: 'The event that started this workflow' },
@@ -142,9 +142,8 @@ const codeHoverTooltip = hoverTooltip((view, pos): Tooltip | null => {
   };
 });
 
-function codeExecutorCompletions(ctx: CompletionContext) {
+function codeExecutorCompletions(ctx: CompletionContext, hasSchema = false) {
   // Deep member access: context.stages["x"].
-  // (simplified — after any two dots, suggest stage context members)
   const deepDot = ctx.matchBefore(/context\.stages\[.*?\]\.\w*/);
   if (deepDot) {
     const lastDot = deepDot.text.lastIndexOf('.');
@@ -163,6 +162,9 @@ function codeExecutorCompletions(ctx: CompletionContext) {
   const dotMatch = ctx.matchBefore(/(\w+)\.\w*/);
   if (dotMatch) {
     const objName = dotMatch.text.split('.')[0];
+    // Skip hardcoded input members when we have a real schema —
+    // the schema-aware completions already handled input.X
+    if (hasSchema && objName === 'input') return null;
     const members = MEMBER_MAP[objName];
     if (members) {
       const from = dotMatch.from + objName.length + 1;
@@ -217,12 +219,30 @@ function walkSchema(schema: Record<string, unknown>, path: string[]): Record<str
 function createSchemaAwareCompletions(outputSchema?: Record<string, unknown>) {
   return function schemaAwareCompletions(ctx: CompletionContext) {
     if (outputSchema) {
-      // Deep member access: output.body.users. (walk schema)
+      // Handle input.X — the upstream stage's output fields
+      // This covers both:
+      //   - function(input) { input.field }  (single param = upstream data)
+      //   - function({ input }) { input.field }  (destructured = upstream data)
+      const inputDotChain = ctx.matchBefore(/input(\.\w+)*\.\w*/);
+      if (inputDotChain) {
+        const parts = inputDotChain.text.split('.');
+        // Remove 'input' prefix, keep intermediate path parts, drop partial last
+        const pathParts = parts.slice(1, -1);
+        const subSchema = pathParts.length > 0 ? walkSchema(outputSchema, pathParts) : outputSchema;
+        if (subSchema) {
+          const lastDot = inputDotChain.text.lastIndexOf('.');
+          return {
+            from: inputDotChain.from + lastDot + 1,
+            options: schemaToCompletions(subSchema, ''),
+          };
+        }
+      }
+
+      // Handle output.X — used in edge conditions
       const outputDotChain = ctx.matchBefore(/output(\.\w+)*\.\w*/);
       if (outputDotChain) {
         const parts = outputDotChain.text.split('.');
-        // Remove 'output' prefix and the partial last part
-        const pathParts = parts.slice(1, -1); // e.g. ['body'] from 'output.body.u'
+        const pathParts = parts.slice(1, -1);
         const subSchema = pathParts.length > 0 ? walkSchema(outputSchema, pathParts) : outputSchema;
         if (subSchema) {
           const lastDot = outputDotChain.text.lastIndexOf('.');
@@ -232,26 +252,11 @@ function createSchemaAwareCompletions(outputSchema?: Record<string, unknown>) {
           };
         }
       }
-
-      // Also handle input.data. paths (input.data is the upstream output)
-      const inputDataChain = ctx.matchBefore(/input\.data(\.\w+)*\.\w*/);
-      if (inputDataChain) {
-        const text = inputDataChain.text;
-        const afterInputData = text.replace(/^input\.data\.?/, '');
-        const pathParts = afterInputData ? afterInputData.split('.').slice(0, -1) : [];
-        const subSchema = pathParts.length > 0 ? walkSchema(outputSchema, pathParts) : outputSchema;
-        if (subSchema) {
-          const lastDot = inputDataChain.text.lastIndexOf('.');
-          return {
-            from: inputDataChain.from + lastDot + 1,
-            options: schemaToCompletions(subSchema, ''),
-          };
-        }
-      }
     }
 
-    // Fall through to existing completions
-    return codeExecutorCompletions(ctx);
+    // Fall through to generic completions — but skip hardcoded input members
+    // when we have a real schema (they'd be stale/wrong)
+    return codeExecutorCompletions(ctx, !!outputSchema);
   };
 }
 
