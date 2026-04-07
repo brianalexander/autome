@@ -14,7 +14,9 @@ const executor: StepExecutor = {
 
     // Build template variables — spread raw input data and add 'item' alias
     // when executing inside a map_over loop so {{ item.field }} resolves correctly.
+    // Also expose sourceOutputs for fan-in stages (keyed by source stage ID).
     const templateVars: Record<string, unknown> = { ...inputData };
+    templateVars.sourceOutputs = input?.mergedInputs ?? {};
     if (input?.mapElement !== undefined) {
       templateVars.item = input.mapElement;
     }
@@ -90,7 +92,7 @@ export const httpRequestNodeSpec: NodeTypeSpec = {
       url: {
         type: 'string',
         title: 'URL',
-        description: 'Request URL. Use {{ fieldName }} to insert values from upstream stage output. Fields are accessed directly (e.g. {{ id }}, {{ name }}), not via input prefix.',
+        description: 'Request URL. Use {{ fieldName }} to insert values from upstream stage output. Fields are accessed directly (e.g. {{ id }}, {{ name }}), not via input prefix. For fan-in stages, {{ sourceOutputs["stage-id"].field }} contains all upstream outputs keyed by stage ID.',
         format: 'url',
       },
       method: { type: 'string', title: 'Method', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], default: 'GET' },

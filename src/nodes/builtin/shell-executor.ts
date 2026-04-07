@@ -50,6 +50,7 @@ const executor: StepExecutor = {
       // Build template variables — same shape as code-executor input payload
       const templateVars: Record<string, unknown> = {
         input: input?.sourceOutput ?? {},
+        sourceOutputs: input?.mergedInputs ?? {},
         config,
         context: workflowContext,
         trigger: workflowContext.trigger,
@@ -130,7 +131,7 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Command',
         description:
-          'Shell command to execute. Use ${input.fieldName} to reference upstream stage output (primary data). Also: ${context.stages["stage-id"].latest.field} for other stages, ${trigger.payload} for the trigger event.',
+          'Shell command to execute. Use ${input.fieldName} to reference upstream stage output (primary data). For fan-in stages, ${sourceOutputs["stage-id"].field} contains all upstream outputs keyed by stage ID. Also: ${context.stages["stage-id"].latest.field} for other stages, ${trigger.payload} for the trigger event.',
         format: 'code',
       },
       timeout_seconds: {

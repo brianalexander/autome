@@ -15,6 +15,7 @@ const executor: StepExecutor = {
       try {
         return safeEval(expression, {
           input: input?.sourceOutput ?? {},
+          sourceOutputs: input?.mergedInputs ?? {},
           context: workflowContext,
           trigger: workflowContext.trigger,
         });
@@ -41,7 +42,7 @@ export const transformNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Expression',
         description:
-          'JS expression that transforms data. `input` contains the upstream stage\'s output — access fields via input.fieldName. Also available: context (context.stages["id"].latest), trigger (original trigger event). Must return the output object.',
+          'JS expression that transforms data. `input` contains the upstream stage\'s output — access fields via input.fieldName. Also available: sourceOutputs (all upstream outputs keyed by stage ID, for fan-in stages), context (context.stages["id"].latest), trigger (original trigger event). Must return the output object.',
         format: 'code',
         default: '({ ...input })',
       },
