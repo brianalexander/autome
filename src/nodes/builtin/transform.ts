@@ -4,21 +4,19 @@
  */
 import type { NodeTypeSpec, StepExecutor, StepExecutorContext } from '../types.js';
 import { safeEval } from '../../engine/safe-eval.js';
+import { buildExecutorScope } from '../executor-scope.js';
 
 const executor: StepExecutor = {
   type: 'step',
   async execute(execCtx: StepExecutorContext): Promise<{ output: unknown }> {
-    const { ctx, stageId, config, workflowContext, input, iteration } = execCtx;
+    const { ctx, stageId, config, iteration } = execCtx;
     const expression = (config.expression as string) || 'input';
+
+    const scope = buildExecutorScope(execCtx);
 
     const output = await ctx.run(`transform-${stageId}-${iteration}`, () => {
       try {
-        return safeEval(expression, {
-          input: input?.sourceOutput ?? {},
-          sourceOutputs: input?.mergedInputs ?? {},
-          context: workflowContext,
-          trigger: workflowContext.trigger,
-        });
+        return safeEval(expression, scope as unknown as Record<string, unknown>);
       } catch (err) {
         throw new Error(`Transform expression failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -33,7 +31,7 @@ export const transformNodeSpec: NodeTypeSpec = {
   name: 'Transform',
   category: 'step',
   description: 'Transform data between stages using a JS expression',
-  icon: 'shuffle',
+  icon: '🔄',
   color: { bg: '#fffbeb', border: '#f59e0b', text: '#d97706' },
   configSchema: {
     type: 'object',
@@ -42,15 +40,9 @@ export const transformNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Expression',
         description:
-          'JS expression that transforms data. `input` contains the upstream stage\'s output — access fields via input.fieldName. Also available: sourceOutputs (all upstream outputs keyed by stage ID, for fan-in stages), context (context.stages["id"].latest), trigger (original trigger event). Must return the output object.',
+          'JS expression. Available variables: input (upstream output), context (workflow context), trigger (trigger payload). Must return the output object.',
         format: 'code',
-        default: '({ ...input })',
-      },
-      output_schema: {
-        type: 'object',
-        title: 'Output Schema',
-        description: 'JSON Schema describing this node\'s output. Used for design-time validation of downstream references.',
-        format: 'json',
+        default: 'input',
       },
     },
     required: ['expression'],

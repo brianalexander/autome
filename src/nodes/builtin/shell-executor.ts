@@ -11,9 +11,9 @@
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import * as restate from '@restatedev/restate-sdk';
 import type { NodeTypeSpec, StepExecutor, StepExecutorContext } from '../types.js';
 import { safeEval } from '../../engine/safe-eval.js';
+import { buildExecutorScope } from '../executor-scope.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -39,7 +39,7 @@ export function interpolateCommand(
 const executor: StepExecutor = {
   type: 'step',
   async execute(execCtx: StepExecutorContext): Promise<{ output: unknown }> {
-    const { ctx, stageId, config, input, workflowContext, iteration } = execCtx;
+    const { ctx, stageId, config, iteration } = execCtx;
 
     const rawCommand = (config.command as string) || '';
     const timeoutMs = ((config.timeout_seconds as number) || 30) * 1000;
@@ -48,13 +48,8 @@ const executor: StepExecutor = {
 
     const output = await ctx.run(`shell-exec-${stageId}-${iteration}`, async () => {
       // Build template variables — same shape as code-executor input payload
-      const templateVars: Record<string, unknown> = {
-        input: input?.sourceOutput ?? {},
-        sourceOutputs: input?.mergedInputs ?? {},
-        config,
-        context: workflowContext,
-        trigger: workflowContext.trigger,
-      };
+      const scope = buildExecutorScope(execCtx);
+      const templateVars: Record<string, unknown> = { ...scope, config };
 
       const command = interpolateCommand(rawCommand, templateVars);
 
@@ -82,12 +77,12 @@ const executor: StepExecutor = {
         exitCode = typeof execErr.code === 'number' ? execErr.code : 1;
 
         if (execErr.killed) {
-          throw new restate.TerminalError(
+          throw new Error(
             `[shell-executor] command timed out after ${timeoutMs / 1000}s\nstderr: ${stderr.slice(0, 500)}`,
           );
         }
 
-        throw new restate.TerminalError(
+        throw new Error(
           `[shell-executor] command exited with code ${exitCode}\nstderr: ${stderr.slice(0, 500)}`,
         );
       }
@@ -122,7 +117,7 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
   name: 'Shell / CLI',
   category: 'step',
   description: 'Run shell commands and capture their output',
-  icon: 'terminal',
+  icon: '🖥️',
   color: { bg: '#f8fafc', border: '#64748b', text: '#475569' },
   configSchema: {
     type: 'object',
@@ -131,7 +126,7 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Command',
         description:
-          'Shell command to execute. Use ${input.fieldName} to reference upstream stage output (primary data). For fan-in stages, ${sourceOutputs["stage-id"].field} contains all upstream outputs keyed by stage ID. Also: ${context.stages["stage-id"].latest.field} for other stages, ${trigger.payload} for the trigger event.',
+          'Shell command to execute. Supports template expressions: ${input.field}, ${trigger.data}, ${context.stages.id.latest.field}.',
         format: 'code',
       },
       timeout_seconds: {
@@ -152,12 +147,6 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
         description: 'Attempt to parse stdout as JSON (default: true)',
         default: true,
       },
-      output_schema: {
-        type: 'object',
-        title: 'Output Schema',
-        description: 'JSON Schema describing this node\'s output. Used for design-time validation of downstream references.',
-        format: 'json',
-      },
     },
     required: ['command'],
   },
@@ -166,14 +155,6 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
     timeout_seconds: 30,
     shell: '/bin/bash',
     parse_json: true,
-    output_schema: {
-      type: 'object',
-      properties: {
-        stdout: { type: 'string', description: 'Raw stdout output' },
-        stderr: { type: 'string', description: 'Stderr output' },
-        exitCode: { type: 'number', description: 'Process exit code' },
-      },
-    },
   },
   executor,
   outEdgeSchema: {
