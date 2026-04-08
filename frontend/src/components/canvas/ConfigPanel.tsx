@@ -16,6 +16,37 @@ import { AdvancedStageConfig } from './AdvancedStageConfig';
 // Re-export EdgeConfigPanel so existing import sites (WorkflowEditor.tsx) don't break.
 export { EdgeConfigPanel } from './EdgeConfigPanel';
 
+const MAX_SCHEMA_DEPTH = 4;
+
+/** Recursively render JSON Schema properties as a tree. */
+function SchemaPropertiesTree({ properties, depth }: { properties: Record<string, Record<string, unknown>>; depth: number }) {
+  if (depth > MAX_SCHEMA_DEPTH) return null;
+  return (
+    <div className="space-y-0.5" style={{ marginLeft: `${depth * 12}px` }}>
+      {Object.entries(properties).map(([key, propSchema]) => {
+        const propType = propSchema.type as string | undefined;
+        const propDesc = propSchema.description as string | undefined;
+        const nestedProps = propSchema.properties as Record<string, Record<string, unknown>> | undefined;
+        // For arrays, check if items have properties
+        const itemsSchema = propSchema.items as Record<string, unknown> | undefined;
+        const itemProps = itemsSchema?.properties as Record<string, Record<string, unknown>> | undefined;
+
+        return (
+          <div key={key}>
+            <div className="flex items-baseline gap-2 text-xs">
+              <code className="text-blue-400 font-mono text-[10px]">.{key}</code>
+              {propType && <span className="text-text-muted text-[10px]">{propType}{itemProps ? '[]' : ''}</span>}
+              {propDesc && <span className="text-text-tertiary text-[10px]">— {propDesc}</span>}
+            </div>
+            {nestedProps && <SchemaPropertiesTree properties={nestedProps} depth={depth + 1} />}
+            {itemProps && <SchemaPropertiesTree properties={itemProps} depth={depth + 1} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 interface ConfigPanelProps {
   stage: StageDefinition;
   definition: WorkflowDefinition;
@@ -273,15 +304,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
                     )}
                   </div>
                   {sourceSchema.properties != null && (
-                    <div className="ml-3 space-y-0.5">
-                      {Object.entries(sourceSchema.properties as Record<string, Record<string, unknown>>).map(([key, propSchema]) => (
-                        <div key={key} className="flex items-baseline gap-2 text-xs">
-                          <code className="text-blue-400 font-mono text-[10px]">.{key}</code>
-                          {propSchema.type != null && <span className="text-text-muted text-[10px]">{propSchema.type as string}</span>}
-                          {propSchema.description != null && <span className="text-text-tertiary text-[10px]">— {propSchema.description as string}</span>}
-                        </div>
-                      ))}
-                    </div>
+                    <SchemaPropertiesTree properties={sourceSchema.properties as Record<string, Record<string, unknown>>} depth={1} />
                   )}
                 </div>
               ))}
