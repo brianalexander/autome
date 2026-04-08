@@ -131,8 +131,8 @@ export const agentNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Prompt Template',
         description:
-          'Prompt template sent to the agent when data arrives via this edge. {{ output.<field> }} references the source stage\'s output fields (primary data). Also: {{ stages.<id>.output.<field> }} for other stages, {{ trigger.<field> }} for the original trigger event.',
-        format: 'textarea',
+          'Prompt template sent to the agent. Use {{ output.field }} to reference the source stage\'s output.',
+        format: 'code',
       },
     },
     required: ['prompt_template'],

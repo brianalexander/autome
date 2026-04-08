@@ -9,43 +9,12 @@ import {
 } from '../../lib/api';
 import { SchemaForm } from './SchemaForm';
 import { CodeEditor } from './CodeEditor';
-import { Field } from './ConfigPanelShared';
+import { Field, SchemaPropertiesTree } from './ConfigPanelShared';
 import { AgentConfigSection } from './AgentConfigSection';
 import { AdvancedStageConfig } from './AdvancedStageConfig';
 
 // Re-export EdgeConfigPanel so existing import sites (WorkflowEditor.tsx) don't break.
 export { EdgeConfigPanel } from './EdgeConfigPanel';
-
-const MAX_SCHEMA_DEPTH = 4;
-
-/** Recursively render JSON Schema properties as a tree. */
-function SchemaPropertiesTree({ properties, depth }: { properties: Record<string, Record<string, unknown>>; depth: number }) {
-  if (depth > MAX_SCHEMA_DEPTH) return null;
-  return (
-    <div className="space-y-0.5" style={{ marginLeft: `${depth * 12}px` }}>
-      {Object.entries(properties).map(([key, propSchema]) => {
-        const propType = propSchema.type as string | undefined;
-        const propDesc = propSchema.description as string | undefined;
-        const nestedProps = propSchema.properties as Record<string, Record<string, unknown>> | undefined;
-        // For arrays, check if items have properties
-        const itemsSchema = propSchema.items as Record<string, unknown> | undefined;
-        const itemProps = itemsSchema?.properties as Record<string, Record<string, unknown>> | undefined;
-
-        return (
-          <div key={key}>
-            <div className="flex items-baseline gap-2 text-xs">
-              <code className="text-blue-400 font-mono text-[10px]">.{key}</code>
-              {propType && <span className="text-text-muted text-[10px]">{propType}{itemProps ? '[]' : ''}</span>}
-              {propDesc && <span className="text-text-tertiary text-[10px]">— {propDesc}</span>}
-            </div>
-            {nestedProps && <SchemaPropertiesTree properties={nestedProps} depth={depth + 1} />}
-            {itemProps && <SchemaPropertiesTree properties={itemProps} depth={depth + 1} />}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 interface ConfigPanelProps {
   stage: StageDefinition;
@@ -325,6 +294,22 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         {/* === Manual Trigger config === */}
         {editState.type === 'manual-trigger' && (
           <>
+            <Field label="Output Schema" description="JSON Schema describing the trigger payload. Defines the trigger form and enables type hints for downstream nodes.">
+              <CodeEditor
+                value={typeof cfg.output_schema === 'object' && cfg.output_schema ? JSON.stringify(cfg.output_schema, null, 2) : (cfg.output_schema as string || '')}
+                onChange={(val) => {
+                  try {
+                    const parsed = JSON.parse(val);
+                    update('config.output_schema', parsed);
+                  } catch {
+                    update('config.output_schema', val || undefined);
+                  }
+                }}
+                editorMode="json"
+                minHeight="100px"
+              />
+            </Field>
+
             <ExpectedInputsBlock fields={expectedPayloadFields} />
 
             <div className="bg-surface-secondary rounded-lg p-3">
@@ -335,11 +320,11 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <pre className="text-[11px] text-text-secondary font-mono mt-2 whitespace-pre-wrap">{`POST /api/workflows/${definition.id}/trigger
 { "payload": { "your_field": "your_value" } }`}</pre>
               <p className="text-[10px] text-text-tertiary mt-2">
-                The payload can be any JSON. Access fields via{' '}
+                Downstream edges reference trigger output via{' '}
                 <code className="text-blue-600 dark:text-blue-300 bg-surface-tertiary px-1 rounded">
-                  {'{{ trigger.payload.your_field }}'}
+                  {'{{ output.your_field }}'}
                 </code>{' '}
-                in context templates.
+                in prompt templates.
               </p>
             </div>
           </>
@@ -348,6 +333,22 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         {/* === Webhook Trigger config === */}
         {editState.type === 'webhook-trigger' && (
           <>
+            <Field label="Output Schema" description="JSON Schema describing the webhook payload. Validates incoming payloads and enables type hints for downstream nodes.">
+              <CodeEditor
+                value={typeof cfg.output_schema === 'object' && cfg.output_schema ? JSON.stringify(cfg.output_schema, null, 2) : (cfg.output_schema as string || '')}
+                onChange={(val) => {
+                  try {
+                    const parsed = JSON.parse(val);
+                    update('config.output_schema', parsed);
+                  } catch {
+                    update('config.output_schema', val || undefined);
+                  }
+                }}
+                editorMode="json"
+                minHeight="100px"
+              />
+            </Field>
+
             <ExpectedInputsBlock fields={expectedPayloadFields} />
 
             <div className="border-t border-border pt-4">

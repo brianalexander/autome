@@ -7,7 +7,7 @@ import {
 } from '../../lib/api';
 import { SchemaForm } from './SchemaForm';
 import { CodeEditor } from './CodeEditor';
-import { Field } from './ConfigPanelShared';
+import { Field, SchemaPropertiesTree } from './ConfigPanelShared';
 
 /** Extract field references from a JS expression like output.foo.bar */
 function extractFieldReferences(expr: string): string[][] {
@@ -101,31 +101,22 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
         {(() => {
           const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
           let outputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-          // Fallback to node type spec's default output_schema (e.g., cron-trigger)
+          if (!outputSchema) outputSchema = sourceConfig.response_schema as Record<string, unknown> | undefined;
           if (!outputSchema && sourceStage) {
             const spec = specs?.find((sp) => sp.id === sourceStage.type);
             outputSchema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
           }
           if (!outputSchema?.properties) return null;
-          const props = outputSchema.properties as Record<string, { type?: string; description?: string }>;
           return (
             <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3">
               <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
                 Available from {sourceStage?.label || editState.source}
               </div>
-              <div className="space-y-1">
-                {Object.entries(props).map(([key, ps]) => {
-                  const t = (ps as Record<string, unknown>).type as string | undefined;
-                  const d = (ps as Record<string, unknown>).description as string | undefined;
-                  return (
-                    <div key={key} className="flex items-baseline gap-2 text-xs">
-                      <code className="text-blue-400 font-mono">output.{key}</code>
-                      {t && <span className="text-text-muted text-[10px]">{t}</span>}
-                      {d && <span className="text-text-tertiary text-[10px]">— {d}</span>}
-                    </div>
-                  );
-                })}
-              </div>
+              <SchemaPropertiesTree
+                properties={outputSchema.properties as Record<string, Record<string, unknown>>}
+                depth={0}
+                prefix="output"
+              />
             </div>
           );
         })()}
@@ -181,6 +172,16 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
               schema={targetSpec.inEdgeSchema}
               value={editState as Record<string, unknown>}
               onChange={(updated) => updateEdge({ ...editState, ...updated })}
+              outputSchema={(() => {
+                const sc = (sourceStage?.config || {}) as Record<string, unknown>;
+                let os = sc.output_schema as Record<string, unknown> | undefined;
+                if (!os) os = sc.response_schema as Record<string, unknown> | undefined;
+                if (!os && sourceStage) {
+                  const sp = specs?.find((s) => s.id === sourceStage.type);
+                  os = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+                }
+                return os;
+              })()}
             />
           </div>
         )}
