@@ -3,6 +3,7 @@ dist/
 packages/claude-agent-acp/node_modules/
 packages/claude-agent-acp/dist/
 packages/claude-agent-acp/src/tests/
+packages/claude-agent-acp/package-lock.json
 data/
 .env
 *.db
