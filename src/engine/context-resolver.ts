@@ -13,7 +13,7 @@ function getEdgePromptTemplate(edge: EdgeDefinition): string | undefined {
  *   output.plan                              → scope.output.plan
  *   stages.planner.output.plan               → scope.stages.planner.output.plan
  *   stages['plan-reviewer'].output.feedback  → scope.stages['plan-reviewer'].output.feedback
- *   trigger.prompt                           → scope.trigger.prompt
+ *   trigger.prompt                           → scope.trigger.prompt  (legacy alias — prefer output.prompt)
  */
 function resolvePath(expression: string, scope: Record<string, unknown>): unknown {
   const tokens: string[] = [];
@@ -37,10 +37,10 @@ function resolvePath(expression: string, scope: Record<string, unknown>): unknow
  * Builds the scope object that template expressions resolve against.
  *
  * Available paths:
- *   output.<field>                  — source stage's output (through this edge)
+ *   output.<field>                  — source stage's output (through this edge); primary pattern
  *   stages.<id>.output.<field>      — any upstream stage's latest output
  *   stages['id'].output.<field>     — bracket notation for hyphenated IDs
- *   trigger.<field>                 — trigger event payload
+ *   trigger.<field>                 — legacy alias for the trigger's output; prefer output.<field> on trigger edges
  *   sourceOutputs.<stageId>.<field> — fan-in: each upstream stage's output by ID
  */
 function buildScope(
@@ -58,6 +58,8 @@ function buildScope(
   const scope: Record<string, unknown> = {
     output: sourceOutput,
     stages: stagesScope,
+    // `trigger` kept for backward compatibility — new templates should use `output.*` instead.
+    // For trigger-sourced edges, `output` IS the trigger payload, so both paths resolve identically.
     trigger: context.trigger,
   };
   if (mergedInputs) {
@@ -114,10 +116,10 @@ function processInterpolations(template: string, scope: Record<string, unknown>)
  * Resolves an edge prompt template against the workflow context.
  *
  * Template variables:
- *   {{ output.field }}                         — source stage's output
+ *   {{ output.field }}                         — source stage's output (primary pattern)
  *   {{ stages.planner.output.plan }}           — any stage's output by ID
  *   {{ stages['plan-reviewer'].output.feedback }} — bracket notation for hyphens
- *   {{ trigger.prompt }}                       — trigger payload
+ *   {{ trigger.prompt }}                       — legacy alias for trigger output; prefer {{ output.prompt }}
  *   {{ sourceOutputs.stageId.field }}          — fan-in: a specific upstream stage's output
  *   {% if output.approved %}...{% endif %}     — conditionals
  */

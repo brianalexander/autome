@@ -401,11 +401,11 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
             <div className="bg-surface-secondary rounded-lg p-3 space-y-3">
               <div className="text-[10px] text-text-tertiary uppercase tracking-wider font-medium">How it works</div>
               <p className="text-xs text-text-secondary">
-                POST any JSON body to the webhook URL. The entire body becomes{' '}
+                POST any JSON body to the webhook URL. The entire body becomes the trigger's output. Downstream edges
+                reference fields via{' '}
                 <code className="text-violet-600 dark:text-violet-300 bg-surface-tertiary px-1 rounded">
-                  trigger.payload
-                </code>{' '}
-                in your workflow's context templates.
+                  {'{{ output.field }}'}
+                </code>
               </p>
               <pre className="text-[11px] text-text-secondary font-mono whitespace-pre-wrap">{`curl -X POST ${window.location.origin}/api/webhooks/${definition.id} \\
   -H 'Content-Type: application/json'${
@@ -447,7 +447,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <p className="text-[10px] text-text-tertiary mt-2">
                 The trigger payload includes the schedule and timestamp. Access via{' '}
                 <code className="text-blue-600 dark:text-blue-300 bg-surface-tertiary px-1 rounded">
-                  {'{{ trigger.payload.schedule }}'}
+                  {'{{ output.schedule }}'}
                 </code>
               </p>
             </div>

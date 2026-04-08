@@ -143,10 +143,8 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
           );
         }
         const sourceStage = workflow.stages.find((s) => s.id === e.source);
-        if (sourceStage && !nodeRegistry.isTriggerType(sourceStage.type)) {
+        if (sourceStage) {
           parts.push(`    template vars: {{ output.<field> }} = ${e.source}'s output`);
-        } else if (sourceStage && nodeRegistry.isTriggerType(sourceStage.type)) {
-          parts.push(`    template vars: {{ trigger.<field> }} = trigger payload`);
         }
         const upstreamIds = workflow.stages
           .filter((s) => !nodeRegistry.isTriggerType(s.type) && s.id !== e.target)

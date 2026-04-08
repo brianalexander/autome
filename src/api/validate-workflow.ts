@@ -156,20 +156,30 @@ export function validateWorkflow(draft: WorkflowDefinition): WorkflowValidationR
   }
 
   // ------------------------------------------------------------------
-  // 5. Schema chain warnings
+  // 5. Schema chain warnings — output_schema should be set on all non-trigger stages
   // ------------------------------------------------------------------
   // Build a set of stage IDs that have at least one downstream connection
   const stagesWithDownstream = new Set(edges.map((e) => e.source));
 
   for (const stage of stages) {
     if (!SCHEMA_CHAIN_NODE_TYPES.has(stage.type)) continue;
-    if (!stagesWithDownstream.has(stage.id)) continue;
 
     const config = stage.config as Record<string, unknown> | undefined;
-    if (!config?.output_schema) {
-      warnings.push(
-        `Stage "${stage.id}" (${stage.type}) has downstream connections but no output_schema — downstream type checking will be degraded`,
-      );
+    // http-request stages use response_schema instead of output_schema
+    const hasSchema = stage.type === 'http-request'
+      ? !!(config?.response_schema || config?.output_schema)
+      : !!config?.output_schema;
+
+    if (!hasSchema) {
+      if (stagesWithDownstream.has(stage.id)) {
+        warnings.push(
+          `Stage "${stage.id}" (${stage.type}) has downstream connections but no output_schema — downstream type checking will be degraded`,
+        );
+      } else {
+        warnings.push(
+          `Stage "${stage.id}" (${stage.type}) is missing output_schema — add output_schema to document the stage's output shape and enable type propagation`,
+        );
+      }
     }
   }
 
