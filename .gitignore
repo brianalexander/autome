@@ -1,6 +1,8 @@
 node_modules/
 dist/
 packages/claude-agent-acp/node_modules/
+packages/claude-agent-acp/dist/
+packages/claude-agent-acp/src/tests/
 data/
 .env
 *.db
