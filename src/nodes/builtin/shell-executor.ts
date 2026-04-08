@@ -147,6 +147,13 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
         description: 'Attempt to parse stdout as JSON (default: true)',
         default: true,
       },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing this node\'s output shape. Enables type hints for downstream nodes.',
+        format: 'json',
+        additionalProperties: true,
+      },
     },
     required: ['command'],
   },

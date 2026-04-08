@@ -117,6 +117,13 @@ export const codeExecutorNodeSpec: NodeTypeSpec = {
         description: 'Max execution time (default: 30s)',
         default: 30,
       },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing this node\'s output shape. Enables type hints for downstream nodes.',
+        format: 'json',
+        additionalProperties: true,
+      },
     },
     required: ['code'],
   },

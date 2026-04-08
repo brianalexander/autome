@@ -97,38 +97,39 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
   }, [debouncedFlush]);
 
   // Compute upstream output schema(s) for autocomplete and reference
-  const upstreamSchema = useMemo(() => {
-    const incomingEdges = definition.edges.filter(e => e.target === stage.id);
-    if (incomingEdges.length === 0) return undefined;
-    if (incomingEdges.length === 1) {
-      const sourceStage = definition.stages.find(s => s.id === incomingEdges[0].source);
-      const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
-      let schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-      // Fallback to the node type spec's default output_schema (e.g., cron-trigger always emits a known shape)
-      if (!schema && sourceStage) {
-        const spec = specs?.find((s) => s.id === sourceStage.type);
-        schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
-      }
-      return schema;
-    }
-    // Fan-in: merge upstream schemas into one object with source IDs as keys
-    const merged: Record<string, unknown> = { type: 'object', properties: {} };
-    const mergedProps = (merged as any).properties;
+  const { upstreamSchema, upstreamSchemaMode } = useMemo(() => {
+    const incomingEdges = definition.edges.filter(e => e.target === stage.id && (e.trigger || 'on_success') === 'on_success');
+    if (incomingEdges.length === 0) return { upstreamSchema: undefined, upstreamSchemaMode: undefined };
+
+    const inputMode = (editState.input_mode as string) || 'queue';
+
+    // Collect each upstream's output schema, keyed by source stage ID
+    const sourceSchemas: Record<string, Record<string, unknown>> = {};
     for (const edge of incomingEdges) {
       const sourceStage = definition.stages.find(s => s.id === edge.source);
-      const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
+      if (!sourceStage) continue;
+      const sourceConfig = (sourceStage.config || {}) as Record<string, unknown>;
       let schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-      // Fallback to the node type spec's default output_schema
-      if (!schema && sourceStage) {
-        const spec = specs?.find((s) => s.id === sourceStage.type);
+      // For http-request nodes, response_schema is the output schema
+      if (!schema) schema = sourceConfig.response_schema as Record<string, unknown> | undefined;
+      // Fallback to node type spec's default
+      if (!schema && specs) {
+        const spec = specs.find(s => s.id === sourceStage.type);
         schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
       }
-      if (schema) {
-        mergedProps[edge.source] = schema;
-      }
+      sourceSchemas[edge.source] = schema || { type: 'object' };
     }
-    return Object.keys(mergedProps).length > 0 ? merged : undefined;
-  }, [definition, stage.id, specs]);
+
+    if (Object.keys(sourceSchemas).length === 0) return { upstreamSchema: undefined, upstreamSchemaMode: undefined };
+
+    // Build the combined schema — always namespaced by source ID
+    const merged: Record<string, unknown> = {
+      type: 'object',
+      properties: sourceSchemas,
+    };
+
+    return { upstreamSchema: merged, upstreamSchemaMode: inputMode as 'queue' | 'fan_in' };
+  }, [definition, stage.id, editState.input_mode, specs]);
 
   // For trigger stages: scan outgoing edge prompt_templates for expected payload fields
   const expectedPayloadFields = useMemo(() => {
@@ -250,23 +251,40 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         </Field>
 
         {/* Upstream input schema reference */}
-        {upstreamSchema?.properties != null && !isTriggerType(editState.type) && (
+        {upstreamSchema?.properties != null && !isTriggerType(editState.type) && editState.type !== 'agent' && (
           <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3 mb-4">
-            <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
-              Input
+            <div className="flex items-center gap-2 mb-2">
+              <div className="text-[10px] text-text-tertiary uppercase tracking-wider">Input</div>
+              {upstreamSchemaMode && Object.keys(upstreamSchema.properties as Record<string, unknown>).length > 1 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-secondary text-text-muted">
+                  {upstreamSchemaMode === 'fan_in' ? 'all arrive together' : 'one at a time'}
+                </span>
+              )}
             </div>
-            <div className="space-y-1">
-              {Object.entries(upstreamSchema.properties as Record<string, Record<string, unknown>>).map(([key, propSchema]) => {
-                const propType = propSchema.type as string | undefined;
-                const propDesc = propSchema.description as string | undefined;
-                return (
-                  <div key={key} className="flex items-baseline gap-2 text-xs">
-                    <code className="text-blue-400 font-mono">input.{key}</code>
-                    {propType && <span className="text-text-muted text-[10px]">{propType}</span>}
-                    {propDesc && <span className="text-text-tertiary text-[10px]">— {propDesc}</span>}
+            <div className="space-y-2">
+              {Object.entries(upstreamSchema.properties as Record<string, Record<string, unknown>>).map(([sourceId, sourceSchema]) => (
+                <div key={sourceId}>
+                  <div className="text-[10px] font-mono text-text-muted mb-1">
+                    input.{sourceId}
+                    {sourceSchema.properties == null && (
+                      <span className="text-text-tertiary ml-1">
+                        {(sourceSchema.type as string) || 'object'}
+                      </span>
+                    )}
                   </div>
-                );
-              })}
+                  {sourceSchema.properties != null && (
+                    <div className="ml-3 space-y-0.5">
+                      {Object.entries(sourceSchema.properties as Record<string, Record<string, unknown>>).map(([key, propSchema]) => (
+                        <div key={key} className="flex items-baseline gap-2 text-xs">
+                          <code className="text-blue-400 font-mono text-[10px]">.{key}</code>
+                          {propSchema.type != null && <span className="text-text-muted text-[10px]">{propSchema.type as string}</span>}
+                          {propSchema.description != null && <span className="text-text-tertiary text-[10px]">— {propSchema.description as string}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}

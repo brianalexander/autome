@@ -44,6 +44,13 @@ export const transformNodeSpec: NodeTypeSpec = {
         format: 'code',
         default: 'input',
       },
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'JSON Schema describing this node\'s output shape. Enables type hints for downstream nodes.',
+        format: 'json',
+        additionalProperties: true,
+      },
     },
     required: ['expression'],
   },
