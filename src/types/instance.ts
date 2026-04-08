@@ -57,6 +57,11 @@ export const WorkflowContextSchema = z.object({
   edgeTraversals: z.record(z.string(), z.number()).optional(),
   /** Fan-in tracking: { [targetStageId]: { [sourceStageId]: output } } — accumulates as upstream stages complete */
   fanInCompletions: z.record(z.string(), z.record(z.string(), z.any())).optional(),
+  /** Queue-mode pending inputs: { [stageId]: [{ incomingEdge, sourceOutput }, ...] } */
+  pendingInputs: z.record(z.string(), z.array(z.object({
+    incomingEdge: z.any().optional(),
+    sourceOutput: z.unknown().optional(),
+  }))).optional(),
 });
 
 export type WorkflowContext = z.infer<typeof WorkflowContextSchema>;

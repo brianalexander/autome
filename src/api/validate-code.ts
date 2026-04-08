@@ -59,10 +59,10 @@ function jsonSchemaToTsType(schema: Record<string, unknown>, indent = 2): string
 /**
  * Generate a TypeScript declaration block for the code executor's environment.
  * These are prepended to the user's code so TS can type-check references to
- * `input`, `config`, `context`, `trigger`, and `fetch`.
+ * `input`, `config`, and `fetch`.
  *
  * For code-trigger nodes the parameter shape is different: { config, emit, signal }
- * instead of { input, config, context, trigger }.
+ * instead of { input, config }.
  */
 function generateDeclarations(outputSchema?: Record<string, unknown>, nodeType?: string, returnSchema?: Record<string, unknown>): string {
   const inputType = outputSchema ? jsonSchemaToTsType(outputSchema) : 'Record<string, any>';
@@ -85,14 +85,8 @@ declare function fetch(url: string, init?: RequestInit): Promise<Response>;
   return `
 interface __InputType ${inputType === 'Record<string, any>' ? '{ [key: string]: any }' : inputType}
 interface __CodeExecutorParams {
-  input: __InputType;
+  input: Record<string, __InputType>;
   config: Record<string, any>;
-  context: {
-    trigger: { type: string; payload: any; source?: string; timestamp?: string };
-    stages: Record<string, { latest: any; run_count: number; status: string; runs: any[] }>;
-    variables: Record<string, any>;
-  };
-  trigger: { type: string; payload: any; source?: string; timestamp?: string };
 }
 declare function fetch(url: string, init?: RequestInit): Promise<Response>;
 ${returnTypeDecl}`;
@@ -100,8 +94,8 @@ ${returnTypeDecl}`;
 
 /**
  * Generate standalone declare constants for expression validation mode.
- * Provides typed `output`, `context`, and `trigger` as ambient declarations
- * rather than function parameters.
+ * Provides typed `output` and `input` as ambient declarations rather than
+ * function parameters.
  */
 function generateExpressionDeclarations(outputSchema?: Record<string, unknown>): string {
   const outputType = outputSchema ? jsonSchemaToTsType(outputSchema) : 'Record<string, any>';
@@ -109,12 +103,7 @@ function generateExpressionDeclarations(outputSchema?: Record<string, unknown>):
   return `
 type __OutputType = ${outputType === 'Record<string, any>' ? 'Record<string, any>' : outputType};
 declare const output: __OutputType;
-declare const context: {
-  trigger: { type: string; payload: any; source?: string; timestamp?: string };
-  stages: Record<string, { latest: any; run_count: number; status: string; runs: any[] }>;
-  variables: Record<string, any>;
-};
-declare const trigger: { type: string; payload: any; source?: string; timestamp?: string };
+declare const input: Record<string, __OutputType>;
 `;
 }
 

@@ -6,7 +6,7 @@ import { broadcast } from '../websocket.js';
 import { config as appConfig } from '../../config.js';
 import { discoverAgents } from '../../agents/discovery.js';
 import type { RouteDeps, SharedState } from './shared.js';
-import { getDraft, saveDraft } from './shared.js';
+import { getDraft, saveDraft, registerDraftAlias, resolveDraftId } from './shared.js';
 import type { SessionConfig } from './agent-utils.js';
 import { wireAcpEvents, sendChatMessage } from './agent-utils.js';
 import { errorMessage } from '../../utils/errors.js';
@@ -43,7 +43,7 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
       schema: { params: z.object({ workflowId: z.string() }) },
     },
     async (request, reply) => {
-      const { workflowId } = request.params;
+      const workflowId = resolveDraftId(request.params.workflowId);
       return getDraft(db, state.authorDrafts, workflowId);
     },
   );
@@ -55,7 +55,7 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
       schema: { params: z.object({ workflowId: z.string() }), body: AuthorDraftBody },
     },
     async (request, reply) => {
-      const { workflowId } = request.params;
+      const workflowId = resolveDraftId(request.params.workflowId);
       const draft = request.body;
       saveDraft(db, state.authorDrafts, workflowId, draft as unknown as WorkflowDefinition);
       return { ok: true };
@@ -66,7 +66,7 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
   typedApp.delete('/api/internal/author-draft/:workflowId', {
     schema: { params: z.object({ workflowId: z.string() }) },
   }, async (request) => {
-    const { workflowId } = request.params;
+    const workflowId = resolveDraftId(request.params.workflowId);
     state.authorDrafts.delete(workflowId);
     deps.db.deleteDraft(workflowId);
     return { deleted: true };
@@ -82,6 +82,10 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
       try {
         const { fromId, toId } = request.body;
         const migrated = db.migrateAuthorSegments(fromId, toId);
+        // Register alias so the author agent's MCP server transparently resolves
+        // the temporary fromId to the real UUID when tool calls reference it
+        registerDraftAlias(fromId, toId);
+        db.registerDraftAlias(fromId, toId);
         // Also clean up the draft definition
         state.authorDrafts.delete(fromId);
         db.deleteDraft(fromId);
@@ -109,6 +113,7 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
     }
 
     const parts: string[] = [];
+    parts.push(`<workflow_id>${workflowId}</workflow_id>`);
     parts.push('<current_workflow>');
     if (workflow) {
       parts.push(`Name: ${workflow.name || '(unnamed)'}`);
@@ -213,7 +218,6 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
             command: 'node',
             args: [join(process.cwd(), 'dist', 'mcp', 'workflow-author-server.js')],
             env: {
-              WORKFLOW_ID: workflowId,
               ORCHESTRATOR_PORT: String(orchestratorPort),
             },
           },

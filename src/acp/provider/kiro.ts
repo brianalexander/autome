@@ -150,6 +150,7 @@ export class KiroProvider extends BaseProvider {
       includeMcpJson: true,
     };
     if (canonical.model) config.model = canonical.model;
+    if (canonical.toolsSettings) config.toolsSettings = canonical.toolsSettings;
     if (canonical.mcp_servers) {
       const mcpServers: Record<string, unknown> = {};
       for (const [sname, server] of Object.entries(canonical.mcp_servers)) {

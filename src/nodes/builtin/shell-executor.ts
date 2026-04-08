@@ -1,8 +1,8 @@
 /**
  * Shell Executor node — runs bash/shell commands as a processing step.
  *
- * The command string supports template expressions: ${input.field},
- * ${trigger.data}, ${context.stages.stageId.latest.field}, etc.
+ * The command string supports template expressions: ${input.stage_name.field}
+ * or ${Object.values(input)[0].field} for single-input stages.
  * These are evaluated via safeEval against the available data.
  *
  * stdout is parsed as JSON when parse_json is true (default). On parse
@@ -47,9 +47,9 @@ const executor: StepExecutor = {
     const parseJson = config.parse_json !== false; // default true
 
     const output = await ctx.run(`shell-exec-${stageId}-${iteration}`, async () => {
-      // Build template variables — same shape as code-executor input payload
+      // Build template variables from scope input and config
       const scope = buildExecutorScope(execCtx);
-      const templateVars: Record<string, unknown> = { ...scope, config };
+      const templateVars: Record<string, unknown> = { input: scope.input, config };
 
       const command = interpolateCommand(rawCommand, templateVars);
 
@@ -126,7 +126,7 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Command',
         description:
-          'Shell command to execute. Supports template expressions: ${input.field}, ${trigger.data}, ${context.stages.id.latest.field}.',
+          'Shell command to execute. Supports template expressions: ${input.stage_name.field} or ${Object.values(input)[0].field} for single-input.',
         format: 'code',
       },
       timeout_seconds: {

@@ -11,6 +11,11 @@ export interface CanonicalAgentSpec {
     args: string[];
     env_keys?: string[];
   }>;
+  toolsSettings?: {
+    subagent?: {
+      availableAgents?: string[];
+    };
+  };
 }
 
 export interface AgentDiscoveryOptions {

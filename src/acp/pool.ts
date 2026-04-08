@@ -132,6 +132,7 @@ export class AgentPool {
 
       // Build session meta for providers that support it (e.g., Claude's _meta field)
       const sessionMeta: Record<string, unknown> = {};
+      if (stageConfig.agentId) sessionMeta.agent = stageConfig.agentId;
       if (stageConfig.overrides?.model) sessionMeta.model = stageConfig.overrides.model;
       const meta = Object.keys(sessionMeta).length > 0 ? sessionMeta : undefined;
 

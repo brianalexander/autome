@@ -3,7 +3,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AgentPool } from '../acp/pool.js';
 import type { RouteDeps, SharedState } from './routes/shared.js';
 import type { WorkflowDefinition } from '../types/workflow.js';
-import { initSessionCull } from './routes/shared.js';
+import { initSessionCull, loadDraftAliases } from './routes/shared.js';
 import { registerWorkflowRoutes } from './routes/workflows.js';
 import { registerInstanceRoutes } from './routes/instances.js';
 import { registerDraftRoutes } from './routes/draft.js';
@@ -25,6 +25,9 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     const draft = deps.db.getDraft(workflowId);
     if (draft) authorDrafts.set(workflowId, draft as unknown as WorkflowDefinition);
   }
+
+  // Pre-warm draft aliases so temp IDs resolve correctly after restarts
+  loadDraftAliases(deps.db.listDraftAliases());
 
   const state: SharedState = {
     authorPool,

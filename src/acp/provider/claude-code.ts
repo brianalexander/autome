@@ -36,11 +36,17 @@ export class ClaudeCodeProvider extends BaseProvider {
   protected readonly agentFileExtensions = ['.json', '.md'];
 
   getCommand(): string {
-    return 'npx';
+    // Use local fork — TODO: switch to npx after upstream merge
+    return 'node';
   }
 
-  getSpawnArgs(_options: { agent?: string; model?: string }): string[] {
-    return ['-y', '@agentclientprotocol/claude-agent-acp@^0.24.2'];
+  getSpawnArgs(options: { agent?: string; model?: string }): string[] {
+    // Use local fork of claude-agent-acp with --agent support
+    // TODO: Switch to npx @agentclientprotocol/claude-agent-acp after upstream merge
+    const entryPoint = join(process.cwd(), 'packages', 'claude-agent-acp', 'dist', 'index.js');
+    const args = [entryPoint];
+    if (options.agent) args.push('--agent', options.agent);
+    return args;
   }
 
   getSpawnEnv(): Record<string, string> {
@@ -125,7 +131,22 @@ export class ClaudeCodeProvider extends BaseProvider {
     const frontmatter: string[] = [];
     frontmatter.push(`name: ${canonical.name}`);
     if (canonical.description) frontmatter.push(`description: ${canonical.description}`);
-    if (canonical.tools?.length) frontmatter.push(`tools: ${canonical.tools.join(', ')}`);
+
+    // Build tools list: sub-agent allowlist entries first, then regular tools
+    const toolsList: string[] = [];
+    const availableAgents = canonical.toolsSettings?.subagent?.availableAgents as string[] | undefined;
+    if (availableAgents?.length) {
+      for (const agent of availableAgents) {
+        toolsList.push(`Agent(${agent})`);
+      }
+    }
+    if (canonical.tools?.length) {
+      toolsList.push(...canonical.tools);
+    }
+    if (toolsList.length) {
+      frontmatter.push(`tools: ${toolsList.join(', ')}`);
+    }
+
     if (canonical.model) frontmatter.push(`model: ${canonical.model}`);
 
     const content = `---\n${frontmatter.join('\n')}\n---\n\n${prompt}\n`;

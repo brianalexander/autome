@@ -183,7 +183,7 @@ export function evaluateEdges(
       taken = true;
     } else {
       try {
-        if (safeEvalCondition(edge.condition, { output, context })) {
+        if (safeEvalCondition(edge.condition, { output })) {
           taken = true;
         }
       } catch (err) {

@@ -322,13 +322,33 @@ function summarizeOutput(output: unknown): string {
   return `{${keys.slice(0, 3).join(', ')}${keys.length > 3 ? ', ...' : ''}}`;
 }
 
-export function generateStageId(type: string, existingIds: string[]): string {
+export function generateStageId(type: string, existingIds: string[], label?: string): string {
   const existing = new Set(existingIds);
+
+  if (label) {
+    // Slugify label to snake_case
+    let base = label.toLowerCase().trim()
+      .replace(/[^a-z0-9\s_]/g, '')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+    if (!base) base = type.replace(/-/g, '_');
+    let candidate = base;
+    let counter = 2;
+    while (existing.has(candidate)) {
+      candidate = `${base}_${counter}`;
+      counter++;
+    }
+    return candidate;
+  }
+
+  // Fallback: type-based with underscores
+  const base = type.replace(/-/g, '_');
   let counter = 1;
-  while (existing.has(`${type}-${counter}`)) {
+  while (existing.has(`${base}_${counter}`)) {
     counter++;
   }
-  return `${type}-${counter}`;
+  return `${base}_${counter}`;
 }
 
 export function createDefaultStage(
@@ -553,7 +573,7 @@ export function WorkflowCanvas({
       const targetStage = definition.stages.find((s) => s.id === connection.target);
       if (targetStage && isTriggerType(targetStage.type)) return;
 
-      const edgeId = `edge-${connection.source}-${connection.target}`;
+      const edgeId = `edge_${connection.source}_${connection.target}`;
 
       // Detect if this edge creates a cycle (for validation and UI purposes)
       const adj = new Map<string, string[]>();
@@ -665,7 +685,9 @@ export function WorkflowCanvas({
     (type: string) => {
       if (!onDefinitionChange) return;
       const existingIds = definition.stages.map((s) => s.id);
-      const id = generateStageId(type, existingIds);
+      const spec = nodeTypeSpecs?.find((s) => s.id === type);
+      const label = spec?.name || type.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      const id = generateStageId(type, existingIds, label);
       const lowestY = nodes.length > 0 ? Math.max(...nodes.map((n) => n.position.y)) : 0;
       const position = { x: 200, y: lowestY + 150 };
       const newStage = createDefaultStage(type, id, position, nodeTypeSpecs);

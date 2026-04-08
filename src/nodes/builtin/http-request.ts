@@ -12,13 +12,10 @@ const executor: StepExecutor = {
   async execute(execCtx: StepExecutorContext): Promise<{ output: unknown }> {
     const { ctx, stageId, config, input, iteration } = execCtx;
 
-    // Build template variables — spread raw input data and add 'item' alias
-    // when executing inside a map_over loop so {{ item.field }} resolves correctly.
+    // Build template variables — expose input (keyed by stage ID) and add 'item'
+    // alias when executing inside a map_over loop so {{ item.field }} resolves correctly.
     const scope = buildExecutorScope(execCtx);
-    const templateVars: Record<string, unknown> = {
-      ...(scope.input as Record<string, unknown>),
-      sourceOutputs: scope.sourceOutputs,
-    };
+    const templateVars: Record<string, unknown> = { input: scope.input };
     if (input?.mapElement !== undefined) {
       templateVars.item = input.mapElement;
     }

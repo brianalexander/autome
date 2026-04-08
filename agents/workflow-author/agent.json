@@ -6,7 +6,12 @@
     "workflow_author": {
       "command": "node",
       "args": ["dist/mcp/workflow-author-server.js"],
-      "env_keys": ["WORKFLOW_ID", "ORCHESTRATOR_PORT"]
+      "env_keys": ["ORCHESTRATOR_PORT"]
+    }
+  },
+  "toolsSettings": {
+    "subagent": {
+      "availableAgents": ["generalist"]
     }
   }
 }

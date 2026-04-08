@@ -36,9 +36,14 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
   // The debounced flush receives the latest value via a ref so the closure never goes stale.
   const pendingValueRef = useRef<StageDefinition>(stage);
 
+  // ID editing state
+  const [idDraft, setIdDraft] = useState<string>(stage.id);
+  const ID_FORMAT_RE = /^[a-z][a-z0-9_]*$/;
+
   useEffect(() => {
     setEditState(stage);
     pendingValueRef.current = stage;
+    setIdDraft(stage.id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage.id]);
 
@@ -151,9 +156,69 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
-        {/* Stage ID (read-only) */}
+        {/* Stage ID (editable) */}
         <Field label="Stage ID">
-          <input value={editState.id} disabled className="input-field opacity-60" />
+          {(() => {
+            const otherIds = definition.stages.filter((s) => s.id !== stage.id).map((s) => s.id);
+            const formatError = idDraft && !ID_FORMAT_RE.test(idDraft);
+            const uniqueError = !formatError && idDraft !== stage.id && otherIds.includes(idDraft);
+            const hasError = !!(formatError || uniqueError);
+            return (
+              <>
+                <input
+                  value={idDraft}
+                  onChange={(e) => setIdDraft(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = idDraft.trim();
+                    if (!trimmed || !ID_FORMAT_RE.test(trimmed)) {
+                      setIdDraft(stage.id);
+                      return;
+                    }
+                    const otherIdsBlur = definition.stages.filter((s) => s.id !== stage.id).map((s) => s.id);
+                    if (otherIdsBlur.includes(trimmed)) {
+                      setIdDraft(stage.id);
+                      return;
+                    }
+                    if (trimmed === stage.id) return;
+                    // Apply rename: update stage ID and all edge references
+                    if (onDefinitionChange) {
+                      const renamedStage: StageDefinition = { ...editState, id: trimmed };
+                      onDefinitionChange({
+                        ...definition,
+                        stages: definition.stages.map((s) => (s.id === stage.id ? renamedStage : s)),
+                        edges: definition.edges.map((e) => ({
+                          ...e,
+                          source: e.source === stage.id ? trimmed : e.source,
+                          target: e.target === stage.id ? trimmed : e.target,
+                          id: (() => {
+                            // Rewrite edge IDs that embedded the old stage ID
+                            const src = e.source === stage.id ? trimmed : e.source;
+                            const tgt = e.target === stage.id ? trimmed : e.target;
+                            if (e.source === stage.id || e.target === stage.id) {
+                              return `edge_${src}_${tgt}`;
+                            }
+                            return e.id;
+                          })(),
+                        })),
+                      });
+                    }
+                  }}
+                  className={`input-field font-mono text-xs${hasError ? ' border-red-500 focus:ring-red-500' : ''}`}
+                  spellCheck={false}
+                />
+                {formatError && (
+                  <p className="text-[10px] text-red-500 mt-1">
+                    Must start with a letter and contain only lowercase letters, numbers, and underscores.
+                  </p>
+                )}
+                {uniqueError && (
+                  <p className="text-[10px] text-red-500 mt-1">
+                    This ID is already used by another stage.
+                  </p>
+                )}
+              </>
+            );
+          })()}
         </Field>
 
         {/* Stage Type */}

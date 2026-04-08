@@ -110,9 +110,11 @@ export async function propagateSkip(
 
   for (const edge of outgoing) {
     const targetId = edge.target;
+    const targetStage = definition.stages.find((s) => s.id === targetId);
+    const targetInputMode = targetStage?.input_mode || 'queue';
     const incomingCount = countIncomingSuccessEdges(targetId, definition.edges);
 
-    if (incomingCount > 1) {
+    if (targetInputMode === 'fan_in' && incomingCount > 1) {
       // Fan-in node — record this skip and check trigger_rule
       const merged = recordFanInCompletion(targetId, sourceStageId, undefined, 'skipped', context, definition);
       if (merged === 'failed') {
@@ -123,7 +125,6 @@ export async function propagateSkip(
       }
       if (merged) {
         // Trigger rule satisfied despite skip — execute the stage with merged inputs
-        const targetStage = definition.stages.find((s) => s.id === targetId);
         const spec = targetStage ? nodeRegistry.get(targetStage.type) : null;
         if (targetStage && spec && spec.executor.type === 'step') {
           await executeStepWithLifecycle(ctx, targetId, targetStage, definition, context, spec, {
@@ -135,7 +136,7 @@ export async function propagateSkip(
       continue;
     }
 
-    // Single incoming edge — propagate skip
+    // Single incoming edge (or queue mode) — propagate skip
     if (context.stages[targetId]?.status === 'pending') {
       context.stages[targetId].status = 'skipped';
       ctx.set('context', context);
@@ -186,39 +187,56 @@ export async function executeSingleStage(
     return; // Triggers are entry-point markers
   }
 
-  // --- Fan-in check: does this stage have multiple incoming success edges? ---
-  const incomingSuccessEdges = definition.edges.filter(
-    (e) => e.target === stageId && (e.trigger || 'on_success') === 'on_success',
-  );
+  const inputMode = stage.input_mode || 'queue';
 
-  if (incomingSuccessEdges.length > 1 && !input?.mergedInputs) {
-    // This is a fan-in target reached from one of its sources.
-    // Record this source's output and check if all sources are ready.
-    const sourceStageId = input?.incomingEdge?.source;
-    if (sourceStageId) {
-      const merged = recordFanInCompletion(
-        stageId,
-        sourceStageId,
-        input?.sourceOutput,
-        'completed',
-        context,
-        definition,
-      );
-      ctx.set('context', context);
+  if (inputMode === 'fan_in') {
+    // --- Fan-in check: does this stage have multiple incoming success edges? ---
+    const incomingSuccessEdges = definition.edges.filter(
+      (e) => e.target === stageId && (e.trigger || 'on_success') === 'on_success',
+    );
 
-      if (merged === 'failed') {
-        // An upstream failed and all_success can never be satisfied — fail this stage
-        throw new restate.TerminalError(
-          `Stage "${stageId}" fan-in failed: upstream stage "${sourceStageId}" failed and trigger_rule is all_success`,
+    if (incomingSuccessEdges.length > 1 && !input?.mergedInputs) {
+      // This is a fan-in target reached from one of its sources.
+      // Record this source's output and check if all sources are ready.
+      const sourceStageId = input?.incomingEdge?.source;
+      if (sourceStageId) {
+        const merged = recordFanInCompletion(
+          stageId,
+          sourceStageId,
+          input?.sourceOutput,
+          'completed',
+          context,
+          definition,
         );
-      }
+        ctx.set('context', context);
 
-      if (!merged) {
-        // Not all sources ready yet — this branch stops here, other sources will continue
-        return;
+        if (merged === 'failed') {
+          // An upstream failed and all_success can never be satisfied — fail this stage
+          throw new restate.TerminalError(
+            `Stage "${stageId}" fan-in failed: upstream stage "${sourceStageId}" failed and trigger_rule is all_success`,
+          );
+        }
+
+        if (!merged) {
+          // Not all sources ready yet — this branch stops here, other sources will continue
+          return;
+        }
+        // All sources ready — proceed with merged input
+        input = { ...input, mergedInputs: merged };
       }
-      // All sources ready — proceed with merged input
-      input = { ...input, mergedInputs: merged };
+    }
+  } else {
+    // --- Queue mode: serialize executions FIFO ---
+    if (context.stages[stageId]?.status === 'running') {
+      // Stage is busy — enqueue this input for later processing
+      if (!context.pendingInputs) context.pendingInputs = {};
+      if (!context.pendingInputs[stageId]) context.pendingInputs[stageId] = [];
+      context.pendingInputs[stageId].push({
+        incomingEdge: input?.incomingEdge,
+        sourceOutput: input?.sourceOutput,
+      });
+      ctx.set('context', context);
+      return; // Will be picked up after current execution completes
     }
   }
 
@@ -246,10 +264,43 @@ export async function executeSingleStage(
   // --- Dynamic map: execute stage once per array element ---
   if (stage.map_over) {
     await executeMapStage(ctx, stageId, stage, definition, context, spec, input);
+    await drainQueuedInputs(ctx, stageId, stage, definition, context, inputMode);
     return;
   }
 
   await executeStepWithLifecycle(ctx, stageId, stage, definition, context, spec, input);
+  await drainQueuedInputs(ctx, stageId, stage, definition, context, inputMode);
+}
+
+/**
+ * In queue mode, after a stage finishes, process any inputs that arrived while it was running.
+ */
+async function drainQueuedInputs(
+  ctx: restate.WorkflowContext,
+  stageId: string,
+  stage: StageDefinition,
+  definition: WorkflowDefinition,
+  context: WorkflowContext,
+  inputMode: string,
+): Promise<void> {
+  if (inputMode !== 'queue') return;
+
+  while (context.pendingInputs?.[stageId]?.length) {
+    const nextInput = context.pendingInputs[stageId].shift()!;
+    ctx.set('context', context);
+
+    const spec = nodeRegistry.get(stage.type)!;
+    const stageInput: StageInput = {
+      incomingEdge: nextInput.incomingEdge,
+      sourceOutput: nextInput.sourceOutput,
+    };
+
+    if (stage.map_over) {
+      await executeMapStage(ctx, stageId, stage, definition, context, spec, stageInput);
+    } else {
+      await executeStepWithLifecycle(ctx, stageId, stage, definition, context, spec, stageInput);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

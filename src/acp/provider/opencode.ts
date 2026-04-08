@@ -132,6 +132,8 @@ export class OpenCodeProvider extends BaseProvider {
       permission: 'allow',
     };
     if (canonical.model) config.model = canonical.model;
+    // Note: toolsSettings.subagent.availableAgents (sub-agent restrictions) are not
+    // supported by the OpenCode provider — OpenCode has no equivalent concept yet.
 
     await writeFile(filePath, JSON.stringify(config, null, 2), 'utf-8');
     return fileName;

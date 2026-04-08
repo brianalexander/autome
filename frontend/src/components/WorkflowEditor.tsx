@@ -357,7 +357,9 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     (type: string) => {
       if (!currentDefinition) return;
       const existingIds = currentDefinition.stages.map((s) => s.id);
-      const id = generateStageId(type, existingIds);
+      const spec = nodeTypeList?.find((s) => s.id === type);
+      const label = spec?.name || type.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      const id = generateStageId(type, existingIds, label);
       const lowestY =
         currentDefinition.stages.length > 0
           ? Math.max(...currentDefinition.stages.map((s) => (s.position?.y ?? 0))) + 150

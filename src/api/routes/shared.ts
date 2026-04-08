@@ -70,24 +70,49 @@ export function mergePatch<T extends Record<string, any>>(target: T, patch: Part
 }
 
 // ---------------------------------------------------------------------------
+// Draft ID aliasing
+// ---------------------------------------------------------------------------
+
+// Maps old temp IDs → canonical workflow IDs. Populated when a workflow is
+// saved (temp → real UUID), so the author agent's MCP server transparently
+// resolves tool calls using the old temp ID to the right workflow without
+// needing to restart.
+const draftAliases = new Map<string, string>();
+
+export function registerDraftAlias(fromId: string, toId: string): void {
+  draftAliases.set(fromId, toId);
+}
+
+export function resolveDraftId(id: string): string {
+  return draftAliases.get(id) || id;
+}
+
+export function loadDraftAliases(aliases: Array<{ fromId: string; toId: string }>): void {
+  for (const { fromId, toId } of aliases) {
+    draftAliases.set(fromId, toId);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Draft helpers
 // ---------------------------------------------------------------------------
 
 export function getDraft(db: OrchestratorDB, authorDrafts: Map<string, WorkflowDefinition>, workflowId: string): WorkflowDefinition {
+  const canonicalId = resolveDraftId(workflowId);
   // Check memory cache first
-  if (authorDrafts.has(workflowId)) return authorDrafts.get(workflowId)!;
+  if (authorDrafts.has(canonicalId)) return authorDrafts.get(canonicalId)!;
   // Fall back to DB draft
-  const dbDraft = db.getDraft(workflowId);
+  const dbDraft = db.getDraft(canonicalId);
   if (dbDraft) {
     const typed = dbDraft as unknown as WorkflowDefinition;
-    authorDrafts.set(workflowId, typed); // warm cache
+    authorDrafts.set(canonicalId, typed); // warm cache
     return typed;
   }
   // Fall back to published workflow
-  const saved = db.getWorkflow(workflowId);
+  const saved = db.getWorkflow(canonicalId);
   if (saved) return saved;
   return {
-    id: workflowId,
+    id: canonicalId,
     name: 'Untitled Workflow',
     description: '',
     active: false,
@@ -98,11 +123,18 @@ export function getDraft(db: OrchestratorDB, authorDrafts: Map<string, WorkflowD
 }
 
 export function saveDraft(db: OrchestratorDB, authorDrafts: Map<string, WorkflowDefinition>, workflowId: string, draft: WorkflowDefinition | Record<string, unknown>) {
+  const canonicalId = resolveDraftId(workflowId);
   // Save to DB (persistent)
-  db.saveDraft(workflowId, draft as Record<string, unknown>);
+  db.saveDraft(canonicalId, draft as Record<string, unknown>);
   // Also keep in memory cache for fast access
-  authorDrafts.set(workflowId, draft as WorkflowDefinition);
-  broadcast('author:draft', { workflowId, definition: draft }, { workflowId });
+  authorDrafts.set(canonicalId, draft as WorkflowDefinition);
+  // Broadcast to canonical ID subscribers
+  broadcast('author:draft', { workflowId: canonicalId, definition: draft }, { workflowId: canonicalId });
+  // Also broadcast to the original (temp) ID so any subscribers on the old ID
+  // (e.g. the frontend watching the temp draft) receive the update too
+  if (canonicalId !== workflowId) {
+    broadcast('author:draft', { workflowId, definition: draft }, { workflowId });
+  }
 }
 
 // ---------------------------------------------------------------------------

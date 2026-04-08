@@ -40,7 +40,7 @@ export const transformNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Expression',
         description:
-          'JS expression. Available variables: input (upstream output), context (workflow context), trigger (trigger payload). Must return the output object.',
+          'JS expression. Available variable: input (Record<stageId, upstreamOutput>). Access via input.stage_name or Object.values(input)[0] for single-input. Must return the output object.',
         format: 'code',
         default: 'input',
       },

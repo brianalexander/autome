@@ -1,0 +1,5 @@
+{
+  "name": "generalist",
+  "description": "General-purpose research and analysis agent. Can browse the web, read files, and run shell commands, but cannot modify workflow definitions.",
+  "tools": ["read", "web_search", "bash"]
+}

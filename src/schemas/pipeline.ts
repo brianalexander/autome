@@ -66,7 +66,13 @@ export const RetryConfigSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const StageDefinitionSchema = z.object({
-  id: z.string().meta({ description: 'Unique stage identifier. Used in edges to reference this stage.' }),
+  id: z
+    .string()
+    .regex(
+      /^[a-z][a-z0-9_]*$/,
+      'Stage ID must be snake_case: lowercase letters, digits, and underscores, starting with a letter',
+    )
+    .meta({ description: 'Unique stage identifier. Used in edges to reference this stage.' }),
   type: z.string().meta({
     description:
       'Node type ID from the node registry. Built-in types: "agent", "gate", "manual-trigger", "webhook-trigger", "cron-trigger", "transform", "http-request", "code-executor". Custom types are discovered from src/nodes/custom/.',
@@ -84,10 +90,16 @@ export const StageDefinitionSchema = z.object({
     .meta({ description: 'Node-specific configuration. Schema depends on the node type.' }),
   watchers: z.array(WatcherDefinitionSchema).optional().meta({ description: 'Event watchers attached to this stage' }),
 
+  // --- Input mode ---
+  input_mode: z.enum(['queue', 'fan_in']).optional().meta({
+    description:
+      'How the stage handles multiple incoming edges. "queue" (default): each edge independently triggers execution, processed FIFO. "fan_in": waits for multiple upstream completions per trigger_rule before executing.',
+  }),
+
   // --- Fan-in / join behavior ---
   trigger_rule: z.enum(['all_success', 'any_success', 'none_failed_min_one_success']).optional().meta({
     description:
-      'How this stage handles multiple incoming edges (fan-in). "all_success" (default) = wait for every upstream to succeed. "any_success" = fire as soon as any one upstream succeeds. "none_failed_min_one_success" = fire if at least one upstream succeeded and none failed (skipped branches are OK).',
+      'How this stage joins multiple upstream completions. Only applies when input_mode is "fan_in". "all_success" (default) = wait for every upstream to succeed. "any_success" = fire as soon as any one upstream succeeds. "none_failed_min_one_success" = fire if at least one upstream succeeded and none failed (skipped branches are OK).',
   }),
 
   // --- Retry ---
@@ -114,7 +126,10 @@ export const StageDefinitionSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const EdgeDefinitionSchema = z.object({
-  id: z.string().meta({ description: 'Unique edge identifier' }),
+  id: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]*$/, 'Edge ID must be snake_case')
+    .meta({ description: 'Unique edge identifier' }),
   source: z.string().meta({ description: 'Source stage ID — where data flows from' }),
   target: z.string().meta({ description: 'Target stage ID — where data flows to' }),
   label: z.string().optional().meta({ description: 'Human-readable label shown on the edge in the canvas' }),
@@ -173,7 +188,14 @@ export const WorkflowDefinitionSchema = z.object({
 
 export const CreateStageBodySchema = StageDefinitionSchema.omit({ position: true })
   .extend({
-    id: z.string().optional().meta({ description: 'Stage ID. Auto-generated if not provided.' }),
+    id: z
+      .string()
+      .regex(
+        /^[a-z][a-z0-9_]*$/,
+        'Stage ID must be snake_case: lowercase letters, digits, and underscores, starting with a letter',
+      )
+      .optional()
+      .meta({ description: 'Stage ID. Auto-generated if not provided.' }),
     position: PositionSchema.optional(),
   })
   .strict();
@@ -191,7 +213,11 @@ export const UpdateStageBodySchema = z
 // Create edge body — available fields depend on source/target node types
 export const CreateEdgeBodySchema = z
   .object({
-    id: z.string().optional().meta({ description: 'Edge ID. Auto-generated if not provided.' }),
+    id: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/, 'Edge ID must be snake_case')
+      .optional()
+      .meta({ description: 'Edge ID. Auto-generated if not provided.' }),
     source: z.string().meta({ description: 'Source stage ID' }),
     target: z.string().meta({ description: 'Target stage ID' }),
     label: z.string().optional().meta({ description: 'Human-readable label' }),

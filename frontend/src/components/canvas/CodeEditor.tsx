@@ -14,47 +14,17 @@ import { Maximize2, Minimize2 } from 'lucide-react';
 
 // --- Autocompletion definitions ---
 
-interface TypeMember {
-  label: string;
-  detail: string;
-  info: string;
-}
-
-const CONTEXT_MEMBERS: TypeMember[] = [
-  { label: 'trigger', detail: 'Event', info: 'The event that kicked off this workflow run' },
-  { label: 'stages', detail: '{ [stageId]: StageContext }', info: 'Access any stage\'s output: context.stages["my-stage"].latest' },
-  { label: 'variables', detail: '{ [key]: any }', info: 'Shared workflow variables, writable across stages' },
-];
-
-const TRIGGER_MEMBERS: TypeMember[] = [
-  { label: 'type', detail: 'string', info: '"webhook" | "manual" | "schedule" — how the workflow was triggered' },
-  { label: 'payload', detail: '{ [key]: any }', info: 'The raw event data (e.g. webhook body, form fields)' },
-  { label: 'source', detail: 'string', info: 'Identifier of the event source (e.g. provider name)' },
-  { label: 'timestamp', detail: 'ISO 8601 string', info: 'When the event was received' },
-];
-
-const STAGES_DEEP_MEMBERS: TypeMember[] = [
-  { label: 'latest', detail: 'any', info: 'Most recent output of this stage' },
-  { label: 'run_count', detail: 'number', info: 'How many times this stage has executed' },
-  { label: 'status', detail: 'string', info: '"pending" | "running" | "completed" | "failed"' },
-  { label: 'runs', detail: 'StageRun[]', info: 'Full history of all runs for this stage' },
-];
-
 const TOP_LEVEL_COMPLETIONS: Completion[] = [
-  { label: 'input', type: 'variable', detail: 'upstream output', info: 'Output from the upstream stage. Access fields via input.fieldName' },
+  { label: 'input', type: 'variable', detail: 'Record<stageId, output>', info: 'Upstream outputs keyed by source stage ID. Access via input.stage_name or Object.values(input)[0]' },
   { label: 'config', type: 'variable', detail: '{ code, timeout_seconds, ... }', info: 'This node\'s configuration values' },
-  { label: 'context', type: 'variable', detail: '{ trigger, stages, variables }', info: 'Full workflow context. Access other stages via context.stages["id"].latest' },
-  { label: 'trigger', type: 'variable', detail: '{ type, payload, source, timestamp }', info: 'Shorthand for context.trigger — the event that started this workflow' },
   { label: 'console', type: 'variable', detail: '{ log, warn, error }', info: 'Logging (no-op in sandbox)' },
   { label: 'JSON', type: 'variable', detail: 'JSON', info: 'JSON.parse() and JSON.stringify()' },
   { label: 'Math', type: 'variable', detail: 'Math', info: 'Math.round(), Math.max(), etc.' },
   { label: 'Date', type: 'class', detail: 'DateConstructor', info: 'new Date(), Date.now()' },
 ];
 
-const MEMBER_MAP: Record<string, TypeMember[]> = {
-  context: CONTEXT_MEMBERS,
-  trigger: TRIGGER_MEMBERS,
-};
+// MEMBER_MAP is intentionally empty — input members are handled by schema-aware completions
+const MEMBER_MAP: Record<string, Array<{ label: string; detail: string; info: string }>> = {};
 
 // --- Hover tooltip data ---
 
@@ -65,26 +35,13 @@ interface HoverInfo {
 
 const HOVER_MAP: Record<string, HoverInfo> = {
   // Top-level identifiers
-  input: { type: 'upstream output', description: 'Output from the upstream stage — fields depend on the source node\'s output schema' },
+  input: { type: 'Record<stageId, output>', description: 'Upstream outputs keyed by source stage ID. Access via input.stage_name or Object.values(input)[0]' },
   config: { type: '{ code, timeout_seconds, ... }', description: "This node's configuration values" },
-  context: { type: '{ trigger, stages, variables }', description: 'Full workflow execution context' },
-  trigger: { type: '{ type, payload, source, timestamp }', description: 'The event that started this workflow' },
   console: { type: '{ log, warn, error }', description: 'Console methods (no-op in sandbox)' },
   JSON: { type: 'JSON', description: 'JSON.parse() and JSON.stringify()' },
   Math: { type: 'Math', description: 'Math.round(), Math.max(), etc.' },
   Date: { type: 'DateConstructor', description: 'new Date(), Date.now()' },
 };
-
-// Build member hover entries: "trigger.payload", "context.stages", etc.
-for (const [parent, members] of Object.entries(MEMBER_MAP)) {
-  for (const m of members) {
-    HOVER_MAP[`${parent}.${m.label}`] = { type: m.detail, description: m.info };
-  }
-}
-// Deep members for context.stages
-for (const m of STAGES_DEEP_MEMBERS) {
-  HOVER_MAP[`stages.${m.label}`] = { type: m.detail, description: m.info };
-}
 
 const codeHoverTooltip = hoverTooltip((view, pos): Tooltip | null => {
   // Get the word at the hover position
@@ -129,27 +86,12 @@ const codeHoverTooltip = hoverTooltip((view, pos): Tooltip | null => {
 });
 
 function codeExecutorCompletions(ctx: CompletionContext) {
-  // Deep member access: context.stages["x"].
-  const deepDot = ctx.matchBefore(/context\.stages\[.*?\]\.\w*/);
-  if (deepDot) {
-    const lastDot = deepDot.text.lastIndexOf('.');
-    return {
-      from: deepDot.from + lastDot + 1,
-      options: STAGES_DEEP_MEMBERS.map((m) => ({
-        label: m.label,
-        type: 'property' as const,
-        detail: m.detail,
-        info: m.info,
-      })),
-    };
-  }
-
-  // Single-level member access: "context.", "trigger.", etc.
+  // Single-level member access on known objects
   const dotMatch = ctx.matchBefore(/(\w+)\.\w*/);
   if (dotMatch) {
     const objName = dotMatch.text.split('.')[0];
     const members = MEMBER_MAP[objName];
-    if (members) {
+    if (members && members.length > 0) {
       const from = dotMatch.from + objName.length + 1;
       return {
         from,
@@ -249,19 +191,14 @@ const PLACEHOLDER_JSON = `{
   "key": "value"
 }`;
 
-const PLACEHOLDER_CODE = `import _ from 'lodash';
+const PLACEHOLDER_CODE = `export default ({ input }) => {
+  // input — upstream outputs keyed by stage ID
+  // e.g. input.my_stage.field_name
+  // For single-input: Object.values(input)[0]
 
-export default ({ input, config, context, trigger }) => {
-  // input    — output from the upstream stage
-  // config   — this node's configuration
-  // context  — workflow context (.stages["id"].latest)
-  // trigger  — the event that started this workflow
-
-  const items = input.data || [];
-
+  const data = Object.values(input)[0];
   return {
-    count: items.length,
-    sorted: _.sortBy(items, 'name'),
+    processed: data,
   };
 };`;
 

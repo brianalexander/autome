@@ -878,6 +878,28 @@ export class OrchestratorDB {
   }
 
   // ---------------------------------------------------------------------------
+  // Draft aliases
+  // ---------------------------------------------------------------------------
+
+  registerDraftAlias(fromId: string, toId: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(`
+        INSERT INTO draft_aliases (from_id, to_id, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(from_id) DO UPDATE SET to_id = ?, created_at = ?
+      `)
+      .run(fromId, toId, now, toId, now);
+  }
+
+  listDraftAliases(): Array<{ fromId: string; toId: string }> {
+    const rows = this.db
+      .prepare('SELECT from_id, to_id FROM draft_aliases')
+      .all() as Array<{ from_id: string; to_id: string }>;
+    return rows.map((r) => ({ fromId: r.from_id, toId: r.to_id }));
+  }
+
+  // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
 

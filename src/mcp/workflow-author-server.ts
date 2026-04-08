@@ -9,14 +9,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { config } from '../config.js';
 
-const workflowId = process.env.WORKFLOW_ID;
 const orchestratorPort = process.env.ORCHESTRATOR_PORT || String(config.port);
 const baseUrl = `http://localhost:${orchestratorPort}`;
-
-if (!workflowId) {
-  console.error('WORKFLOW_ID environment variable is required');
-  process.exit(1);
-}
 
 const server = new Server({ name: 'workflow-author', version: '2.0.0' }, { capabilities: { tools: {} } });
 
@@ -37,6 +31,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object' as const,
         properties: {
+          workflow_id: {
+            type: 'string',
+            description: 'The workflow ID to operate on. Use the workflow_id from your context.',
+          },
           method: {
             type: 'string',
             enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
@@ -52,7 +50,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             additionalProperties: true,
           },
         },
-        required: ['method', 'path'],
+        required: ['workflow_id', 'method', 'path'],
       },
     },
     {
@@ -63,12 +61,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         'TypeScript code/expression errors, edge problems, and missing schema warnings.',
         '',
         'Call this after making changes to verify the workflow is valid.',
-        'No arguments needed — validates the current workflow draft.',
+        'Pass the workflow_id from your context.',
       ].join('\n'),
       inputSchema: {
         type: 'object' as const,
-        properties: {},
-        required: [],
+        properties: {
+          workflow_id: {
+            type: 'string',
+            description: 'The workflow ID to operate on. Use the workflow_id from your context.',
+          },
+        },
+        required: ['workflow_id'],
       },
     },
   ],
@@ -78,6 +81,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   if (name === 'validate_workflow') {
+    const workflowId = args?.workflow_id as string;
+    if (!workflowId) {
+      return { content: [{ type: 'text', text: 'Error: "workflow_id" is required' }], isError: true };
+    }
     const url = `${baseUrl}/api/draft/${workflowId}/validate`;
     const response = await fetch(url);
     const result = await response.json();
@@ -94,6 +101,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   try {
+    const workflowId = args?.workflow_id as string;
+    if (!workflowId) {
+      return { content: [{ type: 'text', text: 'Error: "workflow_id" is required' }], isError: true };
+    }
+
     const method = ((args?.method as string) || 'GET').toUpperCase();
     const path = args?.path as string;
     const body = args?.body as Record<string, unknown> | undefined;

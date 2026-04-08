@@ -1,20 +1,15 @@
 import type { StepExecutorContext } from './types.js';
-import type { WorkflowContext } from '../types/instance.js';
 
 /**
  * Standard execution scope available to all step node executors.
- * Provides a consistent interface for accessing upstream data,
- * fan-in outputs, workflow context, and trigger payload.
+ * Input is always a Record keyed by upstream stage ID.
+ * For single-upstream stages: { [sourceStageId]: sourceOutput }
+ * For fan-in stages: mergedInputs (already keyed by stage ID)
+ * For entry stages with no upstream: {}
  */
 export interface ExecutorScope {
-  /** Output from the primary upstream stage */
-  input: unknown;
-  /** All upstream outputs keyed by stage ID (populated for fan-in stages) */
-  sourceOutputs: Record<string, unknown>;
-  /** Full workflow context (context.stages["id"].latest for any stage) */
-  context: WorkflowContext;
-  /** Original trigger event payload */
-  trigger: unknown;
+  /** All upstream outputs keyed by source stage ID. Always a Record even for single-input. */
+  input: Record<string, unknown>;
 }
 
 /**
@@ -22,10 +17,17 @@ export interface ExecutorScope {
  * Used by all step nodes to provide consistent access to upstream data.
  */
 export function buildExecutorScope(execCtx: StepExecutorContext): ExecutorScope {
-  return {
-    input: execCtx.input?.sourceOutput ?? {},
-    sourceOutputs: execCtx.input?.mergedInputs ?? {},
-    context: execCtx.workflowContext,
-    trigger: execCtx.workflowContext.trigger,
-  };
+  if (execCtx.input?.mergedInputs) {
+    // Fan-in: already keyed by stage ID
+    return { input: execCtx.input.mergedInputs };
+  }
+
+  const sourceId = execCtx.input?.incomingEdge?.source;
+  const sourceOutput = execCtx.input?.sourceOutput;
+
+  if (sourceId && sourceOutput !== undefined) {
+    return { input: { [sourceId]: sourceOutput } };
+  }
+
+  return { input: {} };
 }
