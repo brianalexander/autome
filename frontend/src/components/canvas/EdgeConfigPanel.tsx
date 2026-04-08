@@ -160,6 +160,16 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
               schema={sourceSpec.outEdgeSchema}
               value={editState as Record<string, unknown>}
               onChange={(updated) => updateEdge({ ...editState, ...updated })}
+              outputSchema={(() => {
+                const sc = (sourceStage?.config || {}) as Record<string, unknown>;
+                let os = sc.output_schema as Record<string, unknown> | undefined;
+                if (!os) os = sc.response_schema as Record<string, unknown> | undefined;
+                if (!os && sourceStage) {
+                  const sp = specs?.find((s) => s.id === sourceStage.type);
+                  os = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+                }
+                return os;
+              })()}
             />
           </div>
         )}
@@ -189,7 +199,12 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
         {/* Fallback: if neither node declares edge schemas, show basic fields */}
         {(() => {
           const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
-          const sourceOutputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+          let sourceOutputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+          if (!sourceOutputSchema) sourceOutputSchema = sourceConfig.response_schema as Record<string, unknown> | undefined;
+          if (!sourceOutputSchema && sourceStage) {
+            const sp = specs?.find((s) => s.id === sourceStage.type);
+            sourceOutputSchema = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+          }
           return (
             <>
               {!sourceSpec?.outEdgeSchema && !targetSpec?.inEdgeSchema && (

@@ -9,9 +9,9 @@ You MUST use the autome_api MCP tool to create and modify pipelines. Never write
 ### Stage Types
 
 **Triggers** (entry points — every workflow needs one):
-- **manual-trigger**: Triggered via UI button. Config: `{ provider: 'manual' }`
-- **webhook-trigger**: Triggered by HTTP POST. Config: `{ provider: 'webhook' }`. Requires payload_schema to validate incoming payloads.
-- **cron-trigger**: Triggered on a schedule. Config: `{ provider: 'cron', cron: '0 9 * * *' }`
+- **manual-trigger**: Triggered via UI button. Config: `{ provider: 'manual' }`. ALWAYS set `output_schema` to define the JSON payload structure (e.g. `{ type: 'object', properties: { prompt: { type: 'string' } }, required: ['prompt'] }`). The schema generates the trigger form and enables type hints downstream.
+- **webhook-trigger**: Triggered by HTTP POST. Config: `{ provider: 'webhook' }`. ALWAYS set `output_schema` to define and validate the expected payload shape.
+- **cron-trigger**: Triggered on a schedule. Config: `{ provider: 'cron', cron: '0 9 * * *' }`. Has a built-in output schema.
 
 **Steps** (execution nodes):
 - **agent**: AI agent execution unit. Needs an `agentId` from available_agents.
@@ -65,9 +65,8 @@ Edges connect stages AND define how data flows. Key edge fields:
 For structured output from agent stages, set **output_schema** (JSON Schema) on the agent stage's config — this auto-instructs the agent about required output format. For cycle re-entry behavior, set **cycle_behavior** ('fresh' or 'continue') on the agent stage's config.
 
 ### Template Syntax
-- {{ trigger.payload }} — full trigger payload
-- {{ trigger.payload.field }} — specific trigger field
-- {{ output.field }} — source stage output (in edge prompt_templates)
+- {{ output.field }} — source stage output (in edge prompt_templates and conditions)
+- All nodes (including triggers) use {{ output.* }} uniformly — the trigger's output IS its payload
 
 ## Workflow: Building a Pipeline
 
@@ -78,9 +77,9 @@ For structured output from agent stages, set **output_schema** (JSON Schema) on 
 5. **Set up cycles** (if needed): Add conditional edges back to earlier stages; set cycle_behavior on the target agent stage config
 
 ## Best Practices
-1. ALWAYS set output_schema on agent stages — this defines the required output structure and auto-instructs the agent. Without it, downstream stages can't rely on specific fields.
+1. ALWAYS set output_schema on ALL stages — triggers, agents, transforms, code-executors. This defines the output shape and enables type hints for downstream nodes. For triggers, it also generates the trigger form.
 2. ALWAYS set response_schema on http-request stages — this validates the API response shape and fails fast if unexpected data arrives.
-3. ALWAYS set prompt_template on edges to control exactly what each agent receives
+3. ALWAYS set prompt_template on edges to control exactly what each agent receives. Use {{ output.field }} to reference the source node's output (including triggers).
 4. Give stages descriptive labels. Stage IDs are auto-generated from labels as snake_case (e.g., label 'Security Review' → ID 'security_review'). You can set a custom ID if needed, but it must match /^[a-z][a-z0-9_]*$/.
 5. For review cycles: set cycle_behavior: 'continue' on the agent stage config (not on edges)
 6. Add manual gates before destructive actions (publishing, deploying)
