@@ -21,8 +21,27 @@ export function AdvancedStageConfig({
     <div className="space-y-3 pt-3 border-t border-border/50">
       <div className="text-[10px] text-text-tertiary uppercase tracking-wider">Advanced</div>
 
-      {/* Fan-in trigger rule — only show when multiple incoming edges */}
+      {/* Input mode — only show when multiple incoming edges */}
       {incomingEdgeCount > 1 && (
+        <Field label="Input Mode">
+          <select
+            value={editState.input_mode || 'queue'}
+            onChange={(e) => onUpdate('input_mode', e.target.value === 'queue' ? undefined : e.target.value)}
+            className="input-field text-xs"
+          >
+            <option value="queue">Queue (process each input independently)</option>
+            <option value="fan_in">Join (wait for multiple inputs)</option>
+          </select>
+          <div className="text-[10px] text-text-tertiary mt-0.5">
+            {(editState.input_mode || 'queue') === 'fan_in'
+              ? 'Waits for upstream stages to complete before executing. Use the Join Rule below to control when.'
+              : 'Each incoming edge triggers an independent execution, processed one at a time in FIFO order.'}
+          </div>
+        </Field>
+      )}
+
+      {/* Fan-in trigger rule — only show when input_mode is fan_in */}
+      {incomingEdgeCount > 1 && (editState.input_mode || 'queue') === 'fan_in' && (
         <Field label="Join Rule">
           <select
             value={editState.trigger_rule || 'all_success'}
