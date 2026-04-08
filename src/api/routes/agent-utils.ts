@@ -299,6 +299,10 @@ export interface SessionConfig {
   stageId: string;
   iteration: number;
   agentId: string;
+  /** Override the working directory for this session. When omitted, pool.spawn
+   *  creates an isolated workspace under data/workspaces/. Set to process.cwd()
+   *  for the author agent so the SDK discovers project-level .claude/agents/. */
+  workingDir?: string;
   overrides?: {
     model?: string;
     additional_prompt?: string;
@@ -341,6 +345,7 @@ export async function ensureSession(
     acpSessionId,
     config: { agentId, overrides },
     orchestratorPort: appConfig.port,
+    ...(config.workingDir ? { workingDir: config.workingDir } : {}),
   });
 
   wireAcpEvents(client, db, { instanceId, stageId, iteration, eventPrefix, filterPayload, scope, cullKey });

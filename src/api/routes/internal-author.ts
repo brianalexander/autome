@@ -211,6 +211,10 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
       stageId: workflowId,
       iteration: 1,
       agentId: 'workflow-author',
+      // Use project root as cwd so the SDK discovers .claude/agents/ for
+      // agent identity and sub-agent restrictions. Runtime agents use isolated
+      // workspaces (for imported bundles), but the author is part of the project.
+      workingDir: process.cwd(),
       overrides: {
         additional_mcp_servers: [
           {
