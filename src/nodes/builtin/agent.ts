@@ -132,7 +132,7 @@ export const agentNodeSpec: NodeTypeSpec = {
         title: 'Prompt Template',
         description:
           'Prompt template sent to the agent. Use {{ output.field }} to reference the source stage\'s output.',
-        format: 'code',
+        format: 'textarea',
       },
     },
     required: ['prompt_template'],

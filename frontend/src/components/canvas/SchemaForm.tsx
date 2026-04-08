@@ -3,6 +3,7 @@
  * Used by ConfigPanel for node types that don't have specialized config UIs.
  */
 import { useCallback, useState, useEffect } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { CodeEditor } from './CodeEditor';
 
 interface JSONSchemaProperty {
@@ -171,18 +172,7 @@ function SchemaField({
 
   // Multiline textarea for templates, prompts, and other non-code text
   if (prop.format === 'textarea') {
-    const displayValue = value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-    return (
-      <Field label={label} description={prop.description} required={required}>
-        <textarea
-          value={String(displayValue)}
-          onChange={(e) => onChange(e.target.value || undefined)}
-          rows={4}
-          className="w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono resize-y"
-          spellCheck={false}
-        />
-      </Field>
-    );
+    return <ExpandableTextarea label={label} description={prop.description} required={required} value={value} onChange={onChange} />;
   }
 
   // Dependencies editor — key-value pairs for npm packages
@@ -308,6 +298,77 @@ function DependencyEditor({
         spellCheck={false}
         placeholder={"lodash@^4.17.21\naxios@^1.7.0"}
       />
+    </Field>
+  );
+}
+
+/** Textarea with expand-to-modal for prompt templates and other long-form text. */
+function ExpandableTextarea({
+  label,
+  description,
+  required,
+  value,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  required?: boolean;
+  value: unknown;
+  onChange: (val: unknown) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const displayValue = value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+
+  return (
+    <Field label={label} description={description} required={required}>
+      {/* Backdrop */}
+      {expanded && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setExpanded(false)} />
+      )}
+
+      <div className={expanded
+        ? 'fixed inset-0 z-50 flex items-center justify-center p-8 pointer-events-none'
+        : 'relative group'
+      }>
+        <div className={expanded
+          ? 'bg-surface border border-border rounded-xl w-[90vw] max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl pointer-events-auto'
+          : ''
+        }>
+          {expanded && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
+              <span className="text-xs font-medium text-text-secondary">{label}</span>
+              <button
+                onClick={() => setExpanded(false)}
+                className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded hover:bg-surface-secondary"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
+                Collapse
+              </button>
+            </div>
+          )}
+          <div className={expanded ? 'flex-1 overflow-auto p-3' : ''}>
+            <textarea
+              value={String(displayValue)}
+              onChange={(e) => onChange(e.target.value || undefined)}
+              rows={expanded ? 20 : 4}
+              className="w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono resize-y"
+              spellCheck={false}
+              placeholder="Enter prompt template... Use {{ output.field }} for interpolation"
+            />
+          </div>
+        </div>
+
+        {/* Expand button — inline mode only */}
+        {!expanded && (
+          <button
+            onClick={() => setExpanded(true)}
+            className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-secondary/90 border border-border rounded p-1 text-text-tertiary hover:text-text-primary"
+            title="Expand editor"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
     </Field>
   );
 }
