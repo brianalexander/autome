@@ -85,7 +85,7 @@ declare function fetch(url: string, init?: RequestInit): Promise<Response>;
   return `
 interface __InputType ${inputType === 'Record<string, any>' ? '{ [key: string]: any }' : inputType}
 interface __CodeExecutorParams {
-  input: Record<string, __InputType>;
+  input: __InputType;
   config: Record<string, any>;
 }
 declare function fetch(url: string, init?: RequestInit): Promise<Response>;
@@ -103,7 +103,7 @@ function generateExpressionDeclarations(outputSchema?: Record<string, unknown>):
   return `
 type __OutputType = ${outputType === 'Record<string, any>' ? 'Record<string, any>' : outputType};
 declare const output: __OutputType;
-declare const input: Record<string, __OutputType>;
+declare const input: __OutputType;
 `;
 }
 
