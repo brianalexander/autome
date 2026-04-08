@@ -2,7 +2,7 @@
  * CodeEditor — CodeMirror-based editor with syntax highlighting, autocompletion,
  * and an expand-to-modal feature for comfortable code editing.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
@@ -317,6 +317,22 @@ export function CodeEditor({
     ],
     [editorMode, completionFn, codeLinter, fillTheme],
   );
+
+  // Close on Escape and stop propagation so ConfigPanel doesn't also close
+  const handleExpandKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape' && expanded) {
+      e.stopPropagation();
+      e.preventDefault();
+      setExpanded(false);
+    }
+  }, [expanded]);
+
+  useEffect(() => {
+    if (expanded) {
+      document.addEventListener('keydown', handleExpandKeyDown, true); // capture phase
+      return () => document.removeEventListener('keydown', handleExpandKeyDown, true);
+    }
+  }, [expanded, handleExpandKeyDown]);
 
   return (
     <div className="relative group w-full">

@@ -317,7 +317,24 @@ function ExpandableTextarea({
   onChange: (val: unknown) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const textareaRef = useCallback((node: HTMLTextAreaElement | null) => {
+    if (node && expanded) node.focus();
+  }, [expanded]);
   const displayValue = value == null ? '' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+
+  // Close on Escape, stop propagation so ConfigPanel doesn't also close
+  useEffect(() => {
+    if (!expanded) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.preventDefault();
+        setExpanded(false);
+      }
+    };
+    document.addEventListener('keydown', handleKey, true);
+    return () => document.removeEventListener('keydown', handleKey, true);
+  }, [expanded]);
 
   return (
     <Field label={label} description={description} required={required}>
@@ -337,17 +354,21 @@ function ExpandableTextarea({
           {expanded && (
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
               <span className="text-xs font-medium text-text-secondary">{label}</span>
-              <button
-                onClick={() => setExpanded(false)}
-                className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded hover:bg-surface-secondary"
-              >
-                <Minimize2 className="w-3.5 h-3.5" />
-                Collapse
-              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-text-tertiary">Esc to close</span>
+                <button
+                  onClick={() => setExpanded(false)}
+                  className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded hover:bg-surface-secondary"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  Collapse
+                </button>
+              </div>
             </div>
           )}
           <div className={expanded ? 'flex-1 overflow-auto p-3' : ''}>
             <textarea
+              ref={textareaRef}
               value={String(displayValue)}
               onChange={(e) => onChange(e.target.value || undefined)}
               rows={expanded ? 20 : 4}
