@@ -10,11 +10,12 @@ export interface TemplateDiagnostic {
 export function validateTemplate(template: string): TemplateDiagnostic[] {
   const diagnostics: TemplateDiagnostic[] = [];
 
-  // Validate Jinja2 syntax by trying to compile with nunjucks
+  // Validate Jinja2 syntax by rendering with empty context.
+  // compile() only catches parse errors; renderString() also catches
+  // unknown block tags ({% zzzzz %}) which only fail at render time.
   const env = new nunjucks.Environment(null, { autoescape: false, throwOnUndefined: false });
   try {
-    // nunjucks.compile will throw on syntax errors
-    nunjucks.compile(template, env);
+    env.renderString(template, {});
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Try to extract line/col from nunjucks error

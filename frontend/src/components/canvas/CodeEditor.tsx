@@ -8,6 +8,7 @@ import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
 import { githubDark } from '@uiw/codemirror-theme-github';
 import { autocompletion, type CompletionContext, type Completion } from '@codemirror/autocomplete';
+import { jinja, closePercentBrace } from '@codemirror/lang-jinja';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
 import { EditorView, hoverTooltip, type Tooltip } from '@codemirror/view';
 import { Maximize2, Minimize2 } from 'lucide-react';
@@ -185,15 +186,43 @@ function createSchemaAwareCompletions(outputSchema?: Record<string, unknown>) {
 
 // --- Template mode: Jinja2-aware autocomplete and linting ---
 
-const JINJA2_KEYWORDS = [
-  { label: 'if', type: 'keyword' as const, info: 'Conditional block' },
-  { label: 'else', type: 'keyword' as const, info: 'Else branch' },
-  { label: 'elif', type: 'keyword' as const, info: 'Else-if branch' },
-  { label: 'endif', type: 'keyword' as const, info: 'End conditional' },
-  { label: 'for', type: 'keyword' as const, info: 'Loop over items' },
-  { label: 'endfor', type: 'keyword' as const, info: 'End loop' },
-  { label: 'set', type: 'keyword' as const, info: 'Set a variable' },
-];
+function createJinjaConfig(outputSchema?: Record<string, unknown>) {
+  return {
+    variables: [{ label: 'output', type: 'variable' as const, detail: 'source stage output', info: 'Access fields via output.field_name' }] as readonly Completion[],
+    properties(path: readonly string[]): readonly Completion[] {
+      if (!outputSchema) return [];
+
+      if (path.length === 0) {
+        // Top level — suggest 'output'
+        return [{ label: 'output', type: 'variable' as const }];
+      }
+
+      if (path[0] !== 'output') return [];
+
+      // Walk the schema for the remaining path
+      let schema = outputSchema;
+      for (let i = 1; i < path.length; i++) {
+        const props = schema.properties as Record<string, Record<string, unknown>> | undefined;
+        if (!props || !props[path[i]]) return [];
+        schema = props[path[i]];
+        // Handle array items
+        if (schema.type === 'array' && schema.items) {
+          schema = schema.items as Record<string, unknown>;
+        }
+      }
+
+      // Return property names at this level
+      const props = schema.properties as Record<string, Record<string, unknown>> | undefined;
+      if (!props) return [];
+      return Object.keys(props).map((key) => ({
+        label: key,
+        type: 'property' as const,
+        detail: (props[key].type as string) || 'unknown',
+        info: (props[key].description as string) || '',
+      }));
+    },
+  };
+}
 
 /** Duplicate of EdgeConfigPanel's validateFieldPath — walks a JSON Schema to check a field path exists */
 function validateFieldPath(schema: Record<string, unknown>, path: string[]): boolean {
@@ -204,58 +233,6 @@ function validateFieldPath(schema: Record<string, unknown>, path: string[]): boo
     current = props[key];
   }
   return true;
-}
-
-function createTemplateCompletions(outputSchema?: Record<string, unknown>) {
-  return function templateCompletions(ctx: CompletionContext) {
-    const beforeCursor = ctx.state.doc.sliceString(0, ctx.pos);
-    const lastOpen = beforeCursor.lastIndexOf('{{');
-    const lastClose = beforeCursor.lastIndexOf('}}');
-
-    if (lastOpen <= lastClose) {
-      // Not inside {{ }} — check for {% %} block tags
-      const lastBlockOpen = beforeCursor.lastIndexOf('{%');
-      const lastBlockClose = beforeCursor.lastIndexOf('%}');
-      if (lastBlockOpen > lastBlockClose) {
-        const word = ctx.matchBefore(/\w+/);
-        return {
-          from: word?.from ?? ctx.pos,
-          options: JINJA2_KEYWORDS,
-        };
-      }
-      return null;
-    }
-
-    // Inside {{ }} — provide output.field completions
-    if (outputSchema) {
-      const dotChain = ctx.matchBefore(/output(\.\w+)*\.?\w*/);
-      if (dotChain) {
-        const parts = dotChain.text.split('.');
-        if (parts[0] === 'output' && parts.length >= 2) {
-          const pathParts = parts.slice(1, -1);
-          const subSchema = pathParts.length > 0 ? walkSchema(outputSchema, pathParts) : outputSchema;
-          if (subSchema) {
-            const lastDot = dotChain.text.lastIndexOf('.');
-            return {
-              from: dotChain.from + lastDot + 1,
-              options: schemaToCompletions(subSchema, ''),
-            };
-          }
-        }
-        return null;
-      }
-    }
-
-    // Top-level inside {{ }}: suggest 'output'
-    const word = ctx.matchBefore(/\w+/);
-    if (!word && !ctx.explicit) return null;
-    return {
-      from: word?.from ?? ctx.pos,
-      options: [
-        { label: 'output', type: 'variable' as const, detail: 'source stage output', info: 'Access fields via output.field_name' },
-      ],
-    };
-  };
 }
 
 function createTemplateLinter(outputSchema?: Record<string, unknown>) {
@@ -426,8 +403,8 @@ export function CodeEditor({
     [outputSchemaKey],
   );
 
-  const templateCompletionFn = useMemo(
-    () => createTemplateCompletions(outputSchema),
+  const jinjaConfig = useMemo(
+    () => createJinjaConfig(outputSchema),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [outputSchemaKey],
   );
@@ -454,13 +431,9 @@ export function CodeEditor({
     () => {
       if (editorMode === 'template') {
         return [
-          // No JS/JSON language mode — plain text with Jinja2 autocomplete
-          autocompletion({
-            override: [templateCompletionFn],
-            activateOnTyping: true,
-          }),
-          templateLinter,
-          lintGutter(),
+          jinja(jinjaConfig),
+          closePercentBrace,
+          ...(templateLinter ? [templateLinter, lintGutter()] : []),
           fillTheme,
         ];
       }
@@ -479,7 +452,7 @@ export function CodeEditor({
         fillTheme,
       ];
     },
-    [editorMode, completionFn, templateCompletionFn, templateLinter, codeLinter, fillTheme],
+    [editorMode, completionFn, jinjaConfig, templateLinter, codeLinter, fillTheme],
   );
 
   // Close on Escape and stop propagation so ConfigPanel doesn't also close

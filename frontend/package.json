@@ -13,6 +13,7 @@
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-jinja": "^6.0.0",
     "@codemirror/lang-json": "^6.0.2",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query": "^5.95.2",
