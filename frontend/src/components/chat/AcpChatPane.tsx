@@ -6,6 +6,7 @@
  * and useChatSession hooks, UI in extracted child components.
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { useChatSession } from '../../hooks/useChatSession';
@@ -267,12 +268,17 @@ export function AcpChatPane({
   }, [input, chat, session, onSendMessage]);
 
   // --- Textarea auto-resize ---
+  const [inputExpanded, setInputExpanded] = useState(false);
+  const INPUT_MAX_HEIGHT = 200;
+
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
-    const ta = e.target;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-  }, []);
+    if (!inputExpanded) {
+      const ta = e.target;
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, INPUT_MAX_HEIGHT) + 'px';
+    }
+  }, [inputExpanded]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -503,45 +509,114 @@ export function AcpChatPane({
         )}
       </div>
 
+      {/* Expanded input backdrop */}
+      {inputExpanded && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setInputExpanded(false)} />
+      )}
+
       {/* Input bar */}
-      <div className="p-3 border-t border-border flex-shrink-0">
-        <div className="flex gap-2 items-end">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              sessionState === 'starting' ? 'Connecting...' : chat.isStreaming ? 'Agent is working...' : placeholder
-            }
-            disabled={chat.isStreaming || sessionState === 'starting'}
-            rows={1}
-            className="flex-1 bg-surface-secondary border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed resize-none overflow-hidden"
-            style={{ minHeight: '38px', maxHeight: '120px' }}
-          />
-          {chat.isStreaming && onStop ? (
-            <button
-              onClick={onStop}
-              className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm flex-shrink-0 transition-colors"
-            >
-              Stop
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || chat.isStreaming || sessionState === 'starting'}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm disabled:opacity-50 flex-shrink-0 transition-colors"
-              >
-                Send
-              </button>
-            </>
+      <div className={inputExpanded
+        ? "fixed inset-0 z-50 flex items-center justify-center p-8 pointer-events-none"
+        : "p-3 border-t border-border flex-shrink-0"
+      }>
+        <div className={inputExpanded
+          ? "bg-surface border border-border rounded-xl w-[90vw] max-w-4xl max-h-[80vh] flex flex-col overflow-hidden shadow-2xl pointer-events-auto"
+          : ""
+        }>
+          {inputExpanded && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
+              <span className="text-xs font-medium text-text-secondary">Compose Message</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-text-tertiary">Esc to collapse</span>
+                <button
+                  onClick={() => setInputExpanded(false)}
+                  className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded hover:bg-surface-secondary"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           )}
-        </div>
-        <div className="flex items-center justify-between mt-1">
-          <span className="text-[10px] text-text-muted">
-            {chat.isStreaming ? '' : 'Enter to send, Shift+Enter for newline'}
-          </span>
+          <div className={inputExpanded ? "flex-1 overflow-auto p-3" : "flex gap-2 items-end"}>
+            <div className={inputExpanded ? "mb-3" : "flex-1 relative group"}>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && inputExpanded) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setInputExpanded(false);
+                    return;
+                  }
+                  handleKeyDown(e);
+                }}
+                placeholder={
+                  sessionState === 'starting' ? 'Connecting...' : chat.isStreaming ? 'Agent is working...' : placeholder
+                }
+                disabled={chat.isStreaming || sessionState === 'starting'}
+                rows={inputExpanded ? 15 : 1}
+                className={`w-full bg-surface-secondary border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed ${inputExpanded ? 'resize-y min-h-[200px]' : 'resize-none overflow-auto'}`}
+                style={inputExpanded ? undefined : { minHeight: '38px', maxHeight: `${INPUT_MAX_HEIGHT}px` }}
+                autoFocus={inputExpanded}
+              />
+              {!inputExpanded && (
+                <button
+                  onClick={() => setInputExpanded(true)}
+                  className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-secondary/90 border border-border rounded p-1 text-text-tertiary hover:text-text-primary"
+                  title="Expand editor"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            {!inputExpanded && (
+              <>
+                {chat.isStreaming && onStop ? (
+                  <button
+                    onClick={onStop}
+                    className="px-4 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm flex-shrink-0 transition-colors"
+                  >
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim() || chat.isStreaming || sessionState === 'starting'}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm disabled:opacity-50 flex-shrink-0 transition-colors"
+                  >
+                    Send
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+          {inputExpanded && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-border flex-shrink-0">
+              <span className="text-[10px] text-text-muted">Enter to send, Shift+Enter for newline</span>
+              <div className="flex gap-2">
+                {chat.isStreaming && onStop ? (
+                  <button onClick={onStop} className="px-4 py-1.5 bg-red-700 hover:bg-red-600 text-white rounded-lg text-xs transition-colors">Stop</button>
+                ) : (
+                  <button
+                    onClick={() => { handleSend(); setInputExpanded(false); }}
+                    disabled={!input.trim() || chat.isStreaming || sessionState === 'starting'}
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs disabled:opacity-50 transition-colors"
+                  >
+                    Send
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {!inputExpanded && (
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[10px] text-text-muted">
+                {chat.isStreaming ? '' : 'Enter to send, Shift+Enter for newline'}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
