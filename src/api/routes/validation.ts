@@ -14,16 +14,30 @@ export function findUpstreamOutputSchema(
   draft: WorkflowDefinition,
   stageId: string,
 ): Record<string, unknown> | undefined {
-  const incomingEdge = draft.edges?.find((e) => e.target === stageId);
-  if (!incomingEdge) return undefined;
-  const sourceStage = draft.stages?.find((s) => s.id === incomingEdge.source);
-  const sourceConfig = sourceStage?.config as Record<string, unknown> | undefined;
-  let schema = sourceConfig?.output_schema as Record<string, unknown> | undefined;
-  if (!schema && sourceStage) {
-    const spec = nodeRegistry.get(sourceStage.type);
-    schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+  const incomingEdges = (draft.edges || []).filter(
+    (e) => e.target === stageId && (e.trigger || 'on_success') === 'on_success',
+  );
+  if (incomingEdges.length === 0) return undefined;
+
+  // Resolve each upstream's output schema
+  function resolveSourceSchema(sourceId: string): Record<string, unknown> {
+    const sourceStage = draft.stages?.find((s) => s.id === sourceId);
+    const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
+    let schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
+    if (!schema) schema = sourceConfig.response_schema as Record<string, unknown> | undefined;
+    if (!schema && sourceStage) {
+      const spec = nodeRegistry.get(sourceStage.type);
+      schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+    }
+    return schema || { type: 'object' };
   }
-  return schema;
+
+  // Always namespace by source stage ID — matches runtime ExecutorScope
+  const properties: Record<string, unknown> = {};
+  for (const edge of incomingEdges) {
+    properties[edge.source] = resolveSourceSchema(edge.source);
+  }
+  return { type: 'object', properties };
 }
 
 // ---------------------------------------------------------------------------
