@@ -433,6 +433,7 @@ export function CodeEditor({
         return [
           jinja(jinjaConfig),
           closePercentBrace,
+          autocompletion({ activateOnTyping: true }),
           ...(templateLinter ? [templateLinter, lintGutter()] : []),
           fillTheme,
         ];
