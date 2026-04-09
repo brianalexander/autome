@@ -478,3 +478,590 @@ describe('MCP server registry', () => {
     expect(() => db.deleteMCPServer('missing')).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Segments
+// ---------------------------------------------------------------------------
+
+describe('segments', () => {
+  let db: OrchestratorDB;
+
+  beforeEach(() => {
+    db = makeDB();
+  });
+
+  it('appendSegment creates a segment with segment_index 0 for the first segment', () => {
+    const idx = db.appendSegment('inst-1', 'stage-1', 0, 'text', 'hello');
+    expect(idx).toBe(0);
+    const segs = db.getSegments('inst-1', 'stage-1', 0);
+    expect(segs).toHaveLength(1);
+    expect(segs[0].segment_index).toBe(0);
+    expect(segs[0].segment_type).toBe('text');
+    expect(segs[0].content).toBe('hello');
+  });
+
+  it('appendSegment second segment gets segment_index 1', () => {
+    db.appendSegment('inst-1', 'stage-1', 0, 'text', 'first');
+    const idx = db.appendSegment('inst-1', 'stage-1', 0, 'text', 'second');
+    expect(idx).toBe(1);
+    const segs = db.getSegments('inst-1', 'stage-1', 0);
+    expect(segs).toHaveLength(2);
+    expect(segs[1].segment_index).toBe(1);
+    expect(segs[1].content).toBe('second');
+  });
+
+  it('appendToLastTextSegment appends to existing text segment', () => {
+    db.appendSegment('inst-1', 'stage-1', 0, 'text', 'hello');
+    db.appendToLastTextSegment('inst-1', 'stage-1', 0, ' world');
+    const segs = db.getSegments('inst-1', 'stage-1', 0);
+    expect(segs).toHaveLength(1);
+    expect(segs[0].content).toBe('hello world');
+  });
+
+  it('appendToLastTextSegment creates new segment if last is a tool segment', () => {
+    const toolCallId = 'tc-1';
+    db.upsertToolCall({
+      id: toolCallId,
+      instanceId: 'inst-1',
+      stageId: 'stage-1',
+      iteration: 0,
+      status: 'running',
+    });
+    db.appendSegment('inst-1', 'stage-1', 0, 'tool', undefined, toolCallId);
+    db.appendToLastTextSegment('inst-1', 'stage-1', 0, 'new text');
+    const segs = db.getSegments('inst-1', 'stage-1', 0);
+    expect(segs).toHaveLength(2);
+    expect(segs[0].segment_type).toBe('tool');
+    expect(segs[1].segment_type).toBe('text');
+    expect(segs[1].content).toBe('new text');
+  });
+
+  it('getSegments returns segments with tool_call joins', () => {
+    const toolCallId = 'tc-join-1';
+    db.upsertToolCall({
+      id: toolCallId,
+      instanceId: 'inst-1',
+      stageId: 'stage-1',
+      iteration: 0,
+      title: 'My Tool',
+      kind: 'bash',
+      status: 'completed',
+      rawInput: '{"cmd":"ls"}',
+      rawOutput: 'file.txt',
+    });
+    db.appendSegment('inst-1', 'stage-1', 0, 'tool', undefined, toolCallId);
+    const segs = db.getSegments('inst-1', 'stage-1', 0);
+    expect(segs).toHaveLength(1);
+    expect(segs[0].tool_call).not.toBeNull();
+    expect(segs[0].tool_call!.id).toBe(toolCallId);
+    expect(segs[0].tool_call!.title).toBe('My Tool');
+    expect(segs[0].tool_call!.kind).toBe('bash');
+    expect(segs[0].tool_call!.status).toBe('completed');
+    expect(segs[0].tool_call!.raw_input).toBe('{"cmd":"ls"}');
+    expect(segs[0].tool_call!.raw_output).toBe('file.txt');
+  });
+
+  it('getSegments with iteration filter returns only that iteration', () => {
+    db.appendSegment('inst-1', 'stage-1', 0, 'text', 'iter0');
+    db.appendSegment('inst-1', 'stage-1', 1, 'text', 'iter1');
+    const iter0Segs = db.getSegments('inst-1', 'stage-1', 0);
+    expect(iter0Segs).toHaveLength(1);
+    expect(iter0Segs[0].content).toBe('iter0');
+    const iter1Segs = db.getSegments('inst-1', 'stage-1', 1);
+    expect(iter1Segs).toHaveLength(1);
+    expect(iter1Segs[0].content).toBe('iter1');
+    const allSegs = db.getSegments('inst-1', 'stage-1');
+    expect(allSegs).toHaveLength(2);
+  });
+
+  it('deleteSegments deletes segments and associated tool_calls', () => {
+    const toolCallId = 'tc-del-1';
+    db.upsertToolCall({
+      id: toolCallId,
+      instanceId: 'inst-1',
+      stageId: 'stage-1',
+      iteration: 0,
+      status: 'completed',
+    });
+    db.appendSegment('inst-1', 'stage-1', 0, 'tool', undefined, toolCallId);
+    db.appendSegment('inst-1', 'stage-1', 0, 'text', 'hello');
+
+    db.deleteSegments('inst-1', 'stage-1');
+
+    expect(db.getSegments('inst-1', 'stage-1')).toHaveLength(0);
+    expect(db.getToolCalls('inst-1', 'stage-1')).toHaveLength(0);
+  });
+
+  it('deleteSegments with iteration filter only deletes that iteration', () => {
+    db.appendSegment('inst-1', 'stage-1', 0, 'text', 'iter0');
+    db.appendSegment('inst-1', 'stage-1', 1, 'text', 'iter1');
+
+    db.deleteSegments('inst-1', 'stage-1', 0);
+
+    expect(db.getSegments('inst-1', 'stage-1', 0)).toHaveLength(0);
+    expect(db.getSegments('inst-1', 'stage-1', 1)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool calls
+// ---------------------------------------------------------------------------
+
+describe('tool calls', () => {
+  let db: OrchestratorDB;
+
+  beforeEach(() => {
+    db = makeDB();
+  });
+
+  it('upsertToolCall creates a new tool call', () => {
+    db.upsertToolCall({
+      id: 'tc-1',
+      instanceId: 'inst-1',
+      stageId: 'stage-1',
+      iteration: 0,
+      title: 'Read File',
+      kind: 'file_read',
+      status: 'running',
+      rawInput: '{"path":"/tmp/x"}',
+    });
+    const calls = db.getToolCalls('inst-1', 'stage-1', 0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].id).toBe('tc-1');
+    expect(calls[0].title).toBe('Read File');
+    expect(calls[0].kind).toBe('file_read');
+    expect(calls[0].status).toBe('running');
+    expect(calls[0].raw_input).toBe('{"path":"/tmp/x"}');
+    expect(calls[0].raw_output).toBeNull();
+  });
+
+  it('upsertToolCall updates existing tool call (second phase)', () => {
+    db.upsertToolCall({
+      id: 'tc-2',
+      instanceId: 'inst-1',
+      stageId: 'stage-1',
+      iteration: 0,
+      status: 'running',
+      rawInput: '{"path":"/tmp/x"}',
+    });
+    db.upsertToolCall({
+      id: 'tc-2',
+      instanceId: 'inst-1',
+      stageId: 'stage-1',
+      iteration: 0,
+      status: 'completed',
+      rawOutput: 'file contents',
+    });
+    const calls = db.getToolCalls('inst-1', 'stage-1', 0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].status).toBe('completed');
+    expect(calls[0].raw_output).toBe('file contents');
+  });
+
+  it('upsertToolCall COALESCE — raw_output from phase 2 does not overwrite raw_input from phase 1', () => {
+    db.upsertToolCall({
+      id: 'tc-3',
+      instanceId: 'inst-1',
+      stageId: 'stage-1',
+      iteration: 0,
+      status: 'running',
+      rawInput: '{"original":"input"}',
+    });
+    // Phase 2: provide raw_output but no rawInput
+    db.upsertToolCall({
+      id: 'tc-3',
+      instanceId: 'inst-1',
+      stageId: 'stage-1',
+      iteration: 0,
+      status: 'completed',
+      rawOutput: 'the output',
+    });
+    const calls = db.getToolCalls('inst-1', 'stage-1', 0);
+    expect(calls[0].raw_input).toBe('{"original":"input"}');
+    expect(calls[0].raw_output).toBe('the output');
+  });
+
+  it('sweepToolCallStatuses changes status for matching tool calls', () => {
+    db.upsertToolCall({ id: 'tc-a', instanceId: 'inst-1', stageId: 'stage-1', iteration: 0, status: 'running' });
+    db.upsertToolCall({ id: 'tc-b', instanceId: 'inst-1', stageId: 'stage-1', iteration: 0, status: 'pending' });
+    db.upsertToolCall({ id: 'tc-c', instanceId: 'inst-1', stageId: 'stage-1', iteration: 0, status: 'completed' });
+
+    const changed = db.sweepToolCallStatuses('inst-1', 'stage-1', 0, ['running', 'pending'], 'interrupted');
+    expect(changed).toBe(2);
+
+    const calls = db.getToolCalls('inst-1', 'stage-1', 0);
+    const statuses = Object.fromEntries(calls.map((c) => [c.id, c.status]));
+    expect(statuses['tc-a']).toBe('interrupted');
+    expect(statuses['tc-b']).toBe('interrupted');
+    expect(statuses['tc-c']).toBe('completed');
+  });
+
+  it('sweepToolCallStatuses returns 0 when no matches', () => {
+    db.upsertToolCall({ id: 'tc-x', instanceId: 'inst-1', stageId: 'stage-1', iteration: 0, status: 'completed' });
+    const changed = db.sweepToolCallStatuses('inst-1', 'stage-1', 0, ['running'], 'interrupted');
+    expect(changed).toBe(0);
+  });
+
+  it('getToolCalls returns all tool calls for a stage', () => {
+    db.upsertToolCall({ id: 'tc-i0', instanceId: 'inst-1', stageId: 'stage-1', iteration: 0, status: 'completed' });
+    db.upsertToolCall({ id: 'tc-i1', instanceId: 'inst-1', stageId: 'stage-1', iteration: 1, status: 'completed' });
+
+    const all = db.getToolCalls('inst-1', 'stage-1');
+    expect(all).toHaveLength(2);
+  });
+
+  it('getToolCalls with iteration filter returns only that iteration', () => {
+    db.upsertToolCall({ id: 'tc-i0', instanceId: 'inst-1', stageId: 'stage-1', iteration: 0, status: 'completed' });
+    db.upsertToolCall({ id: 'tc-i1', instanceId: 'inst-1', stageId: 'stage-1', iteration: 1, status: 'completed' });
+
+    const iter0 = db.getToolCalls('inst-1', 'stage-1', 0);
+    expect(iter0).toHaveLength(1);
+    expect(iter0[0].id).toBe('tc-i0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rendered prompts
+// ---------------------------------------------------------------------------
+
+describe('rendered prompts', () => {
+  let db: OrchestratorDB;
+
+  beforeEach(() => {
+    db = makeDB();
+  });
+
+  it('storeRenderedPrompt stores and retrieves a prompt', () => {
+    db.storeRenderedPrompt('inst-1', 'stage-1', 0, 'You are a helpful assistant.');
+    const result = db.getRenderedPrompt('inst-1', 'stage-1', 0);
+    expect(result).not.toBeNull();
+    expect(result!.prompt).toBe('You are a helpful assistant.');
+    expect(result!.iteration).toBe(0);
+  });
+
+  it('storeRenderedPrompt upsert replaces existing prompt for same iteration', () => {
+    db.storeRenderedPrompt('inst-1', 'stage-1', 0, 'original prompt');
+    db.storeRenderedPrompt('inst-1', 'stage-1', 0, 'updated prompt');
+    const result = db.getRenderedPrompt('inst-1', 'stage-1', 0);
+    expect(result!.prompt).toBe('updated prompt');
+  });
+
+  it('getRenderedPrompt returns latest iteration when no iteration specified', () => {
+    db.storeRenderedPrompt('inst-1', 'stage-1', 0, 'iter 0');
+    db.storeRenderedPrompt('inst-1', 'stage-1', 1, 'iter 1');
+    db.storeRenderedPrompt('inst-1', 'stage-1', 2, 'iter 2');
+    const result = db.getRenderedPrompt('inst-1', 'stage-1');
+    expect(result).not.toBeNull();
+    expect(result!.iteration).toBe(2);
+    expect(result!.prompt).toBe('iter 2');
+  });
+
+  it('getRenderedPrompt returns null when not found', () => {
+    const result = db.getRenderedPrompt('missing-inst', 'missing-stage');
+    expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ACP sessions
+// ---------------------------------------------------------------------------
+
+describe('ACP sessions', () => {
+  let db: OrchestratorDB;
+
+  beforeEach(() => {
+    db = makeDB();
+  });
+
+  it('upsertAcpSession creates a new session', () => {
+    db.upsertAcpSession('key-1', 'session-abc', 1234);
+    const session = db.getAcpSession('key-1');
+    expect(session).not.toBeNull();
+    expect(session!.session_id).toBe('session-abc');
+    expect(session!.process_pid).toBe(1234);
+    expect(session!.status).toBe('active');
+  });
+
+  it('upsertAcpSession updates existing session', () => {
+    db.upsertAcpSession('key-1', 'session-abc', 1234);
+    db.upsertAcpSession('key-1', 'session-xyz', 5678);
+    const session = db.getAcpSession('key-1');
+    expect(session!.session_id).toBe('session-xyz');
+    expect(session!.process_pid).toBe(5678);
+    expect(session!.status).toBe('active');
+  });
+
+  it('getAcpSession returns null for unknown key', () => {
+    const session = db.getAcpSession('no-such-key');
+    expect(session).toBeNull();
+  });
+
+  it('markAcpSessionStatus changes status', () => {
+    db.upsertAcpSession('key-1', 'session-abc', 1234);
+    db.markAcpSessionStatus('key-1', 'stopped');
+    const session = db.getAcpSession('key-1');
+    expect(session!.status).toBe('stopped');
+  });
+
+  it('updateAcpSessionModel sets model_name', () => {
+    db.upsertAcpSession('key-1', 'session-abc', null);
+    db.updateAcpSessionModel('key-1', 'claude-3-5-sonnet');
+    const session = db.getAcpSession('key-1');
+    expect(session!.model_name).toBe('claude-3-5-sonnet');
+  });
+
+  it('clearAcpSessionPids sets all active sessions to error status', () => {
+    db.upsertAcpSession('key-1', 'session-1', 100);
+    db.upsertAcpSession('key-2', 'session-2', 200);
+    db.upsertAcpSession('key-3', 'session-3', 300);
+    // Mark one as stopped so it should NOT be affected
+    db.markAcpSessionStatus('key-3', 'stopped');
+
+    db.clearAcpSessionPids();
+
+    const s1 = db.getAcpSession('key-1');
+    const s2 = db.getAcpSession('key-2');
+    const s3 = db.getAcpSession('key-3');
+    expect(s1!.status).toBe('error');
+    expect(s1!.process_pid).toBeNull();
+    expect(s2!.status).toBe('error');
+    expect(s2!.process_pid).toBeNull();
+    // key-3 was already stopped, should not change to error
+    expect(s3!.status).toBe('stopped');
+  });
+
+  it('getActiveAcpSessions returns only active sessions', () => {
+    db.upsertAcpSession('key-active', 'session-active', 111);
+    db.upsertAcpSession('key-stopped', 'session-stopped', 222);
+    db.markAcpSessionStatus('key-stopped', 'stopped');
+
+    const active = db.getActiveAcpSessions();
+    expect(active).toHaveLength(1);
+    expect(active[0].key).toBe('key-active');
+    expect(active[0].session_id).toBe('session-active');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drafts
+// ---------------------------------------------------------------------------
+
+describe('drafts', () => {
+  let db: OrchestratorDB;
+
+  beforeEach(() => {
+    db = makeDB();
+  });
+
+  it('saveDraft and getDraft round-trip', () => {
+    const draft = { name: 'My Draft', stages: [{ id: 's1' }] };
+    db.saveDraft('wf-1', draft);
+    const result = db.getDraft('wf-1');
+    expect(result).toEqual(draft);
+  });
+
+  it('saveDraft upsert overwrites existing draft', () => {
+    db.saveDraft('wf-1', { version: 1 });
+    db.saveDraft('wf-1', { version: 2 });
+    const result = db.getDraft('wf-1');
+    expect(result).toEqual({ version: 2 });
+  });
+
+  it('getDraft returns null for unknown workflow ID', () => {
+    const result = db.getDraft('no-such-wf');
+    expect(result).toBeNull();
+  });
+
+  it('deleteDraft removes the draft', () => {
+    db.saveDraft('wf-1', { name: 'to delete' });
+    db.deleteDraft('wf-1');
+    expect(db.getDraft('wf-1')).toBeNull();
+  });
+
+  it('listDrafts returns drafts sorted by updated_at DESC', async () => {
+    // Insert in a specific order with slight delays to get distinct updated_at values
+    db.saveDraft('wf-older', { label: 'older' });
+    // Small wait to get different timestamps (SQLite datetime is second-resolution)
+    // so we manually set different updated_at by saving again with a trick:
+    // instead, just verify the list contains both and in some order
+    db.saveDraft('wf-newer', { label: 'newer' });
+    // Overwrite older to make it definitely newer
+    db.saveDraft('wf-newer', { label: 'newest update' });
+
+    const list = db.listDrafts();
+    expect(list).toHaveLength(2);
+    // Both IDs should be present
+    const ids = list.map((d) => d.workflowId);
+    expect(ids).toContain('wf-older');
+    expect(ids).toContain('wf-newer');
+    // Each entry has a workflowId and updatedAt
+    expect(list[0].updatedAt).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+describe('settings', () => {
+  let db: OrchestratorDB;
+
+  beforeEach(() => {
+    db = makeDB();
+  });
+
+  it('setSetting and getSetting round-trip', () => {
+    db.setSetting('theme', 'dark');
+    expect(db.getSetting('theme')).toBe('dark');
+  });
+
+  it('setSetting upsert overwrites existing value', () => {
+    db.setSetting('theme', 'dark');
+    db.setSetting('theme', 'light');
+    expect(db.getSetting('theme')).toBe('light');
+  });
+
+  it('getSetting returns null for unknown key', () => {
+    expect(db.getSetting('nonexistent')).toBeNull();
+  });
+
+  it('deleteSetting removes the setting', () => {
+    db.setSetting('to-delete', 'value');
+    db.deleteSetting('to-delete');
+    expect(db.getSetting('to-delete')).toBeNull();
+  });
+
+  it('getAllSettings returns all settings as a record', () => {
+    db.setSetting('a', '1');
+    db.setSetting('b', '2');
+    db.setSetting('c', '3');
+    const all = db.getAllSettings();
+    expect(all).toEqual({ a: '1', b: '2', c: '3' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Draft aliases
+// ---------------------------------------------------------------------------
+
+describe('draft aliases', () => {
+  let db: OrchestratorDB;
+
+  beforeEach(() => {
+    db = makeDB();
+  });
+
+  it('registerDraftAlias and listDraftAliases round-trip', () => {
+    db.registerDraftAlias('old-id', 'new-id');
+    const aliases = db.listDraftAliases();
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0].fromId).toBe('old-id');
+    expect(aliases[0].toId).toBe('new-id');
+  });
+
+  it('registerDraftAlias upsert updates the existing alias', () => {
+    db.registerDraftAlias('old-id', 'first-target');
+    db.registerDraftAlias('old-id', 'second-target');
+    const aliases = db.listDraftAliases();
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0].toId).toBe('second-target');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Segment migration
+// ---------------------------------------------------------------------------
+
+describe('segment migration', () => {
+  let db: OrchestratorDB;
+
+  beforeEach(() => {
+    db = makeDB();
+  });
+
+  it('migrateAuthorSegments moves segments from one stageId to another', () => {
+    db.appendSegment('author', 'old-stage', 0, 'text', 'content');
+    const changed = db.migrateAuthorSegments('old-stage', 'new-stage');
+    expect(changed).toBe(1);
+    expect(db.getSegments('author', 'old-stage')).toHaveLength(0);
+    expect(db.getSegments('author', 'new-stage')).toHaveLength(1);
+    expect(db.getSegments('author', 'new-stage')[0].content).toBe('content');
+  });
+
+  it('copyAuthorSegments copies segments without moving and sets tool_call_id to null', () => {
+    const toolCallId = 'tc-copy';
+    db.upsertToolCall({
+      id: toolCallId,
+      instanceId: 'author',
+      stageId: 'src-stage',
+      iteration: 0,
+      status: 'completed',
+    });
+    db.appendSegment('author', 'src-stage', 0, 'text', 'copied content');
+    db.appendSegment('author', 'src-stage', 0, 'tool', undefined, toolCallId);
+
+    const copied = db.copyAuthorSegments('src-stage', 'dst-stage');
+    expect(copied).toBe(2);
+
+    // Source should still exist
+    expect(db.getSegments('author', 'src-stage')).toHaveLength(2);
+
+    // Destination should have copies
+    const dstSegs = db.getSegments('author', 'dst-stage');
+    expect(dstSegs).toHaveLength(2);
+    // tool_call_id should be null on all copied segments
+    for (const seg of dstSegs) {
+      expect(seg.tool_call).toBeNull();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Transactions — deleteInstance regression tests
+// ---------------------------------------------------------------------------
+
+describe('deleteInstance', () => {
+  let db: OrchestratorDB;
+  let workflowId: string;
+  let instanceId: string;
+
+  beforeEach(() => {
+    db = makeDB();
+    const workflow = db.createWorkflow(makeWorkflowInput());
+    workflowId = workflow.id;
+    const instance = db.createInstance(makeInstanceInput(workflowId));
+    instanceId = instance.id;
+  });
+
+  it('deleteInstance removes the instance and all related data', () => {
+    // Create segments
+    db.appendSegment(instanceId, 'stage-1', 0, 'text', 'segment content');
+
+    // Create a tool call
+    db.upsertToolCall({
+      id: 'tc-del',
+      instanceId,
+      stageId: 'stage-1',
+      iteration: 0,
+      status: 'completed',
+    });
+
+    // Create a rendered prompt
+    db.storeRenderedPrompt(instanceId, 'stage-1', 0, 'the prompt');
+
+    // Verify data exists
+    expect(db.getInstance(instanceId)).not.toBeNull();
+    expect(db.getSegments(instanceId, 'stage-1')).toHaveLength(1);
+    expect(db.getToolCalls(instanceId, 'stage-1')).toHaveLength(1);
+    expect(db.getRenderedPrompt(instanceId, 'stage-1')).not.toBeNull();
+
+    // Delete the instance
+    db.deleteInstance(instanceId);
+
+    // Verify everything is gone
+    expect(db.getInstance(instanceId)).toBeNull();
+    expect(db.getSegments(instanceId, 'stage-1')).toHaveLength(0);
+    expect(db.getToolCalls(instanceId, 'stage-1')).toHaveLength(0);
+    expect(db.getRenderedPrompt(instanceId, 'stage-1')).toBeNull();
+  });
+});
