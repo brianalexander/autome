@@ -179,7 +179,7 @@ export const codeTriggerSpec: NodeTypeSpec = {
         format: 'json',
       },
     },
-    required: ['code'],
+    required: ['code', 'output_schema'],
   },
   defaultConfig: {
     code: '',

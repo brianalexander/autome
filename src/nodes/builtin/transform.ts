@@ -52,7 +52,7 @@ export const transformNodeSpec: NodeTypeSpec = {
         additionalProperties: true,
       },
     },
-    required: ['expression'],
+    required: ['expression', 'output_schema'],
   },
   defaultConfig: { expression: '({ ...input })' },
   executor,

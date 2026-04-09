@@ -155,7 +155,7 @@ export const shellExecutorNodeSpec: NodeTypeSpec = {
         additionalProperties: true,
       },
     },
-    required: ['command'],
+    required: ['command', 'output_schema'],
   },
   defaultConfig: {
     command: '',

@@ -125,7 +125,7 @@ export const codeExecutorNodeSpec: NodeTypeSpec = {
         additionalProperties: true,
       },
     },
-    required: ['code'],
+    required: ['code', 'output_schema'],
   },
   defaultConfig: { code: '', dependencies: {}, timeout_seconds: 30 },
   executor,

@@ -24,6 +24,7 @@ export const manualTriggerSpec: NodeTypeSpec = {
         format: 'json',
       },
     },
+    required: ['output_schema'],
   },
   defaultConfig: {
     provider: 'manual',

@@ -37,7 +37,7 @@ export const webhookTriggerSpec: NodeTypeSpec = {
         format: 'json',
       },
     },
-    required: ['payload_schema'],
+    required: ['payload_schema', 'output_schema'],
   },
   defaultConfig: {
     provider: 'webhook',

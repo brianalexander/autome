@@ -84,7 +84,7 @@ export const cronTriggerSpec: NodeTypeSpec = {
         format: 'json',
       },
     },
-    required: ['schedule'],
+    required: ['schedule', 'output_schema'],
   },
   defaultConfig: {
     schedule: '5m',

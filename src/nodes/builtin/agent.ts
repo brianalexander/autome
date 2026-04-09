@@ -130,9 +130,8 @@ export const agentNodeSpec: NodeTypeSpec = {
       prompt_template: {
         type: 'string',
         title: 'Prompt Template',
-        description:
-          'Prompt template sent to the agent. Use {{ output.field }} to reference the source stage\'s output.',
-        format: 'textarea',
+        description: 'Jinja2 prompt template. Use {{ output.field }} to reference source output.',
+        format: 'template',
       },
     },
     required: ['prompt_template'],

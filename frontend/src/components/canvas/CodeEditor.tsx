@@ -183,6 +183,107 @@ function createSchemaAwareCompletions(outputSchema?: Record<string, unknown>) {
   };
 }
 
+// --- Template mode: Jinja2-aware autocomplete and linting ---
+
+const JINJA2_KEYWORDS = [
+  { label: 'if', type: 'keyword' as const, info: 'Conditional block' },
+  { label: 'else', type: 'keyword' as const, info: 'Else branch' },
+  { label: 'elif', type: 'keyword' as const, info: 'Else-if branch' },
+  { label: 'endif', type: 'keyword' as const, info: 'End conditional' },
+  { label: 'for', type: 'keyword' as const, info: 'Loop over items' },
+  { label: 'endfor', type: 'keyword' as const, info: 'End loop' },
+  { label: 'set', type: 'keyword' as const, info: 'Set a variable' },
+];
+
+/** Duplicate of EdgeConfigPanel's validateFieldPath — walks a JSON Schema to check a field path exists */
+function validateFieldPath(schema: Record<string, unknown>, path: string[]): boolean {
+  let current = schema;
+  for (const key of path) {
+    const props = current.properties as Record<string, Record<string, unknown>> | undefined;
+    if (!props || !props[key]) return false;
+    current = props[key];
+  }
+  return true;
+}
+
+function createTemplateCompletions(outputSchema?: Record<string, unknown>) {
+  return function templateCompletions(ctx: CompletionContext) {
+    const beforeCursor = ctx.state.doc.sliceString(0, ctx.pos);
+    const lastOpen = beforeCursor.lastIndexOf('{{');
+    const lastClose = beforeCursor.lastIndexOf('}}');
+
+    if (lastOpen <= lastClose) {
+      // Not inside {{ }} — check for {% %} block tags
+      const lastBlockOpen = beforeCursor.lastIndexOf('{%');
+      const lastBlockClose = beforeCursor.lastIndexOf('%}');
+      if (lastBlockOpen > lastBlockClose) {
+        const word = ctx.matchBefore(/\w+/);
+        return {
+          from: word?.from ?? ctx.pos,
+          options: JINJA2_KEYWORDS,
+        };
+      }
+      return null;
+    }
+
+    // Inside {{ }} — provide output.field completions
+    if (outputSchema) {
+      const dotChain = ctx.matchBefore(/output(\.\w+)*\.?\w*/);
+      if (dotChain) {
+        const parts = dotChain.text.split('.');
+        if (parts[0] === 'output' && parts.length >= 2) {
+          const pathParts = parts.slice(1, -1);
+          const subSchema = pathParts.length > 0 ? walkSchema(outputSchema, pathParts) : outputSchema;
+          if (subSchema) {
+            const lastDot = dotChain.text.lastIndexOf('.');
+            return {
+              from: dotChain.from + lastDot + 1,
+              options: schemaToCompletions(subSchema, ''),
+            };
+          }
+        }
+        return null;
+      }
+    }
+
+    // Top-level inside {{ }}: suggest 'output'
+    const word = ctx.matchBefore(/\w+/);
+    if (!word && !ctx.explicit) return null;
+    return {
+      from: word?.from ?? ctx.pos,
+      options: [
+        { label: 'output', type: 'variable' as const, detail: 'source stage output', info: 'Access fields via output.field_name' },
+      ],
+    };
+  };
+}
+
+function createTemplateLinter(outputSchema?: Record<string, unknown>) {
+  return linter(async (view): Promise<Diagnostic[]> => {
+    if (!outputSchema?.properties) return [];
+    const text = view.state.doc.toString();
+    const diagnostics: Diagnostic[] = [];
+
+    // Find all {{ output.X.Y }} patterns (with optional Jinja2 filters)
+    const pattern = /\{\{\s*output\.(\w+(?:\.\w+)*)\s*(?:\|[^}]*)?\}\}/g;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const fieldPath = match[1].split('.');
+      if (!validateFieldPath(outputSchema, fieldPath)) {
+        const from = match.index + match[0].indexOf('output.');
+        const to = from + 'output.'.length + match[1].length;
+        diagnostics.push({
+          from,
+          to,
+          severity: 'warning',
+          message: `Field "output.${match[1]}" not found in source output schema`,
+        });
+      }
+    }
+    return diagnostics;
+  }, { delay: 500 });
+}
+
 // --- Placeholder ---
 
 const PLACEHOLDER_CONDITION = `output.status === 'approved' && output.score > 0.8`;
@@ -190,6 +291,15 @@ const PLACEHOLDER_CONDITION = `output.status === 'approved' && output.score > 0.
 const PLACEHOLDER_JSON = `{
   "key": "value"
 }`;
+
+const PLACEHOLDER_TEMPLATE = `You are a specialist. Here is your task:
+
+{{ output.description }}
+
+{% if output.requirements %}
+Requirements:
+{% for req in output.requirements %}- {{ req }}
+{% endfor %}{% endif %}`;
 
 const PLACEHOLDER_CODE = `export default ({ input }) => {
   // input — upstream outputs keyed by stage ID
@@ -258,7 +368,7 @@ interface CodeEditorProps {
   placeholder?: string;
   minHeight?: string;
   /** Mode hint for choosing the right placeholder and language */
-  editorMode?: 'code' | 'condition' | 'json';
+  editorMode?: 'code' | 'condition' | 'json' | 'template';
   /** JSON Schema of the upstream node's output — used for autocomplete suggestions */
   outputSchema?: Record<string, unknown>;
   /** Node type hint for the backend validation (e.g. 'code-executor', 'code-trigger') */
@@ -288,6 +398,18 @@ export function CodeEditor({
     [outputSchemaKey],
   );
 
+  const templateCompletionFn = useMemo(
+    () => createTemplateCompletions(outputSchema),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [outputSchemaKey],
+  );
+
+  const templateLinter = useMemo(
+    () => (outputSchema ? createTemplateLinter(outputSchema) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [outputSchemaKey],
+  );
+
   const codeLinter = useMemo(
     () => {
       if (editorMode === 'code') return createCodeLinter(outputSchema, nodeType, 'function', returnSchema);
@@ -301,21 +423,34 @@ export function CodeEditor({
   const fillTheme = useMemo(() => editorFillTheme(expanded ? '60vh' : minHeight), [expanded, minHeight]);
 
   const extensions = useMemo(
-    () => [
-      editorMode === 'json' ? json() : javascript({ jsx: false, typescript: true }),
-      ...(editorMode !== 'json'
-        ? [
-            autocompletion({
-              override: [completionFn],
-              activateOnTyping: true,
-            }),
-            codeHoverTooltip,
-          ]
-        : []),
-      ...(codeLinter ? [codeLinter, lintGutter()] : []),
-      fillTheme,
-    ],
-    [editorMode, completionFn, codeLinter, fillTheme],
+    () => {
+      if (editorMode === 'template') {
+        return [
+          // No JS/JSON language mode — plain text with Jinja2 autocomplete
+          autocompletion({
+            override: [templateCompletionFn],
+            activateOnTyping: true,
+          }),
+          ...(templateLinter ? [templateLinter, lintGutter()] : []),
+          fillTheme,
+        ];
+      }
+      return [
+        editorMode === 'json' ? json() : javascript({ jsx: false, typescript: true }),
+        ...(editorMode !== 'json'
+          ? [
+              autocompletion({
+                override: [completionFn],
+                activateOnTyping: true,
+              }),
+              codeHoverTooltip,
+            ]
+          : []),
+        ...(codeLinter ? [codeLinter, lintGutter()] : []),
+        fillTheme,
+      ];
+    },
+    [editorMode, completionFn, templateCompletionFn, templateLinter, codeLinter, fillTheme],
   );
 
   // Close on Escape and stop propagation so ConfigPanel doesn't also close
@@ -355,7 +490,7 @@ export function CodeEditor({
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
               <div className="flex items-center gap-2 text-xs text-text-secondary">
                 <span className="font-mono font-medium">Code Editor</span>
-                <span className="text-text-tertiary">{editorMode === 'json' ? 'JSON' : 'JavaScript'}</span>
+                <span className="text-text-tertiary">{editorMode === 'json' ? 'JSON' : editorMode === 'template' ? 'Jinja2 Template' : 'JavaScript'}</span>
               </div>
               <button
                 onClick={() => setExpanded(false)}
@@ -374,7 +509,7 @@ export function CodeEditor({
               onChange={onChange}
               extensions={extensions}
               theme={githubDark}
-              placeholder={placeholder || (editorMode === 'json' ? PLACEHOLDER_JSON : editorMode === 'condition' ? PLACEHOLDER_CONDITION : PLACEHOLDER_CODE)}
+              placeholder={placeholder || (editorMode === 'json' ? PLACEHOLDER_JSON : editorMode === 'condition' ? PLACEHOLDER_CONDITION : editorMode === 'template' ? PLACEHOLDER_TEMPLATE : PLACEHOLDER_CODE)}
               basicSetup={{
                 lineNumbers: true,
                 foldGutter: true,
