@@ -11,6 +11,8 @@ interface ShortcutHandlers {
   onFitView?: () => void;
   onToggleAuthor?: () => void;
   onToggleNodes?: () => void;
+  onToggleIssues?: () => void;
+  onToggleVersions?: () => void;
   onToggleSettings?: () => void;
   onRelayout?: () => void;
   onShortcutsHelp?: () => void;
@@ -96,7 +98,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled: boolea
         return;
       }
 
-      // 1, 2, 3 — Toggle sidebar tabs (without modifier)
+      // 1–5 — Toggle sidebar tabs (without modifier)
       if (key === '1' && !mod) {
         handlers.onToggleAuthor?.();
         return;
@@ -106,6 +108,14 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers, enabled: boolea
         return;
       }
       if (key === '3' && !mod) {
+        handlers.onToggleIssues?.();
+        return;
+      }
+      if (key === '4' && !mod) {
+        handlers.onToggleVersions?.();
+        return;
+      }
+      if (key === '5' && !mod) {
         handlers.onToggleSettings?.();
         return;
       }

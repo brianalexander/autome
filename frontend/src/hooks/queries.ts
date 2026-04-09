@@ -109,6 +109,16 @@ export function useWorkflowHealth(workflowId: string) {
   });
 }
 
+export function useWorkflowValidation(workflowId: string | undefined) {
+  return useQuery({
+    queryKey: ['workflow-validation', workflowId],
+    queryFn: () => fetch(`/api/draft/${workflowId}/validate`).then((r) => r.json()),
+    enabled: !!workflowId,
+    staleTime: 10_000, // 10s — revalidate frequently during editing
+    refetchOnWindowFocus: true,
+  });
+}
+
 export function useWorkflowVersion(workflowId: string, version: number | null) {
   return useQuery({
     queryKey: ['workflow-version', workflowId, version],

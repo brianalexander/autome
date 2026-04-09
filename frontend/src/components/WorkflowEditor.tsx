@@ -11,6 +11,7 @@ import {
   useNodeTypes,
   useInstance,
   useInstanceStatus,
+  useWorkflowValidation,
 } from '../hooks/queries';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { WorkflowCanvas, findBackEdgeIds, generateStageId, createDefaultStage, type WorkflowCanvasHandle } from './canvas/WorkflowCanvas';
@@ -24,6 +25,8 @@ import { RuntimeViewer } from './instance/RuntimeViewer';
 import { WorkflowInfoBubble } from './canvas/WorkflowInfoBubble';
 import { WorkflowHealthIndicator } from './WorkflowHealthIndicator';
 import { WorkflowSettings } from './canvas/WorkflowSettings';
+import { ValidationPanel, computeValidationBadgeCount } from './canvas/ValidationPanel';
+import { VersionsPanel } from './canvas/VersionsPanel';
 import {
   workflows as workflowsApi,
   isTriggerType,
@@ -145,13 +148,19 @@ function SidebarPanel({
         <div className="flex-1 overflow-hidden min-h-0">
           {tab === 'author' && <AuthorChat workflowId={effectiveId} currentDefinition={definition} onWorkflowUpdated={onWorkflowUpdated} />}
           {tab === 'nodes' && <NodePalette onAddNode={onAddNode} />}
-          {tab === 'settings' && (
-            <WorkflowSettings
+          {tab === 'issues' && <ValidationPanel workflowId={effectiveId} />}
+          {tab === 'versions' && (
+            <VersionsPanel
               isNew={isNew}
               currentVersion={definition.version}
               versionHistory={versionHistory}
               restoringVersion={restoringVersion}
               onRestoreVersion={onRestoreVersion}
+            />
+          )}
+          {tab === 'settings' && (
+            <WorkflowSettings
+              isNew={isNew}
               onExport={onExport}
               healthIndicator={healthIndicator}
             />
@@ -214,6 +223,10 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
 
   // --- Version history ---
   const { data: versionHistory } = useWorkflowVersions(isNew ? undefined : workflowId);
+
+  // --- Validation (for Issues tab badge) ---
+  const { data: validationData } = useWorkflowValidation(isNew ? undefined : effectiveId);
+  const issuesBadgeCount = computeValidationBadgeCount(validationData as Parameters<typeof computeValidationBadgeCount>[0]);
 
   // --- Test run ---
   const testRun = useTestRun({ definition: currentDefinition, effectiveId });
@@ -439,6 +452,8 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     onCommandPalette: () => setCommandPaletteOpen(true),
     onToggleAuthor: () => setSidebarTab((t) => (t === 'author' ? null : 'author')),
     onToggleNodes: () => setSidebarTab((t) => (t === 'nodes' ? null : 'nodes')),
+    onToggleIssues: () => setSidebarTab((t) => (t === 'issues' ? null : 'issues')),
+    onToggleVersions: () => setSidebarTab((t) => (t === 'versions' ? null : 'versions')),
     onToggleSettings: () => setSidebarTab((t) => (t === 'settings' ? null : 'settings')),
     onShortcutsHelp: () => setShortcutsHelpOpen(true),
     onSelectAll: () => canvasActionsRef.current?.selectAll(),
@@ -475,7 +490,11 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
       {/* Canvas + side panels */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Icon rail */}
-        <IconSidebar activeTab={sidebarTab} onTabChange={setSidebarTab} />
+        <IconSidebar
+          activeTab={sidebarTab}
+          onTabChange={setSidebarTab}
+          badges={{ issues: issuesBadgeCount }}
+        />
 
         {/* Expandable left panel */}
         {sidebarTab && (
