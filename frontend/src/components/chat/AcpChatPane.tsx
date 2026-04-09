@@ -267,9 +267,23 @@ export function AcpChatPane({
     }, 0);
   }, [input, chat, session, onSendMessage]);
 
-  // --- Textarea auto-resize ---
+  // --- Textarea auto-resize + expand ---
   const [inputExpanded, setInputExpanded] = useState(false);
   const INPUT_MAX_HEIGHT = 200;
+
+  // Document-level Esc handler for expanded input (capture phase)
+  useEffect(() => {
+    if (!inputExpanded) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.preventDefault();
+        setInputExpanded(false);
+      }
+    };
+    document.addEventListener('keydown', handleEsc, true);
+    return () => document.removeEventListener('keydown', handleEsc, true);
+  }, [inputExpanded]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
