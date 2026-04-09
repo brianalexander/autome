@@ -5,8 +5,6 @@ import type { NodeTypeInfo } from './api';
 // Factory for a minimal NodeTypeInfo
 function makeNodeType(overrides: Partial<NodeTypeInfo> & { id: string; name: string }): NodeTypeInfo {
   return {
-    id: overrides.id,
-    name: overrides.name,
     category: overrides.category ?? 'step',
     description: overrides.description ?? 'A node',
     icon: overrides.icon ?? 'circle',

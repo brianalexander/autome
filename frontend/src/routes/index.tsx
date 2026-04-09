@@ -145,7 +145,7 @@ function WorkflowsPage() {
                       disabled={triggerMutation.isPending}
                       className="text-[11px] text-text-tertiary hover:text-blue-500 px-2 py-0.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                     >
-                      Trigger
+                      Run
                     </button>
                   )}
 

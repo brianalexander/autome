@@ -25,13 +25,13 @@ describe('isTriggerType', () => {
     const specs = [
       { id: 'custom-node', category: 'trigger', label: 'Custom', description: '' },
       { id: 'llm-agent', category: 'action', label: 'LLM', description: '' },
-    ];
+    ] as any;
     expect(isTriggerType('custom-node', specs)).toBe(true);
     expect(isTriggerType('llm-agent', specs)).toBe(false);
   });
 
   it('falls back to convention when the type is not in specs', () => {
-    const specs = [{ id: 'known-node', category: 'action', label: 'Known', description: '' }];
+    const specs = [{ id: 'known-node', category: 'action', label: 'Known', description: '' }] as any;
     // 'webhook-trigger' is not in specs, should fall back to endsWith check
     expect(isTriggerType('webhook-trigger', specs)).toBe(true);
     expect(isTriggerType('unknown-node', specs)).toBe(false);
@@ -102,7 +102,7 @@ describe('workflows.create', () => {
     const wf = { id: 'wf-new', name: 'New', stages: [], edges: [] };
     vi.stubGlobal('fetch', mockFetch(wf));
 
-    const data = { name: 'New', stages: [], edges: [] };
+    const data = { name: 'New', stages: [], edges: [], trigger: { provider: 'manual' }, active: false };
     const result = await workflows.create(data);
 
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];

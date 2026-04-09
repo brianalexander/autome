@@ -6,10 +6,7 @@ import { CommandPalette } from './canvas/CommandPalette';
 import { ShortcutsHelp } from './canvas/ShortcutsHelp';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  useTriggerWorkflow,
   useUpdateWorkflow,
-  useActivateWorkflow,
-  useDeactivateWorkflow,
   useWorkflowVersions,
   useNodeTypes,
   useInstance,
@@ -71,18 +68,14 @@ function ConfirmModal({ title, body, confirmLabel, onConfirm, onCancel }: Confir
 interface CanvasActionsProps {
   isNew: boolean;
   hasChanges: boolean;
-  workflowActive: boolean | undefined;
-  triggerPending: boolean;
   onReset: () => void;
   onDiscard: () => void;
-  onToggleActive: () => void;
   onTestRun: () => void;
-  onRun: () => void;
 }
 
 function CanvasActions({
-  isNew, hasChanges, workflowActive, triggerPending,
-  onReset, onDiscard, onToggleActive, onTestRun, onRun,
+  isNew, hasChanges,
+  onReset, onDiscard, onTestRun,
 }: CanvasActionsProps) {
   const btnBase = 'px-2.5 py-1.5 text-xs rounded-lg border shadow-sm backdrop-blur-sm transition-colors';
   const btnDefault = `${btnBase} bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]`;
@@ -98,20 +91,7 @@ function CanvasActions({
           Discard
         </button>
       )}
-      {!isNew && workflowActive !== undefined && (
-        <button
-          onClick={onToggleActive}
-          className={`${btnBase} ${workflowActive ? 'border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20' : 'border-border bg-surface text-text-secondary hover:text-text-primary'}`}
-        >
-          {workflowActive ? '● Active' : '○ Inactive'}
-        </button>
-      )}
       <button onClick={onTestRun} className={btnDefault}>Test Run</button>
-      {!isNew && (
-        <button onClick={onRun} disabled={triggerPending} className={`${btnDefault} disabled:opacity-50`}>
-          {triggerPending ? 'Running...' : 'Run'}
-        </button>
-      )}
     </div>
   );
 }
@@ -210,7 +190,6 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     blocker,
     isSavePending,
     isNew_creating,
-    workflow,
     isLoading,
     error,
     setDefinitionSilent,
@@ -224,15 +203,11 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('author');
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
-  const [triggerDialogOpen, setTriggerDialogOpen] = useState(false);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
   const [resetModalOpen, setResetModalOpen] = useState(false);
 
   // --- Mutations ---
-  const triggerMutation = useTriggerWorkflow();
   const updateMutation = useUpdateWorkflow();
-  const activateMutation = useActivateWorkflow();
-  const deactivateMutation = useDeactivateWorkflow();
 
   // --- Node types (for trigger mode detection) ---
   const { data: nodeTypeList } = useNodeTypes();
@@ -416,21 +391,6 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     [isNew, currentDefinition, handleDefinitionChange, setDefinitionSilent],
   );
 
-  // Run (production trigger)
-  const handleRunClick = useCallback(() => {
-    const triggerStage = currentDefinition?.stages.find((s) => s.type.endsWith('-trigger'));
-    const triggerNodeInfo = nodeTypeList?.find((nt) => nt.id === triggerStage?.type);
-    const triggerMode = triggerNodeInfo?.triggerMode ?? 'prompt';
-    if (triggerMode === 'immediate') {
-      triggerMutation.mutate({
-        id: workflowId!,
-        payload: { source: 'cron', scheduled_at: new Date().toISOString() },
-      });
-    } else {
-      setTriggerDialogOpen(true);
-    }
-  }, [currentDefinition, nodeTypeList, workflowId, triggerMutation]);
-
   // Export bundle
   const handleExport = useCallback(async () => {
     try {
@@ -549,13 +509,9 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
           <CanvasActions
             isNew={isNew}
             hasChanges={hasChanges}
-            workflowActive={workflow?.active}
-            triggerPending={triggerMutation.isPending}
             onReset={() => setResetModalOpen(true)}
             onDiscard={handleDiscardChanges}
-            onToggleActive={() => workflow?.active ? deactivateMutation.mutate(workflowId!) : activateMutation.mutate(workflowId!)}
             onTestRun={handleTestRunClick}
-            onRun={handleRunClick}
           />
 
           <WorkflowCanvas
@@ -614,23 +570,6 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
           </ResizablePanel>
         )}
       </div>
-
-      {/* Run trigger dialog — existing workflows only */}
-      {!isNew && (
-        <TriggerDialog
-          workflowName={definition.name}
-          isOpen={triggerDialogOpen}
-          onClose={() => setTriggerDialogOpen(false)}
-          onTrigger={(payload) => {
-            triggerMutation.mutate(
-              { id: workflowId!, payload },
-              { onSuccess: () => setTriggerDialogOpen(false) },
-            );
-          }}
-          isPending={triggerMutation.isPending}
-          outputSchema={triggerSchema}
-        />
-      )}
 
       <TriggerDialog
         workflowName={`${definition.name} (Test Run)`}
