@@ -28,3 +28,6 @@ frontend/.tanstack/
 
 # Scratch/reference (not source code)
 scratch/
+
+# Test coverage output
+coverage/
