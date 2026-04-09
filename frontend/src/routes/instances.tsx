@@ -64,9 +64,9 @@ function InstancesList() {
     if (!instanceData?.length) return [];
     const groups = new Map<string, { workflow: WorkflowDefinition | undefined; instances: WorkflowInstance[] }>();
     for (const inst of instanceData) {
-      const key = inst.definition_id;
+      const key = inst.definition_id ?? '';
       if (!groups.has(key)) {
-        groups.set(key, { workflow: workflowMap.get(key), instances: [] });
+        groups.set(key, { workflow: key ? workflowMap.get(key) : undefined, instances: [] });
       }
       groups.get(key)!.instances.push(inst);
     }
@@ -121,7 +121,10 @@ function InstancesList() {
                   const triggerCount = workflow?.stages.filter((s) => isTriggerType(s.type)).length || 0;
                   const completed = stageEntries.filter(([, s]) => s.status === 'completed').length + triggerCount;
                   const total = stageEntries.length + triggerCount;
-                  const triggerPrompt = inst.trigger_event?.payload?.prompt;
+                  const triggerEventPayload = (inst.trigger_event as Record<string, unknown> | undefined)?.['payload'];
+                  const triggerPrompt = triggerEventPayload && typeof triggerEventPayload === 'object' && !Array.isArray(triggerEventPayload)
+                    ? (triggerEventPayload as Record<string, unknown>)['prompt'] as string | undefined
+                    : undefined;
 
                   return (
                     <Link

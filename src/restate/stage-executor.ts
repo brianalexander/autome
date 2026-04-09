@@ -292,7 +292,7 @@ async function drainQueuedInputs(
 
     const spec = nodeRegistry.get(stage.type)!;
     const stageInput: StageInput = {
-      incomingEdge: nextInput.incomingEdge,
+      incomingEdge: nextInput.incomingEdge as import('../types/workflow.js').EdgeDefinition | undefined,
       sourceOutput: nextInput.sourceOutput,
     };
 
@@ -357,7 +357,7 @@ async function executeMapStage(
         const runStartedAt = await ctx.run(`timestamp-start-${mapStageKey}`, () => new Date().toISOString());
         context.stages[mapStageKey].status = 'running';
         context.stages[mapStageKey].run_count = 1;
-        context.stages[mapStageKey].runs.push({ iteration: 1, started_at: runStartedAt, input: items[i], status: 'running' as const });
+        context.stages[mapStageKey].runs.push({ iteration: 1, started_at: runStartedAt, input: items[i] as Record<string, unknown>, status: 'running' as const });
         ctx.set('context', context);
 
         const result = await executeWithRetry(
@@ -379,14 +379,14 @@ async function executeMapStage(
         if (run) {
           run.status = 'completed';
           run.completed_at = completedAt;
-          run.output = result.output;
+          run.output = result.output as Record<string, unknown> | unknown[];
           const mapLogs = (result as any).logs as string | undefined;
           const mapStderr = (result as any).stderr as string | undefined;
           if (mapLogs) run.logs = mapLogs;
           if (mapStderr) run.stderr = mapStderr;
         }
         context.stages[mapStageKey].status = 'completed';
-        context.stages[mapStageKey].latest = result.output;
+        context.stages[mapStageKey].latest = result.output as Record<string, unknown> | unknown[];
       } catch (err) {
         failureCount++;
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -458,7 +458,7 @@ export async function executeStepWithLifecycle(
     context.stages[stageId].runs.push({
       iteration,
       started_at: runStartedAt,
-      input: currentInput?.mergedInputs ?? currentInput?.sourceOutput,
+      input: (currentInput?.mergedInputs ?? currentInput?.sourceOutput) as Record<string, unknown> | undefined,
       status: 'running' as const,
     });
     ctx.set('context', context);
@@ -542,11 +542,11 @@ export async function executeStepWithLifecycle(
     if (currentRun) {
       currentRun.status = 'completed';
       currentRun.completed_at = completedAt;
-      currentRun.output = output;
+      currentRun.output = output as Record<string, unknown> | unknown[];
       if (stageLogs) currentRun.logs = stageLogs;
       if (stageStderr) currentRun.stderr = stageStderr;
     }
-    context.stages[stageId].latest = output;
+    context.stages[stageId].latest = output as Record<string, unknown> | unknown[];
     context.stages[stageId].status = 'completed';
     ctx.set('context', context);
 

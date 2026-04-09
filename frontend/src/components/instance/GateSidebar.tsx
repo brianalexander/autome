@@ -136,7 +136,7 @@ export function GateSidebar({
             <MetadataRow
               label="Result"
               value={
-                stageCtx.runs[stageCtx.runs.length - 1].output.approved ? (
+                (stageCtx.runs[stageCtx.runs.length - 1].output as Record<string, unknown> | undefined)?.approved ? (
                   <span className="text-green-600 dark:text-green-400">Approved</span>
                 ) : (
                   <span className="text-red-600 dark:text-red-400">Rejected</span>

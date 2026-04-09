@@ -33,7 +33,7 @@ function makeInstanceInput(definitionId: string): Omit<WorkflowInstance, 'id' | 
   return {
     definition_id: definitionId,
     status: 'running',
-    trigger_event: makeEvent(),
+    trigger_event: makeEvent() as unknown as Record<string, unknown>,
     context: { trigger: { ref: 'main' }, stages: {} },
     current_stage_ids: [],
   };

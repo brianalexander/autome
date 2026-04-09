@@ -77,7 +77,7 @@ export async function launchWorkflow(
   const triggerTimestamp = new Date().toISOString();
 
   const context = {
-    trigger: event.payload as Record<string, unknown> | undefined,
+    trigger: (event.payload ?? {}) as Record<string, unknown>,
     stages: {
       // Trigger stages — mark as completed with the event payload as their output
       ...Object.fromEntries(
@@ -92,10 +92,10 @@ export async function launchWorkflow(
                 started_at: triggerTimestamp,
                 completed_at: triggerTimestamp,
                 status: 'completed' as const,
-                output: event.payload,
+                output: event.payload as Record<string, unknown> | unknown[],
               },
             ],
-            latest: event.payload,
+            latest: event.payload as Record<string, unknown> | unknown[],
           },
         ]),
       ),
@@ -111,7 +111,7 @@ export async function launchWorkflow(
     definition_version: workflow.version,
     is_test: isTest || undefined,
     status: 'running',
-    trigger_event: event,
+    trigger_event: event as unknown as Record<string, unknown>,
     context,
     current_stage_ids: [],
     restate_workflow_id: undefined,

@@ -211,9 +211,7 @@ export function OverviewSidebar({
                       {entry.run.status === 'completed' && entry.run.output && (
                         <div className="mt-1 text-[10px] text-text-tertiary truncate">
                           Output:{' '}
-                          {typeof entry.run.output === 'string'
-                            ? entry.run.output.slice(0, 120)
-                            : JSON.stringify(entry.run.output).slice(0, 120)}
+                          {JSON.stringify(entry.run.output).slice(0, 120)}
                         </div>
                       )}
                       {/* Show error for failed stages */}

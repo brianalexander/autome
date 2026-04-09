@@ -21,10 +21,10 @@ export type ACPMessage = z.infer<typeof ACPMessageSchema>;
 export const StageRunSchema = z.object({
   iteration: z.number(),
   started_at: z.string(),
-  input: z.any().optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
   status: z.enum(['running', 'completed', 'failed']),
   completed_at: z.string().optional(),
-  output: z.any().optional(),
+  output: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]).optional(),
   error: z.string().optional(),
   transcript: z.array(ACPMessageSchema).optional(),
   logs: z.string().optional(),    // console output from code/shell execution
@@ -41,7 +41,7 @@ export const StageContextSchema = z.object({
   status: z.enum(['pending', 'running', 'completed', 'failed', 'skipped']),
   run_count: z.number(),
   runs: z.array(StageRunSchema),
-  latest: z.any().optional(),
+  latest: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]).optional(),
   acp_session_id: z.string().optional(),
 });
 
@@ -53,14 +53,14 @@ export type StageContext = z.infer<typeof StageContextSchema>;
 // ---------------------------------------------------------------------------
 
 export const WorkflowContextSchema = z.object({
-  trigger: z.any(),
+  trigger: z.record(z.string(), z.unknown()),
   stages: z.record(z.string(), StageContextSchema),
   edgeTraversals: z.record(z.string(), z.number()).optional(),
   /** Fan-in tracking: { [targetStageId]: { [sourceStageId]: output } } — accumulates as upstream stages complete */
-  fanInCompletions: z.record(z.string(), z.record(z.string(), z.any())).optional(),
+  fanInCompletions: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   /** Queue-mode pending inputs: { [stageId]: [{ incomingEdge, sourceOutput }, ...] } */
   pendingInputs: z.record(z.string(), z.array(z.object({
-    incomingEdge: z.any().optional(),
+    incomingEdge: z.record(z.string(), z.unknown()).optional(),
     sourceOutput: z.unknown().optional(),
   }))).optional(),
 });
@@ -73,10 +73,10 @@ export type WorkflowContext = z.infer<typeof WorkflowContextSchema>;
 
 export const WorkflowInstanceSchema = z.object({
   id: z.string(),
-  definition_id: z.string(),
+  definition_id: z.string().nullable(),
   definition_version: z.number().int().positive().optional().nullable(),
   status: z.enum(['running', 'waiting_gate', 'waiting_input', 'completed', 'failed', 'cancelled']),
-  trigger_event: z.any(),
+  trigger_event: z.record(z.string(), z.unknown()),
   created_at: z.string(),
   updated_at: z.string(),
   completed_at: z.string().optional(),

@@ -27,10 +27,10 @@ export function initializeContext(triggerEvent: Event, definition: WorkflowDefin
             started_at: triggerTimestamp,
             completed_at: triggerTimestamp,
             status: 'completed',
-            output: triggerEvent.payload,
+            output: triggerEvent.payload as Record<string, unknown> | unknown[],
           },
         ],
-        latest: triggerEvent.payload,
+        latest: triggerEvent.payload as Record<string, unknown> | unknown[],
       };
     } else {
       stages[stage.id] = {
@@ -42,7 +42,7 @@ export function initializeContext(triggerEvent: Event, definition: WorkflowDefin
   }
 
   return {
-    trigger: triggerEvent.payload,
+    trigger: triggerEvent.payload as Record<string, unknown>,
     stages,
     edgeTraversals: {},
   };

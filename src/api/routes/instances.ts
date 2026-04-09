@@ -384,7 +384,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
         // Look up agent config from workflow definition
         const instance = db.getInstance(instanceId);
         if (!instance) return reply.code(404).send({ error: `Instance not found: ${instanceId}` });
-        const workflow = db.getWorkflow(instance.definition_id);
+        const workflow = instance.definition_id ? db.getWorkflow(instance.definition_id) : null;
         if (!workflow) return reply.code(404).send({ error: `Workflow not found` });
         const stageDef = workflow.stages.find((s) => s.id === stageId);
         const stageConfig = stageDef?.config as Record<string, unknown> | undefined;

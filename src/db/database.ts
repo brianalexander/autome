@@ -1,4 +1,7 @@
 import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { eq, and, sql, inArray, desc, asc } from 'drizzle-orm';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { readFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -6,60 +9,14 @@ import { v4 as uuidv4 } from 'uuid';
 import type { WorkflowDefinition, MCPServerConfig } from '../types/workflow.js';
 import type { WorkflowInstance } from '../types/instance.js';
 import type { CustomProviderConfig } from '../types/events.js';
+import * as schema from './schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, 'migrations');
 
-interface WorkflowRow {
-  id: string;
-  definition: string;
-  version: number;
-}
-
-interface InstanceRow {
-  id: string;
-  definition_id: string;
-  definition_version: number | null;
-  status: string;
-  trigger_event: string;
-  context: string;
-  current_stage_ids: string | null;
-  restate_workflow_id: string | null;
-  is_test: number;
-  created_at: string;
-  updated_at: string;
-  completed_at: string | null;
-}
-
-interface WorkflowVersionRow {
-  workflow_id: string;
-  version: number;
-  definition: string;
-  created_at: string;
-}
-
-interface ProviderRow {
-  id: string;
-  name: string;
-  type: string;
-  config: string;
-}
-
-interface MCPServerRow {
-  id: string;
-  name: string;
-  description: string | null;
-  command: string;
-  args: string;
-  env: string | null;
-}
-
-interface MigrationRow {
-  name: string;
-}
-
 export class OrchestratorDB {
-  private db: Database.Database;
+  private sqlite: Database.Database;
+  private db: BetterSQLite3Database<typeof schema>;
 
   constructor(dbPath: string = process.env.DATABASE_PATH || './data/orchestrator.db') {
     if (dbPath !== ':memory:') {
@@ -69,15 +26,16 @@ export class OrchestratorDB {
       }
     }
 
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
+    this.sqlite = new Database(dbPath);
+    this.sqlite.pragma('journal_mode = WAL');
+    this.sqlite.pragma('foreign_keys = ON');
+    this.db = drizzle(this.sqlite, { schema });
     this.runMigrations();
   }
 
   private runMigrations(): void {
     // Ensure _migrations tracking table exists first
-    this.db.exec(`
+    this.sqlite.exec(`
       CREATE TABLE IF NOT EXISTS _migrations (
         name TEXT PRIMARY KEY,
         applied_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -85,19 +43,23 @@ export class OrchestratorDB {
     `);
 
     // Handle legacy table rename: old DBs used 'pipelines', code now uses 'workflows'
-    const tables = this.db
+    const tables = this.sqlite
       .prepare<[], { name: string }>(
         "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('pipelines', 'workflows')",
       )
       .all();
     const tableNames = new Set(tables.map((t) => t.name));
     if (tableNames.has('pipelines') && !tableNames.has('workflows')) {
-      this.db.exec('ALTER TABLE pipelines RENAME TO workflows');
+      this.sqlite.exec('ALTER TABLE pipelines RENAME TO workflows');
       console.log('[db] Renamed table: pipelines → workflows');
     }
 
-    const appliedStmt = this.db.prepare<[], MigrationRow>('SELECT name FROM _migrations ORDER BY name');
-    const applied = new Set(appliedStmt.all().map((r) => r.name));
+    const applied = new Set(
+      this.sqlite
+        .prepare<[], { name: string }>('SELECT name FROM _migrations ORDER BY name')
+        .all()
+        .map((r) => r.name),
+    );
 
     let migrationFiles: string[];
     try {
@@ -112,15 +74,15 @@ export class OrchestratorDB {
       throw err;
     }
 
-    const runMigration = this.db.transaction((name: string, sql: string) => {
-      this.db.exec(sql);
-      this.db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(name);
+    const runMigration = this.sqlite.transaction((name: string, migSql: string) => {
+      this.sqlite.exec(migSql);
+      this.sqlite.prepare('INSERT INTO _migrations (name) VALUES (?)').run(name);
     });
 
     for (const file of migrationFiles) {
       if (!applied.has(file)) {
-        const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf-8');
-        runMigration(file, sql);
+        const migSql = readFileSync(join(MIGRATIONS_DIR, file), 'utf-8');
+        runMigration(file, migSql);
       }
     }
   }
@@ -136,33 +98,30 @@ export class OrchestratorDB {
     const id = uuidv4();
     const { id: _inputId, ...rest } = input as Omit<WorkflowDefinition, 'id'> & { id?: string };
     const workflow: WorkflowDefinition = { ...rest, id, version: 1 };
-    this.db
-      .prepare(
-        `INSERT INTO workflows (id, name, description, active, definition, is_test, version)
-         VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      )
-      .run(
-        id,
-        workflow.name,
-        workflow.description ?? null,
-        workflow.active ? 1 : 0,
-        JSON.stringify(workflow),
-        opts?.isTest ? 1 : 0,
-      );
+    this.db.insert(schema.workflows).values({
+      id,
+      name: workflow.name,
+      description: workflow.description ?? null,
+      active: workflow.active ? 1 : 0,
+      definition: JSON.stringify(workflow),
+      is_test: opts?.isTest ? 1 : 0,
+      version: 1,
+    }).run();
     // Store version 1 in workflow_versions
-    this.db
-      .prepare(
-        `INSERT INTO workflow_versions (workflow_id, version, definition)
-         VALUES (?, 1, ?)`,
-      )
-      .run(id, JSON.stringify(workflow));
+    this.db.insert(schema.workflowVersions).values({
+      workflow_id: id,
+      version: 1,
+      definition: JSON.stringify(workflow),
+    }).run();
     return workflow;
   }
 
   getWorkflow(id: string): WorkflowDefinition | null {
     const row = this.db
-      .prepare<[string], WorkflowRow>('SELECT id, definition, version FROM workflows WHERE id = ?')
-      .get(id);
+      .select({ id: schema.workflows.id, definition: schema.workflows.definition, version: schema.workflows.version })
+      .from(schema.workflows)
+      .where(eq(schema.workflows.id, id))
+      .get();
     if (!row) return null;
     const workflow = JSON.parse(row.definition) as WorkflowDefinition;
     workflow.version = row.version;
@@ -175,11 +134,24 @@ export class OrchestratorDB {
   } {
     const limit = Math.min(opts?.limit ?? 50, 200);
     const offset = opts?.offset ?? 0;
-    const whereClause = opts?.includeTest ? '' : 'WHERE is_test = 0';
-    const total = (this.db.prepare(`SELECT COUNT(*) as count FROM workflows ${whereClause}`).get() as { count: number })
-      .count;
-    const sql = `SELECT id, definition, version FROM workflows ${whereClause} ORDER BY rowid LIMIT ? OFFSET ?`;
-    const rows = this.db.prepare<[number, number], WorkflowRow>(sql).all(limit, offset);
+    const whereCondition = opts?.includeTest ? undefined : eq(schema.workflows.is_test, 0);
+
+    const countResult = this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.workflows)
+      .where(whereCondition)
+      .get()!;
+    const total = countResult.count;
+
+    const rows = this.db
+      .select({ id: schema.workflows.id, definition: schema.workflows.definition, version: schema.workflows.version })
+      .from(schema.workflows)
+      .where(whereCondition)
+      .orderBy(sql`rowid`)
+      .limit(limit)
+      .offset(offset)
+      .all();
+
     const data = rows.map((r) => {
       const workflow = JSON.parse(r.definition) as WorkflowDefinition;
       workflow.version = r.version;
@@ -189,7 +161,7 @@ export class OrchestratorDB {
   }
 
   updateWorkflow(id: string, updates: Partial<WorkflowDefinition>): WorkflowDefinition {
-    const txn = this.db.transaction((): WorkflowDefinition => {
+    const txn = this.sqlite.transaction((): WorkflowDefinition => {
       const existing = this.getWorkflow(id);
       if (!existing) {
         throw new Error(`Workflow not found: ${id}`);
@@ -204,27 +176,29 @@ export class OrchestratorDB {
 
       const updated: WorkflowDefinition = { ...existing, ...updates, id, version: newVersion };
       this.db
-        .prepare(
-          `UPDATE workflows
-           SET name = ?, description = ?, active = ?, definition = ?, version = ?, updated_at = datetime('now')
-           WHERE id = ?`,
-        )
-        .run(
-          updated.name,
-          updated.description ?? null,
-          updated.active ? 1 : 0,
-          JSON.stringify(updated),
-          newVersion,
-          id,
-        );
+        .update(schema.workflows)
+        .set({
+          name: updated.name,
+          description: updated.description ?? null,
+          active: updated.active ? 1 : 0,
+          definition: JSON.stringify(updated),
+          version: newVersion,
+          updated_at: sql`datetime('now')`,
+        })
+        .where(eq(schema.workflows.id, id))
+        .run();
+
       // Store the new version in workflow_versions when the version increments
       if (isDefinitionChange) {
         this.db
-          .prepare(
-            `INSERT OR IGNORE INTO workflow_versions (workflow_id, version, definition)
-             VALUES (?, ?, ?)`,
-          )
-          .run(id, newVersion, JSON.stringify(updated));
+          .insert(schema.workflowVersions)
+          .values({
+            workflow_id: id,
+            version: newVersion,
+            definition: JSON.stringify(updated),
+          })
+          .onConflictDoNothing()
+          .run();
       }
       return updated;
     });
@@ -232,23 +206,37 @@ export class OrchestratorDB {
   }
 
   deleteWorkflow(id: string): void {
-    this.db.transaction(() => {
+    this.sqlite.transaction(() => {
       // Delete author chat segments (instanceId='author', stageId=workflowId)
-      this.db.prepare('DELETE FROM segments WHERE instance_id = ? AND stage_id = ?').run('author', id);
-      this.db.prepare('DELETE FROM tool_calls WHERE instance_id = ? AND stage_id = ?').run('author', id);
+      this.db
+        .delete(schema.segments)
+        .where(and(eq(schema.segments.instance_id, 'author'), eq(schema.segments.stage_id, id)))
+        .run();
+      this.db
+        .delete(schema.toolCalls)
+        .where(and(eq(schema.toolCalls.instance_id, 'author'), eq(schema.toolCalls.stage_id, id)))
+        .run();
       // Delete version history
-      this.db.prepare('DELETE FROM workflow_versions WHERE workflow_id = ?').run(id);
+      this.db.delete(schema.workflowVersions).where(eq(schema.workflowVersions.workflow_id, id)).run();
       // Detach instances so they survive workflow deletion (FK is enforced)
-      this.db.prepare('UPDATE instances SET definition_id = NULL WHERE definition_id = ?').run(id);
+      this.db
+        .update(schema.instances)
+        .set({ definition_id: null })
+        .where(eq(schema.instances.definition_id, id))
+        .run();
       // Delete the workflow itself
-      this.db.prepare('DELETE FROM workflows WHERE id = ?').run(id);
+      this.db.delete(schema.workflows).where(eq(schema.workflows.id, id)).run();
     })();
   }
 
   deleteTestWorkflows(): number {
-    const testRows = this.db.prepare('SELECT id FROM workflows WHERE is_test = 1').all() as { id: string }[];
+    const testRows = this.db
+      .select({ id: schema.workflows.id })
+      .from(schema.workflows)
+      .where(eq(schema.workflows.is_test, 1))
+      .all();
     if (testRows.length === 0) return 0;
-    const deleteAll = this.db.transaction(() => {
+    const deleteAll = this.sqlite.transaction(() => {
       for (const row of testRows) {
         this.deleteWorkflow(row.id);
       }
@@ -270,32 +258,29 @@ export class OrchestratorDB {
       updated_at: now,
       ...input,
     };
-    this.db
-      .prepare(
-        `INSERT INTO instances
-           (id, definition_id, definition_version, status, trigger_event, context, current_stage_ids,
-            restate_workflow_id, is_test, created_at, updated_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        instance.id,
-        instance.definition_id,
-        instance.definition_version ?? null,
-        instance.status,
-        JSON.stringify(instance.trigger_event),
-        JSON.stringify(instance.context),
-        JSON.stringify(instance.current_stage_ids),
-        instance.restate_workflow_id ?? null,
-        instance.is_test ? 1 : 0,
-        instance.created_at,
-        instance.updated_at,
-        instance.completed_at ?? null,
-      );
+    this.db.insert(schema.instances).values({
+      id: instance.id,
+      definition_id: instance.definition_id ?? null,
+      definition_version: instance.definition_version ?? null,
+      status: instance.status,
+      trigger_event: JSON.stringify(instance.trigger_event),
+      context: JSON.stringify(instance.context),
+      current_stage_ids: JSON.stringify(instance.current_stage_ids),
+      restate_workflow_id: instance.restate_workflow_id ?? null,
+      is_test: instance.is_test ? 1 : 0,
+      created_at: instance.created_at,
+      updated_at: instance.updated_at,
+      completed_at: instance.completed_at ?? null,
+    }).run();
     return instance;
   }
 
   getInstance(id: string): WorkflowInstance | null {
-    const row = this.db.prepare<[string], InstanceRow>('SELECT * FROM instances WHERE id = ?').get(id);
+    const row = this.db
+      .select()
+      .from(schema.instances)
+      .where(eq(schema.instances.id, id))
+      .get();
     if (!row) return null;
     return this.rowToInstance(row);
   }
@@ -309,73 +294,102 @@ export class OrchestratorDB {
   }): { data: WorkflowInstance[]; total: number } {
     const limit = Math.min(filter?.limit ?? 50, 200);
     const offset = filter?.offset ?? 0;
-    const baseSelect = `SELECT id, definition_id, definition_version, status, trigger_event, context, current_stage_ids, restate_workflow_id, is_test, created_at, updated_at, completed_at FROM instances`;
-    const conditions: string[] = [];
-    const params: (string | number)[] = [];
 
-    if (filter?.status) {
-      conditions.push('status = ?');
-      params.push(filter.status);
-    }
-    if (filter?.definitionId) {
-      conditions.push('definition_id = ?');
-      params.push(filter.definitionId);
-    }
-    if (!filter?.includeTest) {
-      conditions.push('is_test = 0');
-    }
-    const whereClause = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
+    const conditions = [];
+    if (filter?.status) conditions.push(eq(schema.instances.status, filter.status));
+    if (filter?.definitionId) conditions.push(eq(schema.instances.definition_id, filter.definitionId));
+    if (!filter?.includeTest) conditions.push(eq(schema.instances.is_test, 0));
+    const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const total = (
-      this.db.prepare(`SELECT COUNT(*) as count FROM instances${whereClause}`).get(...params) as { count: number }
-    ).count;
+    const countResult = this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.instances)
+      .where(whereCondition)
+      .get()!;
+    const total = countResult.count;
 
-    const sql = `${baseSelect}${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-    const rows = this.db.prepare<(string | number)[], InstanceRow>(sql).all(...params, limit, offset);
+    const cols = {
+      id: schema.instances.id,
+      definition_id: schema.instances.definition_id,
+      definition_version: schema.instances.definition_version,
+      status: schema.instances.status,
+      trigger_event: schema.instances.trigger_event,
+      context: schema.instances.context,
+      current_stage_ids: schema.instances.current_stage_ids,
+      restate_workflow_id: schema.instances.restate_workflow_id,
+      is_test: schema.instances.is_test,
+      created_at: schema.instances.created_at,
+      updated_at: schema.instances.updated_at,
+      completed_at: schema.instances.completed_at,
+    };
+
+    const rows = this.db
+      .select(cols)
+      .from(schema.instances)
+      .where(whereCondition)
+      .orderBy(desc(schema.instances.created_at))
+      .limit(limit)
+      .offset(offset)
+      .all();
+
     const data = rows.map((r) => this.rowToInstance(r));
     return { data, total };
   }
 
   updateInstance(id: string, updates: Partial<WorkflowInstance>): void {
-    const txn = this.db.transaction(() => {
+    const txn = this.sqlite.transaction(() => {
       const existing = this.getInstance(id);
       if (!existing) {
         throw new Error(`Instance not found: ${id}`);
       }
       const updated: WorkflowInstance = { ...existing, ...updates, id };
       this.db
-        .prepare(
-          `UPDATE instances
-           SET definition_id = ?, status = ?, trigger_event = ?, context = ?,
-               current_stage_ids = ?, restate_workflow_id = ?, updated_at = datetime('now'),
-               completed_at = ?
-           WHERE id = ?`,
-        )
-        .run(
-          updated.definition_id,
-          updated.status,
-          JSON.stringify(updated.trigger_event),
-          JSON.stringify(updated.context),
-          JSON.stringify(updated.current_stage_ids),
-          updated.restate_workflow_id ?? null,
-          updated.completed_at ?? null,
-          id,
-        );
+        .update(schema.instances)
+        .set({
+          definition_id: updated.definition_id ?? null,
+          status: updated.status,
+          trigger_event: JSON.stringify(updated.trigger_event),
+          context: JSON.stringify(updated.context),
+          current_stage_ids: JSON.stringify(updated.current_stage_ids),
+          restate_workflow_id: updated.restate_workflow_id ?? null,
+          updated_at: sql`datetime('now')`,
+          completed_at: updated.completed_at ?? null,
+        })
+        .where(eq(schema.instances.id, id))
+        .run();
     });
     txn();
   }
 
   deleteInstance(id: string): void {
-    this.db.prepare('DELETE FROM rendered_prompts WHERE instance_id = ?').run(id);
-    this.db.prepare('DELETE FROM segments WHERE instance_id = ?').run(id);
-    this.db.prepare('DELETE FROM tool_calls WHERE instance_id = ?').run(id);
-    this.db.prepare('DELETE FROM instances WHERE id = ?').run(id);
+    this.sqlite.transaction(() => {
+      this.db.delete(schema.renderedPrompts).where(eq(schema.renderedPrompts.instance_id, id)).run();
+      this.db.delete(schema.segments).where(eq(schema.segments.instance_id, id)).run();
+      this.db.delete(schema.toolCalls).where(eq(schema.toolCalls.instance_id, id)).run();
+      this.db.delete(schema.instances).where(eq(schema.instances.id, id)).run();
+    })();
   }
 
-  private rowToInstance(row: InstanceRow): WorkflowInstance {
+  private rowToInstance(
+    row: Pick<
+      typeof schema.instances.$inferSelect,
+      | 'id'
+      | 'definition_id'
+      | 'definition_version'
+      | 'status'
+      | 'trigger_event'
+      | 'context'
+      | 'current_stage_ids'
+      | 'restate_workflow_id'
+      | 'is_test'
+      | 'created_at'
+      | 'updated_at'
+      | 'completed_at'
+    >,
+  ): WorkflowInstance {
     return {
       id: row.id,
-      definition_id: row.definition_id,
+      definition_id: row.definition_id ?? null,
       definition_version: row.definition_version ?? undefined,
       status: row.status as WorkflowInstance['status'],
       trigger_event: JSON.parse(row.trigger_event),
@@ -395,10 +409,15 @@ export class OrchestratorDB {
 
   getWorkflowVersion(workflowId: string, version: number): WorkflowDefinition | null {
     const row = this.db
-      .prepare<[string, number], WorkflowVersionRow>(
-        'SELECT * FROM workflow_versions WHERE workflow_id = ? AND version = ?',
+      .select()
+      .from(schema.workflowVersions)
+      .where(
+        and(
+          eq(schema.workflowVersions.workflow_id, workflowId),
+          eq(schema.workflowVersions.version, version),
+        ),
       )
-      .get(workflowId, version);
+      .get();
     if (!row) return null;
     const def = JSON.parse(row.definition) as WorkflowDefinition;
     def.version = row.version;
@@ -409,10 +428,11 @@ export class OrchestratorDB {
     workflowId: string,
   ): Array<{ version: number; definition: WorkflowDefinition; created_at: string }> {
     const rows = this.db
-      .prepare<[string], WorkflowVersionRow>(
-        'SELECT * FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC',
-      )
-      .all(workflowId);
+      .select()
+      .from(schema.workflowVersions)
+      .where(eq(schema.workflowVersions.workflow_id, workflowId))
+      .orderBy(desc(schema.workflowVersions.version))
+      .all();
     return rows.map((r) => {
       const def = JSON.parse(r.definition) as WorkflowDefinition;
       def.version = r.version;
@@ -424,11 +444,12 @@ export class OrchestratorDB {
     const instance = this.getInstance(instanceId);
     if (!instance) return null;
     // Try to fetch the exact version from workflow_versions
-    if (instance.definition_version != null) {
+    if (instance.definition_id && instance.definition_version != null) {
       const versioned = this.getWorkflowVersion(instance.definition_id, instance.definition_version);
       if (versioned) return versioned;
     }
-    // Fall back to current workflow definition
+    // Fall back to current workflow definition (guard against null definition_id)
+    if (!instance.definition_id) return null;
     return this.getWorkflow(instance.definition_id);
   }
 
@@ -437,21 +458,32 @@ export class OrchestratorDB {
   // ---------------------------------------------------------------------------
 
   listProviders(): CustomProviderConfig[] {
-    const rows = this.db.prepare<[], ProviderRow>('SELECT * FROM providers ORDER BY rowid').all();
+    const rows = this.db.select().from(schema.providers).orderBy(sql`rowid`).all();
     return rows.map((r) => JSON.parse(r.config) as CustomProviderConfig);
   }
 
   registerProvider(config: CustomProviderConfig): void {
     this.db
-      .prepare(
-        `INSERT OR REPLACE INTO providers (id, name, type, config)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(config.id, config.name, config.type, JSON.stringify(config));
+      .insert(schema.providers)
+      .values({
+        id: config.id,
+        name: config.name,
+        type: config.type,
+        config: JSON.stringify(config),
+      })
+      .onConflictDoUpdate({
+        target: schema.providers.id,
+        set: {
+          name: config.name,
+          type: config.type,
+          config: JSON.stringify(config),
+        },
+      })
+      .run();
   }
 
   deleteProvider(id: string): void {
-    this.db.prepare('DELETE FROM providers WHERE id = ?').run(id);
+    this.db.delete(schema.providers).where(eq(schema.providers.id, id)).run();
   }
 
   // ---------------------------------------------------------------------------
@@ -459,7 +491,7 @@ export class OrchestratorDB {
   // ---------------------------------------------------------------------------
 
   listMCPServers(): Array<MCPServerConfig & { id: string; description?: string }> {
-    const rows = this.db.prepare<[], MCPServerRow>('SELECT * FROM mcp_servers ORDER BY rowid').all();
+    const rows = this.db.select().from(schema.mcpServers).orderBy(sql`rowid`).all();
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
@@ -472,22 +504,30 @@ export class OrchestratorDB {
 
   registerMCPServer(config: MCPServerConfig & { id: string; description?: string }): void {
     this.db
-      .prepare(
-        `INSERT OR REPLACE INTO mcp_servers (id, name, description, command, args, env)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        config.id,
-        config.name,
-        config.description ?? null,
-        config.command,
-        JSON.stringify(config.args),
-        config.env ? JSON.stringify(config.env) : null,
-      );
+      .insert(schema.mcpServers)
+      .values({
+        id: config.id,
+        name: config.name,
+        description: config.description ?? null,
+        command: config.command,
+        args: JSON.stringify(config.args),
+        env: config.env ? JSON.stringify(config.env) : null,
+      })
+      .onConflictDoUpdate({
+        target: schema.mcpServers.id,
+        set: {
+          name: config.name,
+          description: config.description ?? null,
+          command: config.command,
+          args: JSON.stringify(config.args),
+          env: config.env ? JSON.stringify(config.env) : null,
+        },
+      })
+      .run();
   }
 
   deleteMCPServer(id: string): void {
-    this.db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
+    this.db.delete(schema.mcpServers).where(eq(schema.mcpServers.id, id)).run();
   }
 
   // ---------------------------------------------------------------------------
@@ -496,11 +536,13 @@ export class OrchestratorDB {
 
   storeRenderedPrompt(instanceId: string, stageId: string, iteration: number, prompt: string): void {
     this.db
-      .prepare(
-        `INSERT OR REPLACE INTO rendered_prompts (instance_id, stage_id, iteration, prompt)
-       VALUES (?, ?, ?, ?)`,
-      )
-      .run(instanceId, stageId, iteration, prompt);
+      .insert(schema.renderedPrompts)
+      .values({ instance_id: instanceId, stage_id: stageId, iteration, prompt })
+      .onConflictDoUpdate({
+        target: [schema.renderedPrompts.instance_id, schema.renderedPrompts.stage_id, schema.renderedPrompts.iteration],
+        set: { prompt },
+      })
+      .run();
   }
 
   getRenderedPrompt(
@@ -508,14 +550,23 @@ export class OrchestratorDB {
     stageId: string,
     iteration?: number,
   ): { prompt: string; iteration: number; created_at: string } | null {
-    let sql = 'SELECT prompt, iteration, created_at FROM rendered_prompts WHERE instance_id = ? AND stage_id = ?';
-    const params: (string | number)[] = [instanceId, stageId];
-    if (iteration != null) {
-      sql += ' AND iteration = ?';
-      params.push(iteration);
-    }
-    sql += ' ORDER BY iteration DESC LIMIT 1';
-    return (this.db.prepare(sql).get(...params) as { prompt: string; iteration: number; created_at: string } | undefined) ?? null;
+    const conditions = [
+      eq(schema.renderedPrompts.instance_id, instanceId),
+      eq(schema.renderedPrompts.stage_id, stageId),
+      ...(iteration != null ? [eq(schema.renderedPrompts.iteration, iteration)] : []),
+    ];
+    const row = this.db
+      .select({
+        prompt: schema.renderedPrompts.prompt,
+        iteration: schema.renderedPrompts.iteration,
+        created_at: schema.renderedPrompts.created_at,
+      })
+      .from(schema.renderedPrompts)
+      .where(and(...conditions))
+      .orderBy(desc(schema.renderedPrompts.iteration))
+      .limit(1)
+      .get();
+    return row ?? null;
   }
 
   // ---------------------------------------------------------------------------
@@ -530,37 +581,57 @@ export class OrchestratorDB {
     content?: string,
     toolCallId?: string,
   ): number {
-    const insert = this.db.transaction((): number => {
+    const insert = this.sqlite.transaction((): number => {
       const row = this.db
-        .prepare(
-          `SELECT COALESCE(MAX(segment_index), -1) + 1 AS next_index
-         FROM segments WHERE instance_id = ? AND stage_id = ? AND iteration = ?`,
+        .select({
+          nextIndex: sql<number>`COALESCE(MAX(${schema.segments.segment_index}), -1) + 1`,
+        })
+        .from(schema.segments)
+        .where(
+          and(
+            eq(schema.segments.instance_id, instanceId),
+            eq(schema.segments.stage_id, stageId),
+            eq(schema.segments.iteration, iteration),
+          ),
         )
-        .get(instanceId, stageId, iteration) as { next_index: number };
-      const segmentIndex = row.next_index;
-      this.db
-        .prepare(
-          `INSERT INTO segments (instance_id, stage_id, iteration, segment_index, segment_type, content, tool_call_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(instanceId, stageId, iteration, segmentIndex, segmentType, content ?? null, toolCallId ?? null);
-      return segmentIndex;
+        .get()!;
+
+      this.db.insert(schema.segments).values({
+        instance_id: instanceId,
+        stage_id: stageId,
+        iteration,
+        segment_index: row.nextIndex,
+        segment_type: segmentType,
+        content: content ?? null,
+        tool_call_id: toolCallId ?? null,
+      }).run();
+
+      return row.nextIndex;
     });
     return insert();
   }
 
   appendToLastTextSegment(instanceId: string, stageId: string, iteration: number, text: string): void {
-    // Try to append to the last segment if it's a text segment
     const last = this.db
-      .prepare(
-        `SELECT id, segment_type FROM segments
-       WHERE instance_id = ? AND stage_id = ? AND iteration = ?
-       ORDER BY segment_index DESC LIMIT 1`,
+      .select({ id: schema.segments.id, segment_type: schema.segments.segment_type })
+      .from(schema.segments)
+      .where(
+        and(
+          eq(schema.segments.instance_id, instanceId),
+          eq(schema.segments.stage_id, stageId),
+          eq(schema.segments.iteration, iteration),
+        ),
       )
-      .get(instanceId, stageId, iteration) as { id: number; segment_type: string } | undefined;
+      .orderBy(desc(schema.segments.segment_index))
+      .limit(1)
+      .get();
 
     if (last && last.segment_type === 'text') {
-      this.db.prepare(`UPDATE segments SET content = COALESCE(content, '') || ? WHERE id = ?`).run(text, last.id);
+      this.db
+        .update(schema.segments)
+        .set({ content: sql`COALESCE(${schema.segments.content}, '') || ${text}` })
+        .where(eq(schema.segments.id, last.id))
+        .run();
     } else {
       this.appendSegment(instanceId, stageId, iteration, 'text', text);
     }
@@ -588,54 +659,50 @@ export class OrchestratorDB {
     } | null;
     created_at: string;
   }> {
-    let sql = `SELECT s.id, s.segment_index, s.segment_type, s.content, s.tool_call_id, s.created_at,
-                      tc.id AS tc_id, tc.title AS tc_title, tc.kind AS tc_kind, tc.status AS tc_status,
-                      tc.raw_input AS tc_raw_input, tc.raw_output AS tc_raw_output,
-                      tc.parent_tool_use_id AS tc_parent_tool_use_id,
-                      tc.created_at AS tc_created_at, tc.updated_at AS tc_updated_at
-               FROM segments s
-               LEFT JOIN tool_calls tc ON s.tool_call_id = tc.id
-               WHERE s.instance_id = ? AND s.stage_id = ?`;
-    const params: (string | number)[] = [instanceId, stageId];
+    const conditions = [
+      eq(schema.segments.instance_id, instanceId),
+      eq(schema.segments.stage_id, stageId),
+      ...(iteration != null ? [eq(schema.segments.iteration, iteration)] : []),
+    ];
 
-    if (iteration != null) {
-      sql += ' AND s.iteration = ?';
-      params.push(iteration);
-    }
-    sql += ' ORDER BY s.segment_index ASC';
+    const rows = this.db
+      .select({
+        id: schema.segments.id,
+        segment_index: schema.segments.segment_index,
+        segment_type: schema.segments.segment_type,
+        content: schema.segments.content,
+        created_at: schema.segments.created_at,
+        tc_id: schema.toolCalls.id,
+        tc_title: schema.toolCalls.title,
+        tc_kind: schema.toolCalls.kind,
+        tc_status: schema.toolCalls.status,
+        tc_raw_input: schema.toolCalls.raw_input,
+        tc_raw_output: schema.toolCalls.raw_output,
+        tc_parent_tool_use_id: schema.toolCalls.parent_tool_use_id,
+        tc_created_at: schema.toolCalls.created_at,
+        tc_updated_at: schema.toolCalls.updated_at,
+      })
+      .from(schema.segments)
+      .leftJoin(schema.toolCalls, eq(schema.segments.tool_call_id, schema.toolCalls.id))
+      .where(and(...conditions))
+      .orderBy(asc(schema.segments.segment_index))
+      .all();
 
-    interface SegmentJoinRow {
-      id: number;
-      segment_index: number;
-      segment_type: string;
-      content: string | null;
-      tc_id: string | null;
-      tc_title: string | null;
-      tc_kind: string | null;
-      tc_status: string | null;
-      tc_raw_input: string | null;
-      tc_raw_output: string | null;
-      tc_parent_tool_use_id: string | null;
-      tc_created_at: string | null;
-      tc_updated_at: string | null;
-      created_at: string;
-    }
-    const rows = this.db.prepare(sql).all(...params) as SegmentJoinRow[];
     return rows.map((r) => ({
-      id: r.id,
+      id: r.id!,
       segment_index: r.segment_index,
       segment_type: r.segment_type,
       content: r.content,
       tool_call: r.tc_id
         ? {
             id: r.tc_id,
-            title: r.tc_title,
-            kind: r.tc_kind,
+            title: r.tc_title ?? null,
+            kind: r.tc_kind ?? null,
             // status, created_at, updated_at are NOT NULL in the DB — only null in the row type due to LEFT JOIN
             status: r.tc_status!,
-            raw_input: r.tc_raw_input,
-            raw_output: r.tc_raw_output,
-            parent_tool_use_id: r.tc_parent_tool_use_id,
+            raw_input: r.tc_raw_input ?? null,
+            raw_output: r.tc_raw_output ?? null,
+            parent_tool_use_id: r.tc_parent_tool_use_id ?? null,
             created_at: r.tc_created_at!,
             updated_at: r.tc_updated_at!,
           }
@@ -646,37 +713,67 @@ export class OrchestratorDB {
 
   deleteSegments(instanceId: string, stageId: string, iteration?: number): void {
     if (iteration != null) {
-      // Also delete associated tool calls
       this.db
-        .prepare('DELETE FROM tool_calls WHERE instance_id = ? AND stage_id = ? AND iteration = ?')
-        .run(instanceId, stageId, iteration);
+        .delete(schema.toolCalls)
+        .where(
+          and(
+            eq(schema.toolCalls.instance_id, instanceId),
+            eq(schema.toolCalls.stage_id, stageId),
+            eq(schema.toolCalls.iteration, iteration),
+          ),
+        )
+        .run();
       this.db
-        .prepare('DELETE FROM segments WHERE instance_id = ? AND stage_id = ? AND iteration = ?')
-        .run(instanceId, stageId, iteration);
+        .delete(schema.segments)
+        .where(
+          and(
+            eq(schema.segments.instance_id, instanceId),
+            eq(schema.segments.stage_id, stageId),
+            eq(schema.segments.iteration, iteration),
+          ),
+        )
+        .run();
     } else {
-      this.db.prepare('DELETE FROM tool_calls WHERE instance_id = ? AND stage_id = ?').run(instanceId, stageId);
-      this.db.prepare('DELETE FROM segments WHERE instance_id = ? AND stage_id = ?').run(instanceId, stageId);
+      this.db
+        .delete(schema.toolCalls)
+        .where(
+          and(eq(schema.toolCalls.instance_id, instanceId), eq(schema.toolCalls.stage_id, stageId)),
+        )
+        .run();
+      this.db
+        .delete(schema.segments)
+        .where(
+          and(eq(schema.segments.instance_id, instanceId), eq(schema.segments.stage_id, stageId)),
+        )
+        .run();
     }
   }
 
   migrateAuthorSegments(fromStageId: string, toStageId: string): number {
-    const result = this.db
-      .prepare(`UPDATE segments SET stage_id = ? WHERE instance_id = 'author' AND stage_id = ?`)
-      .run(toStageId, fromStageId);
-    this.db
-      .prepare(`UPDATE tool_calls SET stage_id = ? WHERE instance_id = 'author' AND stage_id = ?`)
-      .run(toStageId, fromStageId);
-    return result.changes;
+    const txn = this.sqlite.transaction(() => {
+      const result = this.db
+        .update(schema.segments)
+        .set({ stage_id: toStageId })
+        .where(and(eq(schema.segments.instance_id, 'author'), eq(schema.segments.stage_id, fromStageId)))
+        .run();
+      this.db
+        .update(schema.toolCalls)
+        .set({ stage_id: toStageId })
+        .where(and(eq(schema.toolCalls.instance_id, 'author'), eq(schema.toolCalls.stage_id, fromStageId)))
+        .run();
+      return result.changes;
+    });
+    return txn();
   }
 
   copyAuthorSegments(fromStageId: string, toStageId: string): number {
-    const result = this.db
-      .prepare(`
-        INSERT INTO segments (instance_id, stage_id, iteration, segment_index, segment_type, content, tool_call_id, created_at)
+    const result = this.sqlite
+      .prepare(
+        `INSERT INTO segments (instance_id, stage_id, iteration, segment_index, segment_type, content, tool_call_id, created_at)
         SELECT instance_id, ?, iteration, segment_index, segment_type, content, NULL, created_at
         FROM segments
-        WHERE instance_id = 'author' AND stage_id = ?
-      `)
+        WHERE instance_id = 'author' AND stage_id = ?`,
+      )
       .run(toStageId, fromStageId);
     return result.changes;
   }
@@ -698,39 +795,38 @@ export class OrchestratorDB {
     parentToolUseId?: string;
   }): void {
     this.db
-      .prepare(
-        `INSERT OR IGNORE INTO tool_calls (id, instance_id, stage_id, iteration, title, kind, status, raw_input, raw_output, parent_tool_use_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        data.id,
-        data.instanceId,
-        data.stageId,
-        data.iteration,
-        data.title ?? null,
-        data.kind ?? null,
-        data.status,
-        data.rawInput ?? null,
-        data.rawOutput ?? null,
-        data.parentToolUseId ?? null,
-      );
+      .insert(schema.toolCalls)
+      .values({
+        id: data.id,
+        instance_id: data.instanceId,
+        stage_id: data.stageId,
+        iteration: data.iteration,
+        title: data.title ?? null,
+        kind: data.kind ?? null,
+        status: data.status,
+        raw_input: data.rawInput ?? null,
+        raw_output: data.rawOutput ?? null,
+        parent_tool_use_id: data.parentToolUseId ?? null,
+      })
+      .onConflictDoNothing()
+      .run();
     // Always update — the second phase may bring new data.
     // title/kind/status are set directly so null can clear a previously-set value.
     // raw_input, raw_output, parent_tool_use_id use COALESCE because they arrive in
     // separate phases and a missing value in one phase must not wipe the other phase's data.
     this.db
-      .prepare(
-        `UPDATE tool_calls SET
-         title = ?,
-         kind = ?,
-         status = ?,
-         raw_input = COALESCE(?, raw_input),
-         raw_output = COALESCE(?, raw_output),
-         parent_tool_use_id = COALESCE(?, parent_tool_use_id),
-         updated_at = datetime('now')
-       WHERE id = ?`,
-      )
-      .run(data.title ?? null, data.kind ?? null, data.status, data.rawInput ?? null, data.rawOutput ?? null, data.parentToolUseId ?? null, data.id);
+      .update(schema.toolCalls)
+      .set({
+        title: data.title ?? null,
+        kind: data.kind ?? null,
+        status: data.status,
+        raw_input: sql`COALESCE(${data.rawInput ?? null}, ${schema.toolCalls.raw_input})`,
+        raw_output: sql`COALESCE(${data.rawOutput ?? null}, ${schema.toolCalls.raw_output})`,
+        parent_tool_use_id: sql`COALESCE(${data.parentToolUseId ?? null}, ${schema.toolCalls.parent_tool_use_id})`,
+        updated_at: sql`datetime('now')`,
+      })
+      .where(eq(schema.toolCalls.id, data.id))
+      .run();
   }
 
   sweepToolCallStatuses(
@@ -741,13 +837,18 @@ export class OrchestratorDB {
     toStatus: string,
   ): number {
     if (fromStatuses.length === 0) return 0;
-    const placeholders = fromStatuses.map(() => '?').join(', ');
     const result = this.db
-      .prepare(
-        `UPDATE tool_calls SET status = ?, updated_at = datetime('now')
-       WHERE instance_id = ? AND stage_id = ? AND iteration = ? AND status IN (${placeholders})`,
+      .update(schema.toolCalls)
+      .set({ status: toStatus, updated_at: sql`datetime('now')` })
+      .where(
+        and(
+          eq(schema.toolCalls.instance_id, instanceId),
+          eq(schema.toolCalls.stage_id, stageId),
+          eq(schema.toolCalls.iteration, iteration),
+          inArray(schema.toolCalls.status, fromStatuses),
+        ),
       )
-      .run(toStatus, instanceId, stageId, iteration, ...fromStatuses);
+      .run();
     return result.changes;
   }
 
@@ -765,23 +866,26 @@ export class OrchestratorDB {
     created_at: string;
     updated_at: string;
   }> {
-    let sql = 'SELECT * FROM tool_calls WHERE instance_id = ? AND stage_id = ?';
-    const params: (string | number)[] = [instanceId, stageId];
-    if (iteration != null) {
-      sql += ' AND iteration = ?';
-      params.push(iteration);
-    }
-    sql += ' ORDER BY created_at ASC';
-    return this.db.prepare(sql).all(...params) as Array<{
-      id: string;
-      title: string | null;
-      kind: string | null;
-      status: string;
-      raw_input: string | null;
-      raw_output: string | null;
-      created_at: string;
-      updated_at: string;
-    }>;
+    const conditions = [
+      eq(schema.toolCalls.instance_id, instanceId),
+      eq(schema.toolCalls.stage_id, stageId),
+      ...(iteration != null ? [eq(schema.toolCalls.iteration, iteration)] : []),
+    ];
+    return this.db
+      .select({
+        id: schema.toolCalls.id,
+        title: schema.toolCalls.title,
+        kind: schema.toolCalls.kind,
+        status: schema.toolCalls.status,
+        raw_input: schema.toolCalls.raw_input,
+        raw_output: schema.toolCalls.raw_output,
+        created_at: schema.toolCalls.created_at,
+        updated_at: schema.toolCalls.updated_at,
+      })
+      .from(schema.toolCalls)
+      .where(and(...conditions))
+      .orderBy(asc(schema.toolCalls.created_at))
+      .all();
   }
 
   // (Author messages removed — now uses segments table with instanceId='author')
@@ -791,39 +895,71 @@ export class OrchestratorDB {
   // ---------------------------------------------------------------------------
 
   getAcpSession(key: string): { session_id: string; process_pid: number | null; status: string; model_name: string | null } | null {
-    return (
-      (this.db.prepare('SELECT session_id, process_pid, status, model_name FROM acp_sessions WHERE key = ?').get(key) as
-        | { session_id: string; process_pid: number | null; status: string; model_name: string | null }
-        | undefined) ?? null
-    );
+    const row = this.db
+      .select({
+        session_id: schema.acpSessions.session_id,
+        process_pid: schema.acpSessions.process_pid,
+        status: schema.acpSessions.status,
+        model_name: schema.acpSessions.model_name,
+      })
+      .from(schema.acpSessions)
+      .where(eq(schema.acpSessions.key, key))
+      .get();
+    return row ?? null;
   }
 
   upsertAcpSession(key: string, sessionId: string, pid: number | null): void {
     this.db
-      .prepare(
-        `INSERT INTO acp_sessions (key, session_id, process_pid, status, updated_at)
-       VALUES (?, ?, ?, 'active', datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET session_id = ?, process_pid = ?, status = 'active', updated_at = datetime('now')`,
-      )
-      .run(key, sessionId, pid, sessionId, pid);
+      .insert(schema.acpSessions)
+      .values({
+        key,
+        session_id: sessionId,
+        process_pid: pid,
+        status: 'active',
+        updated_at: sql`datetime('now')`,
+      })
+      .onConflictDoUpdate({
+        target: schema.acpSessions.key,
+        set: {
+          session_id: sessionId,
+          process_pid: pid,
+          status: 'active',
+          updated_at: sql`datetime('now')`,
+        },
+      })
+      .run();
   }
 
   markAcpSessionStatus(key: string, status: string): void {
-    this.db.prepare("UPDATE acp_sessions SET status = ?, updated_at = datetime('now') WHERE key = ?").run(status, key);
+    this.db
+      .update(schema.acpSessions)
+      .set({ status, updated_at: sql`datetime('now')` })
+      .where(eq(schema.acpSessions.key, key))
+      .run();
   }
 
   updateAcpSessionModel(key: string, modelName: string): void {
-    this.db.prepare("UPDATE acp_sessions SET model_name = ?, updated_at = datetime('now') WHERE key = ?").run(modelName, key);
+    this.db
+      .update(schema.acpSessions)
+      .set({ model_name: modelName, updated_at: sql`datetime('now')` })
+      .where(eq(schema.acpSessions.key, key))
+      .run();
   }
 
   clearAcpSessionPids(): void {
-    this.db.prepare("UPDATE acp_sessions SET process_pid = NULL, status = 'error' WHERE status = 'active'").run();
+    this.db
+      .update(schema.acpSessions)
+      .set({ process_pid: null, status: 'error' })
+      .where(eq(schema.acpSessions.status, 'active'))
+      .run();
   }
 
   getActiveAcpSessions(): Array<{ key: string; session_id: string }> {
     return this.db
-      .prepare("SELECT key, session_id FROM acp_sessions WHERE status = 'active'")
-      .all() as Array<{ key: string; session_id: string }>;
+      .select({ key: schema.acpSessions.key, session_id: schema.acpSessions.session_id })
+      .from(schema.acpSessions)
+      .where(eq(schema.acpSessions.status, 'active'))
+      .all();
   }
 
   // ---------------------------------------------------------------------------
@@ -834,29 +970,34 @@ export class OrchestratorDB {
     const now = new Date().toISOString();
     const json = JSON.stringify(draft);
     this.db
-      .prepare(`
-      INSERT INTO workflow_drafts (workflow_id, draft, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(workflow_id) DO UPDATE SET draft = ?, updated_at = ?
-    `)
-      .run(workflowId, json, now, json, now);
+      .insert(schema.workflowDrafts)
+      .values({ workflow_id: workflowId, draft: json, updated_at: now })
+      .onConflictDoUpdate({
+        target: schema.workflowDrafts.workflow_id,
+        set: { draft: json, updated_at: now },
+      })
+      .run();
   }
 
   getDraft(workflowId: string): Record<string, unknown> | null {
-    const row = this.db.prepare('SELECT draft FROM workflow_drafts WHERE workflow_id = ?').get(workflowId) as
-      | { draft: string }
-      | undefined;
+    const row = this.db
+      .select({ draft: schema.workflowDrafts.draft })
+      .from(schema.workflowDrafts)
+      .where(eq(schema.workflowDrafts.workflow_id, workflowId))
+      .get();
     return row ? (JSON.parse(row.draft) as Record<string, unknown>) : null;
   }
 
   deleteDraft(workflowId: string): void {
-    this.db.prepare('DELETE FROM workflow_drafts WHERE workflow_id = ?').run(workflowId);
+    this.db.delete(schema.workflowDrafts).where(eq(schema.workflowDrafts.workflow_id, workflowId)).run();
   }
 
   listDrafts(): Array<{ workflowId: string; updatedAt: string }> {
     const rows = this.db
-      .prepare('SELECT workflow_id, updated_at FROM workflow_drafts ORDER BY updated_at DESC')
-      .all() as Array<{ workflow_id: string; updated_at: string }>;
+      .select({ workflow_id: schema.workflowDrafts.workflow_id, updated_at: schema.workflowDrafts.updated_at })
+      .from(schema.workflowDrafts)
+      .orderBy(desc(schema.workflowDrafts.updated_at))
+      .all();
     return rows.map((r) => ({ workflowId: r.workflow_id, updatedAt: r.updated_at }));
   }
 
@@ -865,25 +1006,34 @@ export class OrchestratorDB {
   // ---------------------------------------------------------------------------
 
   getSetting(key: string): string | null {
-    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+    const row = this.db
+      .select({ value: schema.settings.value })
+      .from(schema.settings)
+      .where(eq(schema.settings.key, key))
+      .get();
     return row?.value ?? null;
   }
 
   setSetting(key: string, value: string): void {
     this.db
-      .prepare(
-        `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')`,
-      )
-      .run(key, value, value);
+      .insert(schema.settings)
+      .values({ key, value, updated_at: sql`datetime('now')` })
+      .onConflictDoUpdate({
+        target: schema.settings.key,
+        set: { value, updated_at: sql`datetime('now')` },
+      })
+      .run();
   }
 
   deleteSetting(key: string): void {
-    this.db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+    this.db.delete(schema.settings).where(eq(schema.settings.key, key)).run();
   }
 
   getAllSettings(): Record<string, string> {
-    const rows = this.db.prepare('SELECT key, value FROM settings').all() as Array<{ key: string; value: string }>;
+    const rows = this.db
+      .select({ key: schema.settings.key, value: schema.settings.value })
+      .from(schema.settings)
+      .all();
     const result: Record<string, string> = {};
     for (const row of rows) result[row.key] = row.value;
     return result;
@@ -896,18 +1046,20 @@ export class OrchestratorDB {
   registerDraftAlias(fromId: string, toId: string): void {
     const now = new Date().toISOString();
     this.db
-      .prepare(`
-        INSERT INTO draft_aliases (from_id, to_id, created_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(from_id) DO UPDATE SET to_id = ?, created_at = ?
-      `)
-      .run(fromId, toId, now, toId, now);
+      .insert(schema.draftAliases)
+      .values({ from_id: fromId, to_id: toId, created_at: now })
+      .onConflictDoUpdate({
+        target: schema.draftAliases.from_id,
+        set: { to_id: toId, created_at: now },
+      })
+      .run();
   }
 
   listDraftAliases(): Array<{ fromId: string; toId: string }> {
     const rows = this.db
-      .prepare('SELECT from_id, to_id FROM draft_aliases')
-      .all() as Array<{ from_id: string; to_id: string }>;
+      .select({ from_id: schema.draftAliases.from_id, to_id: schema.draftAliases.to_id })
+      .from(schema.draftAliases)
+      .all();
     return rows.map((r) => ({ fromId: r.from_id, toId: r.to_id }));
   }
 
@@ -916,6 +1068,6 @@ export class OrchestratorDB {
   // ---------------------------------------------------------------------------
 
   close(): void {
-    this.db.close();
+    this.sqlite.close();
   }
 }

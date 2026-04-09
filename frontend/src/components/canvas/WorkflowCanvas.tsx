@@ -114,9 +114,7 @@ function buildNodes(
     if (stage.type === 'agent') {
       const latestRun = runtimeStage?.runs?.[runtimeStage.runs.length - 1];
       const outputSummary = runtimeStage?.latest
-        ? typeof runtimeStage.latest === 'string'
-          ? runtimeStage.latest.slice(0, 100)
-          : summarizeOutput(runtimeStage.latest)
+        ? summarizeOutput(runtimeStage.latest)
         : undefined;
       const error = latestRun?.status === 'failed' ? latestRun.error : undefined;
       const duration =
@@ -168,7 +166,7 @@ function buildNodes(
           condition: cfg.condition,
           message: cfg.message,
           status: runtimeStage?.status,
-          approved: runtimeStage?.latest?.approved,
+          approved: (runtimeStage?.latest as Record<string, unknown> | undefined)?.approved,
           duration: gateDuration,
           onApprove: callbacks?.onApproveGate ? () => callbacks.onApproveGate!(stage.id) : undefined,
           onReject: callbacks?.onRejectGate ? () => callbacks.onRejectGate!(stage.id) : undefined,
@@ -181,9 +179,7 @@ function buildNodes(
       // Generic step node (code-executor, triggers, custom nodes, etc.)
       const latestRun = runtimeStage?.runs?.[runtimeStage.runs.length - 1];
       const outputSummary = runtimeStage?.latest
-        ? typeof runtimeStage.latest === 'string'
-          ? runtimeStage.latest.slice(0, 100)
-          : summarizeOutput(runtimeStage.latest)
+        ? summarizeOutput(runtimeStage.latest)
         : undefined;
       const error = latestRun?.status === 'failed' ? latestRun.error : undefined;
       const duration =

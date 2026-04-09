@@ -182,8 +182,8 @@ export function RuntimeViewer({
           isTriggerSelected ? (
             <TriggerSidebar
               trigger={selectedStageDef?.config as Record<string, unknown> | undefined ?? definition.trigger}
-              triggerEvent={instance.trigger_event}
-              workflowId={instance.definition_id}
+              triggerEvent={instance.trigger_event as { id: string; timestamp: string; provider?: string; payload?: unknown; metadata?: Record<string, unknown> } | undefined}
+              workflowId={instance.definition_id ?? undefined}
               status={selectedStageId ? stages[selectedStageId]?.status : undefined}
               onClose={() => setSelectedStageId(null)}
             />
