@@ -210,33 +210,22 @@ describe('evaluateEdges', () => {
     expect(result).toEqual(['coder']);
   });
 
-  it('evaluates conditions with context — context.stages run_count comparison', () => {
-    const contextWithRuns = {
-      trigger: {},
-      stages: {
-        coder: { status: 'completed' as const, run_count: 2, runs: [] },
-      },
-    };
+  it('evaluates conditions using output — run_count comparison via output field', () => {
+    // Context is no longer in scope for edge conditions; conditions only see { output }
     const edges = [
-      { id: 'e1', source: 'coder', target: 'reviewer', condition: `context.stages['coder'].run_count < 3` },
-      { id: 'e2', source: 'coder', target: 'done', condition: `context.stages['coder'].run_count >= 3` },
+      { id: 'e1', source: 'coder', target: 'reviewer', condition: `output.run_count < 3` },
+      { id: 'e2', source: 'coder', target: 'done', condition: `output.run_count >= 3` },
     ] as any;
-    const result = evaluateEdges('coder', {}, contextWithRuns, edges);
+    const result = evaluateEdges('coder', { run_count: 2 }, emptyContext, edges);
     expect(result).toEqual(['reviewer']);
   });
 
-  it('evaluates context condition when run_count meets threshold', () => {
-    const contextWithRuns = {
-      trigger: {},
-      stages: {
-        coder: { status: 'completed' as const, run_count: 3, runs: [] },
-      },
-    };
+  it('evaluates output condition when run_count meets threshold', () => {
     const edges = [
-      { id: 'e1', source: 'coder', target: 'reviewer', condition: `context.stages['coder'].run_count < 3` },
-      { id: 'e2', source: 'coder', target: 'done', condition: `context.stages['coder'].run_count >= 3` },
+      { id: 'e1', source: 'coder', target: 'reviewer', condition: `output.run_count < 3` },
+      { id: 'e2', source: 'coder', target: 'done', condition: `output.run_count >= 3` },
     ] as any;
-    const result = evaluateEdges('coder', {}, contextWithRuns, edges);
+    const result = evaluateEdges('coder', { run_count: 3 }, emptyContext, edges);
     expect(result).toEqual(['done']);
   });
 });

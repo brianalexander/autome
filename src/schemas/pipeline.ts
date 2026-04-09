@@ -75,7 +75,7 @@ export const StageDefinitionSchema = z.object({
     .meta({ description: 'Unique stage identifier. Used in edges to reference this stage.' }),
   type: z.string().meta({
     description:
-      'Node type ID from the node registry. Built-in types: "agent", "gate", "manual-trigger", "webhook-trigger", "cron-trigger", "transform", "http-request", "code-executor". Custom types are discovered from src/nodes/custom/.',
+      'Node type ID from the node registry. Built-in types: "agent", "gate", "manual-trigger", "webhook-trigger", "cron-trigger", "code-executor". Custom types are discovered from src/nodes/custom/.',
   }),
   label: z.string().optional().meta({ description: 'Human-readable label shown on the canvas node' }),
   description: z

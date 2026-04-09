@@ -47,9 +47,7 @@ const NODE_TYPE_MAP: Record<string, React.ComponentType<NodeProps>> = {
   'manual-trigger': GenericStepNode,
   'webhook-trigger': GenericStepNode,
   'cron-trigger': GenericStepNode,
-  'http-request': GenericStepNode,
   'code-executor': GenericStepNode,
-  transform: GenericStepNode,
 };
 
 const edgeTypes = {
@@ -180,7 +178,7 @@ function buildNodes(
         },
       });
     } else {
-      // Generic step node (http-request, transform, code-executor, etc.)
+      // Generic step node (code-executor, triggers, custom nodes, etc.)
       const latestRun = runtimeStage?.runs?.[runtimeStage.runs.length - 1];
       const outputSummary = runtimeStage?.latest
         ? typeof runtimeStage.latest === 'string'
@@ -196,7 +194,7 @@ function buildNodes(
 
       nodes.push({
         id: stage.id,
-        type: NODE_TYPE_MAP[stage.type] ? stage.type : 'transform',
+        type: NODE_TYPE_MAP[stage.type] ? stage.type : 'code-executor',
         position: stage.position || { x: 0, y: 0 },
         data: {
           label: stage.label || stage.id,

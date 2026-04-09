@@ -101,7 +101,6 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
         {(() => {
           const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
           let outputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-          if (!outputSchema) outputSchema = sourceConfig.response_schema as Record<string, unknown> | undefined;
           if (!outputSchema && sourceStage) {
             const spec = specs?.find((sp) => sp.id === sourceStage.type);
             outputSchema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
@@ -163,7 +162,6 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
               outputSchema={(() => {
                 const sc = (sourceStage?.config || {}) as Record<string, unknown>;
                 let os = sc.output_schema as Record<string, unknown> | undefined;
-                if (!os) os = sc.response_schema as Record<string, unknown> | undefined;
                 if (!os && sourceStage) {
                   const sp = specs?.find((s) => s.id === sourceStage.type);
                   os = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
@@ -185,7 +183,6 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
               outputSchema={(() => {
                 const sc = (sourceStage?.config || {}) as Record<string, unknown>;
                 let os = sc.output_schema as Record<string, unknown> | undefined;
-                if (!os) os = sc.response_schema as Record<string, unknown> | undefined;
                 if (!os && sourceStage) {
                   const sp = specs?.find((s) => s.id === sourceStage.type);
                   os = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
@@ -200,7 +197,6 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
         {(() => {
           const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
           let sourceOutputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-          if (!sourceOutputSchema) sourceOutputSchema = sourceConfig.response_schema as Record<string, unknown> | undefined;
           if (!sourceOutputSchema && sourceStage) {
             const sp = specs?.find((s) => s.id === sourceStage.type);
             sourceOutputSchema = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;

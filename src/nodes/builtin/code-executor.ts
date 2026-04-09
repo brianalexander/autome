@@ -56,9 +56,22 @@ const executor: StepExecutor = {
 
       try {
         // 4. Execute in child process
+        const nodeArgs: string[] = [];
+        if (config.sandbox !== false) {
+          // Enable Node.js permission model (stable in Node 24+).
+          // Grants read access to workspace root (contains node_modules/ and runs/)
+          // but denies fs writes, child_process, and worker_threads.
+          // fetch() / network is unrestricted by the permission model.
+          nodeArgs.push(
+            '--permission',
+            `--allow-fs-read=${workspace.root}`,
+          );
+        }
+        nodeArgs.push(codePath);
+
         const { stdout, stderr } = await execFileAsync(
           process.execPath, // use current node binary
-          [codePath],
+          nodeArgs,
           {
             cwd: workspace.root,
             timeout: timeoutMs,
@@ -124,10 +137,16 @@ export const codeExecutorNodeSpec: NodeTypeSpec = {
         format: 'json',
         additionalProperties: true,
       },
+      sandbox: {
+        type: 'boolean',
+        title: 'Sandbox',
+        description: 'When true (default), restricts filesystem and subprocess access using the Node.js permission model. Code can still use fetch() and npm imports. Set to false for full Node.js access (child_process, fs, etc).',
+        default: true,
+      },
     },
     required: ['code', 'output_schema'],
   },
-  defaultConfig: { code: '', dependencies: {}, timeout_seconds: 30 },
+  defaultConfig: { code: '', dependencies: {}, timeout_seconds: 30, sandbox: true },
   executor,
   outEdgeSchema: {
     type: 'object',

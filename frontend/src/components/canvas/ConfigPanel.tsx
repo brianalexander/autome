@@ -110,8 +110,6 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
       if (!sourceStage) continue;
       const sourceConfig = (sourceStage.config || {}) as Record<string, unknown>;
       let schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-      // For http-request nodes, response_schema is the output schema
-      if (!schema) schema = sourceConfig.response_schema as Record<string, unknown> | undefined;
       // Fallback to node type spec's default
       if (!schema && specs) {
         const spec = specs.find(s => s.id === sourceStage.type);
@@ -616,6 +614,7 @@ function GenericNodeConfig({
         outputSchema={upstreamSchema}
         nodeType={nodeType}
         returnSchema={(editState.config as Record<string, unknown>)?.output_schema as Record<string, unknown> | undefined}
+        sandbox={(editState.config as Record<string, unknown>)?.sandbox as boolean | undefined}
       />
     </>
   );

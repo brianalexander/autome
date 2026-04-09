@@ -14,6 +14,7 @@ const ValidateCodeBody = z.object({
   nodeType: z.string().optional(),
   validationMode: z.enum(['function', 'expression']).optional(),
   returnSchema: z.record(z.string(), z.unknown()).optional(),
+  sandbox: z.boolean().optional(),
 });
 
 const ValidateTemplateBody = z.object({
@@ -35,8 +36,8 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
     { schema: { body: ValidateCodeBody } },
     async (request) => {
       try {
-        const { code, outputSchema, nodeType, validationMode, returnSchema } = request.body;
-        const diagnostics = validateCode({ code, outputSchema, nodeType, validationMode, returnSchema });
+        const { code, outputSchema, nodeType, validationMode, returnSchema, sandbox } = request.body;
+        const diagnostics = validateCode({ code, outputSchema, nodeType, validationMode, returnSchema, sandbox });
         return { diagnostics };
       } catch (err) {
         console.error('[validate-code] Error:', err);

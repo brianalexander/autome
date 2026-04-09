@@ -161,9 +161,10 @@ export async function executeStages(
 
   ctx.set('currentStageIds', stageIds);
 
-  for (const stageId of stageIds) {
-    await executeSingleStage(ctx, stageId, definition, context, inputs?.get(stageId));
-  }
+  // Execute stages in parallel — critical for fan-out patterns
+  await Promise.all(
+    stageIds.map((stageId) => executeSingleStage(ctx, stageId, definition, context, inputs?.get(stageId))),
+  );
 }
 
 export async function executeSingleStage(

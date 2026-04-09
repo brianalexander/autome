@@ -5,6 +5,7 @@ import type { WorkflowContext } from '../types/instance.js';
 import { config as appConfig } from '../config.js';
 import { initializeContext, findEntryStages } from './graph-helpers.js';
 import { executeStages } from './stage-executor.js';
+import { nodeRegistry } from '../nodes/registry.js';
 
 // Re-export WorkflowContext for existing consumers
 export type { WorkflowContext };
@@ -48,8 +49,22 @@ export const pipelineWorkflow = restate.workflow({
         throw new restate.TerminalError('Workflow has no entry stages (all stages have incoming edges)');
       }
 
+      // Build initial inputs for entry stages — pass trigger output through the trigger→entry edges
+      const triggerStageIds = new Set(definition.stages.filter((s) => nodeRegistry.isTriggerType(s.type)).map((s) => s.id));
+      const entryInputs = new Map<string, import('../nodes/types.js').StageInput>();
+      for (const entryId of entryStages) {
+        // Find the trigger edge that points to this entry stage
+        const triggerEdge = definition.edges.find((e) => triggerStageIds.has(e.source) && e.target === entryId);
+        if (triggerEdge) {
+          entryInputs.set(entryId, {
+            incomingEdge: triggerEdge,
+            sourceOutput: triggerEvent.payload,
+          });
+        }
+      }
+
       try {
-        await executeStages(ctx, entryStages, definition, context);
+        await executeStages(ctx, entryStages, definition, context, entryInputs);
 
         ctx.set('status', 'completed');
         ctx.set('context', context);

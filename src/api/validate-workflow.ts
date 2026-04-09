@@ -33,9 +33,6 @@ export interface WorkflowValidationResult {
  */
 const SCHEMA_CHAIN_NODE_TYPES = new Set([
   'code-executor',
-  'http-request',
-  'shell-executor',
-  'transform',
   'agent',
 ]);
 
@@ -93,7 +90,8 @@ export function validateWorkflow(draft: WorkflowDefinition): WorkflowValidationR
     }
 
     // 3. Code / expression validation (includes code-trigger which IS a trigger type)
-    const upstreamSchema = findUpstreamOutputSchema(draft, stage.id);
+    const inputMode = stage.input_mode;
+    const upstreamSchema = findUpstreamOutputSchema(draft, stage.id, inputMode);
 
     if (stage.type === 'code-executor' || stage.type === 'code-trigger') {
       const code = config.code as string | undefined;
@@ -103,21 +101,10 @@ export function validateWorkflow(draft: WorkflowDefinition): WorkflowValidationR
           outputSchema: upstreamSchema,
           nodeType: stage.type,
           returnSchema: config.output_schema as Record<string, unknown> | undefined,
+          sandbox: config.sandbox as boolean | undefined,
         });
         if (codeDiags.length > 0) {
           getStageEntry(stage.id).code.push(...codeDiags);
-        }
-      }
-    } else if (stage.type === 'transform') {
-      const expression = config.expression as string | undefined;
-      if (expression) {
-        const exprDiags = validateCode({
-          code: expression,
-          outputSchema: upstreamSchema,
-          validationMode: 'expression',
-        });
-        if (exprDiags.length > 0) {
-          getStageEntry(stage.id).code.push(...exprDiags);
         }
       }
     }
@@ -165,10 +152,7 @@ export function validateWorkflow(draft: WorkflowDefinition): WorkflowValidationR
     if (!SCHEMA_CHAIN_NODE_TYPES.has(stage.type)) continue;
 
     const config = stage.config as Record<string, unknown> | undefined;
-    // http-request stages use response_schema instead of output_schema
-    const hasSchema = stage.type === 'http-request'
-      ? !!(config?.response_schema || config?.output_schema)
-      : !!config?.output_schema;
+    const hasSchema = !!config?.output_schema;
 
     if (!hasSchema) {
       if (stagesWithDownstream.has(stage.id)) {

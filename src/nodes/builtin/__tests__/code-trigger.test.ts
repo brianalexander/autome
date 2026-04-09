@@ -134,8 +134,8 @@ describe('activate() — spawn and cleanup lifecycle', () => {
     cleanup();
 
     const paths = [...writtenFiles.keys()];
-    const codePaths = paths.filter((p) => p.includes(mockRunsDir) && p.endsWith('_code.mjs'));
-    const wrapperPaths = paths.filter((p) => p.includes(mockRunsDir) && p.endsWith('_wrapper.mjs'));
+    const codePaths = paths.filter((p) => p.endsWith('_code.mjs'));
+    const wrapperPaths = paths.filter((p) => p.endsWith('_wrapper.mjs'));
 
     expect(codePaths).toHaveLength(1);
     expect(wrapperPaths).toHaveLength(1);

@@ -148,13 +148,17 @@ describe('discoverAgents', () => {
     expect(agents[0].name).toBe('real-agent');
   });
 
-  it('uses the filename (without .json) when spec has no name field', async () => {
-    await createAgentFile(localDir, 'fallback-name.json', {
-      description: 'No name field in spec',
-    });
+  it('skips agent files with no name field (schema requires name)', async () => {
+    // KiroAgentSpecSchema requires name — files without it are skipped with a warning
+    await writeFile(join(localDir, 'no-name.json'), JSON.stringify({ description: 'No name field' }), 'utf-8');
+    await createAgentFile(localDir, 'has-name.json', { name: 'has-name' });
 
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const agents = await discoverAgents(join(tempRoot, 'local'));
-    expect(agents[0].name).toBe('fallback-name');
+    warnSpy.mockRestore();
+
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('has-name');
   });
 });
 

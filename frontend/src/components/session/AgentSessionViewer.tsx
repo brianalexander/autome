@@ -12,7 +12,7 @@ import { instances } from '../../lib/api';
 import { formatDuration, formatElapsed } from '../../lib/format';
 import { StatusBadge } from '../ui/StatusBadge';
 import { SectionHeader } from '../ui/SectionHeader';
-import type { StageContext, StageRun, StageDefinition } from '../../lib/api';
+import type { StageContext, StageRun, StageDefinition, KiroAgentSpec } from '../../lib/api';
 
 interface AgentSessionViewerProps {
   instanceId: string;
@@ -100,8 +100,11 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
         ? formatElapsed(elapsed)
         : null;
 
+  // Cast to KiroAgentSpec to access Kiro-specific fields (mcpServers, resources, allowedTools).
+  // The spec is typed as CanonicalAgentSpec (passthrough), but at runtime it contains all Kiro fields.
+  const kiroSpec = agentInfo?.spec as KiroAgentSpec | undefined;
   const toolsList = toToolsList(agentInfo?.spec?.tools);
-  const allowedToolsList = toToolsList(agentInfo?.spec?.allowedTools);
+  const allowedToolsList = toToolsList(kiroSpec?.allowedTools);
 
   return (
     <div className="w-full h-full bg-surface flex flex-col min-h-0 overflow-hidden">
@@ -270,11 +273,11 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
               </>
             )}
 
-            {agentInfo?.spec?.mcpServers && Object.keys(agentInfo.spec.mcpServers).length > 0 && (
+            {kiroSpec?.mcpServers && Object.keys(kiroSpec.mcpServers).length > 0 && (
               <>
                 <SectionHeader>MCP Servers</SectionHeader>
                 <div className="space-y-2">
-                  {Object.entries(agentInfo.spec.mcpServers).map(([name, config]) => (
+                  {Object.entries(kiroSpec.mcpServers).map(([name, config]) => (
                     <div key={name} className="bg-surface-secondary rounded p-2.5 space-y-1">
                       <div className="text-xs text-text-primary font-mono font-medium">{name}</div>
                       <div className="text-[10px] text-text-tertiary font-mono">
@@ -286,11 +289,11 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
               </>
             )}
 
-            {agentInfo?.spec?.resources && agentInfo.spec.resources.length > 0 && (
+            {kiroSpec?.resources && kiroSpec.resources.length > 0 && (
               <>
                 <SectionHeader>Resources</SectionHeader>
                 <div className="space-y-1">
-                  {agentInfo.spec.resources.map((r) => (
+                  {kiroSpec.resources.map((r) => (
                     <div key={r} className="text-xs font-mono text-text-secondary">
                       {r}
                     </div>

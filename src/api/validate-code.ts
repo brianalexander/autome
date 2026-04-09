@@ -21,6 +21,8 @@ export interface ValidateCodeInput {
   validationMode?: 'function' | 'expression';
   /** The node's OWN output schema — validates the function's return value */
   returnSchema?: Record<string, unknown>;
+  /** When false, Node.js built-in module declarations (child_process, fs, etc.) are available */
+  sandbox?: boolean;
 }
 
 /**
@@ -28,6 +30,11 @@ export interface ValidateCodeInput {
  * Handles simple types: string, number, boolean, object (with properties), array.
  */
 function jsonSchemaToTsType(schema: Record<string, unknown>, indent = 2): string {
+  if (schema.oneOf) {
+    const variants = (schema.oneOf as Record<string, unknown>[]).map((v) => jsonSchemaToTsType(v, indent));
+    return variants.join(' | ');
+  }
+
   const type = schema.type as string | undefined;
 
   if (type === 'string') return 'string';
@@ -64,7 +71,7 @@ function jsonSchemaToTsType(schema: Record<string, unknown>, indent = 2): string
  * For code-trigger nodes the parameter shape is different: { config, emit, signal }
  * instead of { input, config }.
  */
-function generateDeclarations(outputSchema?: Record<string, unknown>, nodeType?: string, returnSchema?: Record<string, unknown>): string {
+function generateDeclarations(outputSchema?: Record<string, unknown>, nodeType?: string, returnSchema?: Record<string, unknown>, sandbox?: boolean): string {
   const inputType = outputSchema ? jsonSchemaToTsType(outputSchema) : 'Record<string, any>';
   const returnTypeDecl = returnSchema ? `\ntype __ReturnType = ${jsonSchemaToTsType(returnSchema)};\n` : '';
 
@@ -82,8 +89,9 @@ declare function fetch(url: string, init?: RequestInit): Promise<Response>;
 `;
   }
 
+  const resolvedInputType = inputType === 'Record<string, any>' ? 'Record<string, any>' : inputType;
   return `
-interface __InputType ${inputType === 'Record<string, any>' ? '{ [key: string]: any }' : inputType}
+type __InputType = ${resolvedInputType};
 interface __CodeExecutorParams {
   input: __InputType;
   config: Record<string, any>;
@@ -190,7 +198,7 @@ function wrapUserExpression(code: string, declarations: string): { wrapped: stri
 }
 
 export function validateCode(input: ValidateCodeInput): CodeDiagnostic[] {
-  const { code, outputSchema, nodeType, validationMode = 'function', returnSchema } = input;
+  const { code, outputSchema, nodeType, validationMode = 'function', returnSchema, sandbox } = input;
 
   if (!code.trim()) return [];
 
@@ -203,7 +211,7 @@ export function validateCode(input: ValidateCodeInput): CodeDiagnostic[] {
     const declarations = generateExpressionDeclarations(outputSchema);
     ({ wrapped, offset, injectionPos, injectionLen } = wrapUserExpression(code, declarations));
   } else {
-    const declarations = generateDeclarations(outputSchema, nodeType, returnSchema);
+    const declarations = generateDeclarations(outputSchema, nodeType, returnSchema, sandbox);
     ({ wrapped, offset, injectionPos, injectionLen } = wrapUserCode(code, declarations, nodeType, returnSchema));
   }
 
@@ -244,7 +252,7 @@ export function validateCode(input: ValidateCodeInput): CodeDiagnostic[] {
     noEmit: true,
     skipLibCheck: true,
     lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-    types: [],
+    types: sandbox === false ? ['node'] : [],
   }, host);
 
   const diagnostics = [

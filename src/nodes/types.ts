@@ -1,7 +1,7 @@
 /**
  * Node Type System — core interfaces for built-in and custom workflow nodes.
  *
- * Every node type (agent, gate, http-request, cron-trigger, etc.) implements
+ * Every node type (agent, gate, code-executor, cron-trigger, etc.) implements
  * NodeTypeSpec. The registry maps stage.type → spec at runtime.
  */
 import type * as restate from '@restatedev/restate-sdk';
@@ -100,7 +100,7 @@ export interface TriggerExecutor {
 // ---------------------------------------------------------------------------
 
 export interface NodeTypeSpec {
-  /** Unique type ID, matches stage.type in workflow definitions. e.g. 'agent', 'http-request' */
+  /** Unique type ID, matches stage.type in workflow definitions. e.g. 'agent', 'code-executor' */
   id: string;
   /** Human-readable name shown in the UI. e.g. "HTTP Request" */
   name: string;

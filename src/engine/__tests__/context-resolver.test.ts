@@ -221,7 +221,7 @@ describe('edge template resolution', () => {
     expect(result).not.toContain('approved');
   });
 
-  it('JSON-stringifies object values', () => {
+  it('renders objects as [object Object] without a filter (nunjucks default behavior)', () => {
     const edge: EdgeDefinition = {
       id: 'e1',
       source: 'planner',
@@ -233,8 +233,23 @@ describe('edge template resolution', () => {
       incomingEdge: edge,
       sourceOutput: { data: { a: 1, b: 2 } },
     });
-    expect(result).toContain('"a": 1');
-    expect(result).toContain('"b": 2');
+    expect(result).toContain('[object Object]');
+  });
+
+  it('JSON-stringifies object values when using the dump filter', () => {
+    const edge: EdgeDefinition = {
+      id: 'e1',
+      source: 'planner',
+      target: 'code-gen',
+      prompt_template: 'Output: {{ output.data | dump }}',
+    };
+
+    const result = buildAgentPrompt(codeGenStage, baseContext, 1, {
+      incomingEdge: edge,
+      sourceOutput: { data: { a: 1, b: 2 } },
+    });
+    expect(result).toContain('"a"');
+    expect(result).toContain('"b"');
   });
 });
 

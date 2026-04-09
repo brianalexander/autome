@@ -9,12 +9,9 @@ const UI_GROUP_MAP: Record<string, string> = {
   'agent': 'AI & Agents',
   'gate': 'Logic',
   'code-executor': 'Logic',
-  'shell-executor': 'Logic',
-  'transform': 'Data',
-  'http-request': 'Data',
 };
 
-const GROUP_ORDER = ['Triggers', 'AI & Agents', 'Logic', 'Data'];
+const GROUP_ORDER = ['Triggers', 'AI & Agents', 'Logic'];
 
 export interface NodeEntry {
   type: string;

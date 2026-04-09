@@ -18,8 +18,6 @@ describe('registry initialization', () => {
       'manual-trigger',
       'webhook-trigger',
       'cron-trigger',
-      'transform',
-      'http-request',
       'code-executor',
     ]) {
       expect(ids).toContain(expected);
@@ -98,7 +96,7 @@ describe('gate config validation', () => {
 describe('cron-trigger config validation', () => {
   it('valid schedule passes', () => {
     const schema = nodeRegistry.getConfigZodSchema('cron-trigger')!;
-    const result = schema.safeParse({ schedule: '5m' });
+    const result = schema.safeParse({ schedule: '5m', output_schema: { type: 'object', properties: {} } });
     expect(result.success).toBe(true);
   });
 
@@ -111,16 +109,3 @@ describe('cron-trigger config validation', () => {
   });
 });
 
-describe('http-request config validation', () => {
-  it('valid url and method passes', () => {
-    const schema = nodeRegistry.getConfigZodSchema('http-request')!;
-    const result = schema.safeParse({ url: 'https://example.com', method: 'GET', response_schema: { type: 'object', properties: {} } });
-    expect(result.success).toBe(true);
-  });
-
-  it('missing required url fails', () => {
-    const schema = nodeRegistry.getConfigZodSchema('http-request')!;
-    const result = schema.safeParse({ method: 'GET' });
-    expect(result.success).toBe(false);
-  });
-});

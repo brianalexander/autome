@@ -92,24 +92,14 @@ function autoValidateStage(
   const stageConfig = stage.config as Record<string, unknown> | undefined;
 
   if (stageConfig?.code && (stage.type === 'code-executor' || stage.type === 'code-trigger')) {
-    const upstreamSchema = findUpstreamOutputSchema(draft, stage.id);
+    const inputMode = stage.input_mode;
+    const upstreamSchema = findUpstreamOutputSchema(draft, stage.id, inputMode);
     const diagnostics = validateCode({
       code: stageConfig.code as string,
       outputSchema: upstreamSchema,
       nodeType: stage.type,
       returnSchema: stageConfig.output_schema as Record<string, unknown> | undefined,
-    });
-    if (diagnostics.length > 0) {
-      return { ...stage, _validation: { diagnostics, isValid: false } };
-    }
-  }
-
-  if (stageConfig?.expression && stage.type === 'transform') {
-    const upstreamSchema = findUpstreamOutputSchema(draft, stage.id);
-    const diagnostics = validateCode({
-      code: stageConfig.expression as string,
-      outputSchema: upstreamSchema,
-      validationMode: 'expression',
+      sandbox: stageConfig.sandbox as boolean | undefined,
     });
     if (diagnostics.length > 0) {
       return { ...stage, _validation: { diagnostics, isValid: false } };
@@ -407,6 +397,21 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
         }
       }
 
+      // Reject prompt_template on edges targeting non-agent nodes
+      if (edge.prompt_template) {
+        const targetStage = draft.stages.find((s) => s.id === edgeTarget);
+        if (targetStage) {
+          const targetSpec = nodeRegistry.get(targetStage.type);
+          const inEdgeProps = (targetSpec?.inEdgeSchema as Record<string, unknown>)?.properties as Record<string, unknown> | undefined;
+          const hasPromptTemplateField = inEdgeProps?.prompt_template;
+          if (!hasPromptTemplateField) {
+            return reply.status(400).send({
+              error: `prompt_template is only supported on edges targeting agent nodes. Target "${edgeTarget}" is a ${targetStage.type}.`,
+            });
+          }
+        }
+      }
+
       draft.edges.push(edge as unknown as EdgeDefinition);
       saveDraft(db, state.authorDrafts, workflowId, draft);
       const warnings = getDraftWarnings(draft);
@@ -482,6 +487,23 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
       const idx = draft.edges.findIndex((e) => e.id === edgeId);
       if (idx === -1) return reply.code(404).send({ error: `Edge "${edgeId}" not found` });
       const body = request.body;
+
+      // Reject prompt_template on edges targeting non-agent nodes
+      if (body.prompt_template) {
+        const targetId = draft.edges[idx].target;
+        const targetStage = draft.stages.find((s) => s.id === targetId);
+        if (targetStage) {
+          const targetSpec = nodeRegistry.get(targetStage.type);
+          const inEdgeProps = (targetSpec?.inEdgeSchema as Record<string, unknown>)?.properties as Record<string, unknown> | undefined;
+          const hasPromptTemplateField = inEdgeProps?.prompt_template;
+          if (!hasPromptTemplateField) {
+            return reply.status(400).send({
+              error: `prompt_template is only supported on edges targeting agent nodes. Target "${targetId}" is a ${targetStage.type}.`,
+            });
+          }
+        }
+      }
+
       draft.edges[idx] = mergePatch(draft.edges[idx], body);
       saveDraft(db, state.authorDrafts, workflowId, draft);
       return draft.edges[idx];

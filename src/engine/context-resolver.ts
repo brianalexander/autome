@@ -183,7 +183,7 @@ function collectOutputRequirements(stageId: string, definition: WorkflowDefiniti
  * a flat variables object.  Uses the same `resolvePath` + `formatValue`
  * helpers as the rest of the context-resolver so behaviour is consistent.
  *
- * This is the function other modules (e.g. http-request node) should call
+ * This is the function other modules should call
  * instead of rolling their own regex replacement.
  */
 export function resolveTemplate(template: string, variables: Record<string, unknown>): string {

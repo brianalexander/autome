@@ -54,10 +54,17 @@ describe('useUndoRedo', () => {
     expect(result.current.canUndo).toBe(false);
   });
 
-  it('skips duplicate pushes', () => {
-    const { result } = renderHook(() => useUndoRedo({ x: 1 }));
-    act(() => result.current.pushState({ x: 1 }));
+  it('skips duplicate pushes for primitive values', () => {
+    const { result } = renderHook(() => useUndoRedo('hello'));
+    act(() => result.current.pushState('hello'));
     expect(result.current.canUndo).toBe(false);
+  });
+
+  it('does not deduplicate object values (only reference equality is checked)', () => {
+    const { result } = renderHook(() => useUndoRedo({ x: 1 }));
+    // Pushing a new object with the same shape creates a new reference — treated as a new state
+    act(() => result.current.pushState({ x: 1 }));
+    expect(result.current.canUndo).toBe(true);
   });
 
   it('reset clears all history', () => {

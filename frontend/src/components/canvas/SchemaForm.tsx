@@ -30,9 +30,10 @@ interface SchemaFormProps {
   outputSchema?: Record<string, unknown>;
   nodeType?: string;
   returnSchema?: Record<string, unknown>;
+  sandbox?: boolean;
 }
 
-export function SchemaForm({ schema, value, onChange, outputSchema, nodeType, returnSchema }: SchemaFormProps) {
+export function SchemaForm({ schema, value, onChange, outputSchema, nodeType, returnSchema, sandbox }: SchemaFormProps) {
   const properties = (schema.properties || {}) as Record<string, JSONSchemaProperty>;
   const required = (schema.required || []) as string[];
 
@@ -77,6 +78,7 @@ export function SchemaForm({ schema, value, onChange, outputSchema, nodeType, re
           outputSchema={outputSchema}
           nodeType={nodeType}
           returnSchema={returnSchema}
+          sandbox={sandbox}
         />
       ))}
     </div>
@@ -92,6 +94,7 @@ function SchemaField({
   outputSchema,
   nodeType,
   returnSchema,
+  sandbox,
 }: {
   name: string;
   prop: JSONSchemaProperty;
@@ -101,6 +104,7 @@ function SchemaField({
   outputSchema?: Record<string, unknown>;
   nodeType?: string;
   returnSchema?: Record<string, unknown>;
+  sandbox?: boolean;
 }) {
   const label = prop.title || name;
 
@@ -207,6 +211,7 @@ function SchemaField({
           outputSchema={outputSchema}
           nodeType={nodeType}
           returnSchema={returnSchema}
+          sandbox={sandbox}
           onChange={(raw) => {
             // Try to parse as JSON if it looks like an array/object
             if (raw.startsWith('[') || raw.startsWith('{')) {
