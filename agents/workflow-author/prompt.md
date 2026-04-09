@@ -64,9 +64,18 @@ Edges connect stages AND define how data flows. Key edge fields:
 
 For structured output from agent stages, set **output_schema** (JSON Schema) on the agent stage's config — this auto-instructs the agent about required output format. For cycle re-entry behavior, set **cycle_behavior** ('fresh' or 'continue') on the agent stage's config.
 
-### Template Syntax
-- {{ output.field }} — source stage output (in edge prompt_templates and conditions)
-- All nodes (including triggers) use {{ output.* }} uniformly — the trigger's output IS its payload
+### Template Syntax (Jinja2)
+Templates use Jinja2 syntax (powered by nunjucks). All nodes (including triggers) use `output.*` uniformly.
+
+**Interpolation:**
+- `{{ output.field }}` — source stage output field
+- `{{ output.items | length }}` — filters (length, upper, lower, join, default, etc.)
+
+**Conditionals:**
+- `{% if output.approved %}Approved!{% else %}Rejected: {{ output.reason }}{% endif %}`
+
+**Loops:**
+- `{% for issue in output.issues %}- {{ issue.severity }}: {{ issue.description }}\n{% endfor %}`
 
 ## Workflow: Building a Pipeline
 

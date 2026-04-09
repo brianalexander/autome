@@ -1,5 +1,9 @@
+import nunjucks from 'nunjucks';
 import type { WorkflowContext } from '../restate/pipeline-workflow.js';
 import type { StageDefinition, EdgeDefinition, WorkflowDefinition } from '../types/workflow.js';
+
+// Configure nunjucks: no filesystem templates, autoescape off (we're building prompts, not HTML)
+const nunjucksEnv = new nunjucks.Environment(null, { autoescape: false, throwOnUndefined: false });
 
 // Helper to access edge fields that may not be present on all edge variants
 function getEdgePromptTemplate(edge: EdgeDefinition): string | undefined {
@@ -89,27 +93,22 @@ function formatValue(value: unknown): string {
 }
 
 /**
- * Processes `{% if expression %}...{% endif %}` blocks in the template.
- * Single-level only (no nesting). The body is included only when the
- * expression evaluates to a truthy value.
+ * Render a template string using nunjucks (Jinja2-compatible).
+ * Supports {{ interpolation }}, {% if/else/elif %}, {% for %}, filters, etc.
+ * Falls back to simple regex interpolation if nunjucks fails (bad syntax).
  */
-function processConditionals(template: string, scope: Record<string, unknown>): string {
-  const ifPattern = /\{%\s*if\s+(.+?)\s*%\}([\s\S]*?)\{%\s*endif\s*%\}/g;
-  return template.replace(ifPattern, (_match, expression: string, body: string) => {
-    const value = resolvePath(expression.trim(), scope);
-    return value ? body : '';
-  });
-}
-
-/**
- * Processes `{{ expression }}` interpolations in the template.
- */
-function processInterpolations(template: string, scope: Record<string, unknown>): string {
-  const exprPattern = /\{\{\s*(.+?)\s*\}\}/g;
-  return template.replace(exprPattern, (_match, expression: string) => {
-    const value = resolvePath(expression.trim(), scope);
-    return formatValue(value);
-  });
+function renderTemplate(template: string, scope: Record<string, unknown>): string {
+  try {
+    return nunjucksEnv.renderString(template, scope);
+  } catch (err) {
+    // Fall back to simple interpolation so existing templates don't break
+    console.warn('[template] Nunjucks render failed, falling back:', err instanceof Error ? err.message : err);
+    const exprPattern = /\{\{\s*(.+?)\s*\}\}/g;
+    return template.replace(exprPattern, (_match, expression: string) => {
+      const value = resolvePath(expression.trim(), scope);
+      return formatValue(value);
+    });
+  }
 }
 
 /**
@@ -130,9 +129,7 @@ function resolveEdgeTemplate(
   mergedInputs?: Record<string, unknown>,
 ): string {
   const scope = buildScope(sourceOutput, context, mergedInputs);
-  let result = processConditionals(template, scope);
-  result = processInterpolations(result, scope);
-  return result;
+  return renderTemplate(template, scope);
 }
 
 /**
@@ -190,7 +187,7 @@ function collectOutputRequirements(stageId: string, definition: WorkflowDefiniti
  * instead of rolling their own regex replacement.
  */
 export function resolveTemplate(template: string, variables: Record<string, unknown>): string {
-  return processInterpolations(template, variables);
+  return renderTemplate(template, variables);
 }
 
 /**
