@@ -4,6 +4,31 @@
 **Scope:** Full codebase — backend, frontend, types, database, engine, Restate integration
 **Test Results:** 428 passed, 6 skipped, 0 failed
 
+### Resolution Status
+
+| ID | Status | Commit |
+|---|---|---|
+| CRIT-1 | ✅ Fixed | `45974c9` — UUID validation before SQL interpolation |
+| CRIT-2 | ✅ Fixed | `6beb8b6` — executeMapStage now uses Promise.all for batch parallelism |
+| CRIT-3 | ✅ Fixed | `6beb8b6` — Removed non-deterministic new Date() fallback |
+| CRIT-4 | ✅ Fixed | `6beb8b6` — propagateSkip now syncs to DB |
+| CRIT-5 | ✅ Fixed | `f8b1d11` — definition_id nullable in Drizzle schema + Zod |
+| CRIT-6 | ✅ Fixed | `6beb8b6` — __fired sentinel prevents fan-in double-trigger |
+| CRIT-7 | ✅ Fixed | `e592c3b` — Separated nested setState into sequential updates |
+| HIGH-1 | ✅ Fixed | `6beb8b6` — syncContextToDb throws on error for Restate retry |
+| HIGH-2 | ✅ Fixed | `a89ac90` — signalledStages cleaned on workflow-finished |
+| HIGH-3 | ✅ Fixed | `f8b1d11` — deleteInstance wrapped in transaction |
+| HIGH-4 | ✅ Fixed | `f8b1d11` — migrateAuthorSegments wrapped in transaction |
+| HIGH-5 | ✅ Fixed | `a89ac90` — Graph validation runs when edges-only update |
+| HIGH-6 | ✅ Fixed | `a89ac90` — DELETE returns 404 for non-existent workflows |
+| HIGH-7 | ✅ Fixed | `a89ac90` — code-trigger uses actual workflow version |
+| HIGH-8 | ✅ Fixed | `a89ac90` — Explicit null guard in agent executor |
+| HIGH-9 | ✅ Fixed | `a89ac90` — Removed phantom ToolCallRecord fields |
+| HIGH-10 | Open | cancelWorkflow returns success even on failure |
+| HIGH-11 | ✅ Fixed | `e592c3b` — Optional chaining on spec?.color?.bg |
+| HIGH-12 | ✅ Fixed | `e592c3b` — WebSocket handler cleanup per instance |
+| HIGH-13 | ✅ Fixed | `6beb8b6` — executeMapStage handles empty arrays |
+
 ---
 
 ## Table of Contents
