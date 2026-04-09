@@ -118,7 +118,7 @@ export function AgentConfigSection({ stage, definition, update, onDefinitionChan
         />
       </Field>
 
-      <Field label="Output Schema" description="JSON Schema defining what this agent must output. Injected into the agent's prompt.">
+      <Field label="Output Schema" required description="JSON Schema defining what this agent must output. Injected into the agent's prompt.">
         <CodeEditor
           value={typeof cfg.output_schema === 'string' ? cfg.output_schema : (cfg.output_schema ? JSON.stringify(cfg.output_schema, null, 2) : '')}
           onChange={(val) => {

@@ -294,7 +294,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         {/* === Manual Trigger config === */}
         {editState.type === 'manual-trigger' && (
           <>
-            <Field label="Output Schema" description="JSON Schema describing the trigger payload. Defines the trigger form and enables type hints for downstream nodes.">
+            <Field label="Output Schema" required description="JSON Schema describing the trigger payload. Defines the trigger form and enables type hints for downstream nodes.">
               <CodeEditor
                 value={typeof cfg.output_schema === 'object' && cfg.output_schema ? JSON.stringify(cfg.output_schema, null, 2) : (cfg.output_schema as string || '')}
                 onChange={(val) => {
@@ -333,7 +333,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
         {/* === Webhook Trigger config === */}
         {editState.type === 'webhook-trigger' && (
           <>
-            <Field label="Output Schema" description="JSON Schema describing the webhook payload. Validates incoming payloads and enables type hints for downstream nodes.">
+            <Field label="Output Schema" required description="JSON Schema describing the webhook payload. Validates incoming payloads and enables type hints for downstream nodes.">
               <CodeEditor
                 value={typeof cfg.output_schema === 'object' && cfg.output_schema ? JSON.stringify(cfg.output_schema, null, 2) : (cfg.output_schema as string || '')}
                 onChange={(val) => {

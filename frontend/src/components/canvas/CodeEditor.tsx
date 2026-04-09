@@ -260,26 +260,54 @@ function createTemplateCompletions(outputSchema?: Record<string, unknown>) {
 
 function createTemplateLinter(outputSchema?: Record<string, unknown>) {
   return linter(async (view): Promise<Diagnostic[]> => {
-    if (!outputSchema?.properties) return [];
     const text = view.state.doc.toString();
+    if (!text.trim()) return [];
     const diagnostics: Diagnostic[] = [];
 
-    // Find all {{ output.X.Y }} patterns (with optional Jinja2 filters)
-    const pattern = /\{\{\s*output\.(\w+(?:\.\w+)*)\s*(?:\|[^}]*)?\}\}/g;
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const fieldPath = match[1].split('.');
-      if (!validateFieldPath(outputSchema, fieldPath)) {
-        const from = match.index + match[0].indexOf('output.');
-        const to = from + 'output.'.length + match[1].length;
-        diagnostics.push({
-          from,
-          to,
-          severity: 'warning',
-          message: `Field "output.${match[1]}" not found in source output schema`,
-        });
+    // 1. Backend syntax validation
+    try {
+      const res = await fetch('/api/internal/validate-template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template: text }),
+      });
+      if (res.ok) {
+        const { diagnostics: syntaxDiags } = await res.json() as { diagnostics: Array<{ from: number; to: number; severity: string; message: string }> };
+        const docLength = view.state.doc.length;
+        for (const d of syntaxDiags) {
+          if (d.from >= 0 && d.to <= docLength && d.from < d.to) {
+            diagnostics.push({
+              from: d.from,
+              to: d.to,
+              severity: d.severity as 'error' | 'warning',
+              message: d.message,
+            });
+          }
+        }
+      }
+    } catch {
+      // Network error — skip syntax validation
+    }
+
+    // 2. Field path validation (only if schema available)
+    if (outputSchema?.properties) {
+      const pattern = /\{\{\s*output\.(\w+(?:\.\w+)*)\s*(?:\|[^}]*)?\}\}/g;
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        const fieldPath = match[1].split('.');
+        if (!validateFieldPath(outputSchema, fieldPath)) {
+          const from = match.index + match[0].indexOf('output.');
+          const to = from + 'output.'.length + match[1].length;
+          diagnostics.push({
+            from,
+            to,
+            severity: 'warning',
+            message: `Field "output.${match[1]}" not found in source output schema`,
+          });
+        }
       }
     }
+
     return diagnostics;
   }, { delay: 500 });
 }
@@ -405,7 +433,7 @@ export function CodeEditor({
   );
 
   const templateLinter = useMemo(
-    () => (outputSchema ? createTemplateLinter(outputSchema) : null),
+    () => createTemplateLinter(outputSchema),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [outputSchemaKey],
   );
@@ -431,7 +459,8 @@ export function CodeEditor({
             override: [templateCompletionFn],
             activateOnTyping: true,
           }),
-          ...(templateLinter ? [templateLinter, lintGutter()] : []),
+          templateLinter,
+          lintGutter(),
           fillTheme,
         ];
       }
