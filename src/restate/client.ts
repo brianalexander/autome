@@ -53,6 +53,13 @@ export async function getWorkflowStatus(instanceId: string) {
 }
 
 export async function cancelWorkflow(instanceId: string) {
+  // Validate instanceId is a UUID to prevent SQL injection in the Restate admin query
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(instanceId)) {
+    console.error(`[restate] Invalid instanceId format: ${instanceId}`);
+    return { cancelled: false };
+  }
+
   // Use the Restate admin API to cancel the invocation
   const adminUrl = config.restate.adminUrl;
   // Query for the invocation ID from the admin API
