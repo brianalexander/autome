@@ -53,9 +53,10 @@ const executor: TriggerExecutor = {
     const code = (config.code as string) || '';
     const dependencies = (config.dependencies as Record<string, string>) || {};
     const timeoutSeconds = (config.timeout_seconds as number) || 0;
+    const version = (config._workflowVersion as number) || 1;
 
     // 1. Ensure workspace with user's dependencies
-    const workspace = await ensureWorkspace(workflowId, 1, dependencies);
+    const workspace = await ensureWorkspace(workflowId, version, dependencies);
 
     // 2. Write user code file and wrapper file to the system temp directory so
     //    the OS handles cleanup if the process crashes before deactivation.

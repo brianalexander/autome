@@ -97,21 +97,9 @@ export const ToolCallRecordSchema = z.object({
   title: z.string().nullable(),
   kind: z.string().nullable(),
   status: z.enum(['pending', 'in_progress', 'completed', 'failed']),
-  permission_status: z.enum(['pending_approval', 'allowed', 'rejected', 'cancelled']).nullable().optional(),
-  permission_options: z
-    .array(
-      z.object({
-        optionId: z.string(),
-        name: z.string(),
-        kind: z.string(),
-      }),
-    )
-    .nullable()
-    .optional(),
   raw_input: z.string().nullable(),
   raw_output: z.string().nullable(),
   parent_tool_use_id: z.string().nullable().optional(),
-  exit_code: z.number().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
 });

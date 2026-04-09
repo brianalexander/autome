@@ -85,10 +85,11 @@ export async function activateWorkflowTriggers(definition: WorkflowDefinition): 
     const executor = spec.executor as TriggerExecutor;
     if (executor.type !== 'trigger' || !executor.activate) continue;
 
-    const config = stage.config || spec.defaultConfig || {};
+    const stageConfig = stage.config || spec.defaultConfig || {};
+    const configWithVersion = { ...stageConfig, _workflowVersion: definition.version ?? 1 };
 
     try {
-      const cleanup = await executor.activate(definition.id, stage.id, config, (payload: Record<string, unknown>) => {
+      const cleanup = await executor.activate(definition.id, stage.id, configWithVersion, (payload: Record<string, unknown>) => {
         // Route trigger events through the event bus, matching the pattern
         // used by ManualTriggerProvider. The event bus will match this to
         // subscriptions and emit 'trigger' events that server.ts handles.

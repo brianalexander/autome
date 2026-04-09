@@ -147,10 +147,13 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
           if (configErrors.length > 0) {
             return reply.code(400).send({ error: configErrors.join('; '), validationErrors: configErrors });
           }
-          // Validate graph structure when both stages and edges are present in the update
+        }
+        if (body.stages || body.edges) {
+          // Validate graph structure whenever stages or edges are updated
+          const stages = (body.stages as Array<{ id: string; type: string }> | undefined) ?? existing.stages ?? [];
           const edges = (body.edges as unknown[] | undefined) ?? existing.edges ?? [];
           const graphResult = validateGraphStructure(
-            body.stages as Array<{ id: string; type: string }>,
+            stages as Array<{ id: string; type: string }>,
             edges as Array<{ source: string; target: string }>,
           );
           if (graphResult.errors.length > 0) {
@@ -181,52 +184,55 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
       try {
         const { id } = request.params;
         const existing = db.getWorkflow(id);
-        if (existing) {
-          // Cancel any running instances before deleting to avoid orphaned agent
-          // processes and 404s on in-flight context-sync calls from Restate.
-          const { data: instances } = deps.db.listInstances({ definitionId: id });
-          const runningInstances = instances.filter((i) =>
-            ['running', 'waiting_gate', 'waiting_input'].includes(i.status),
-          );
+        if (!existing) {
+          return reply.code(404).send({ error: 'Workflow not found' });
+        }
 
-          for (const instance of runningInstances) {
-            const instanceId = instance.id;
+        // Cancel any running instances before deleting to avoid orphaned agent
+        // processes and 404s on in-flight context-sync calls from Restate.
+        const { data: instances } = deps.db.listInstances({ definitionId: id });
+        const runningInstances = instances.filter((i) =>
+          ['running', 'waiting_gate', 'waiting_input'].includes(i.status),
+        );
 
-            // Kill all agent processes for every stage in this instance
-            const stageIds = Object.keys(instance.context?.stages || {});
-            for (const stageId of stageIds) {
-              const client = state.acpPool.getClient(instanceId, stageId);
-              if (client) {
-                client.cancel();
-                await state.acpPool.terminate(instanceId, stageId);
-              }
-            }
+        for (const instance of runningInstances) {
+          const instanceId = instance.id;
 
-            // Abort the Restate workflow (best-effort)
-            try {
-              await restateClient.cancelWorkflow(instanceId);
-            } catch (restateErr) {
-              console.warn(`[delete-workflow] Could not cancel Restate workflow ${instanceId}:`, restateErr);
-            }
-
-            // Mark the instance as cancelled in the DB
-            try {
-              deps.db.updateInstance(instanceId, {
-                status: 'cancelled',
-                completed_at: new Date().toISOString(),
-              });
-            } catch (dbErr) {
-              console.warn(`[delete-workflow] Could not update instance ${instanceId}:`, dbErr);
+          // Kill all agent processes for every stage in this instance
+          const stageIds = Object.keys(instance.context?.stages || {});
+          for (const stageId of stageIds) {
+            const client = state.acpPool.getClient(instanceId, stageId);
+            if (client) {
+              client.cancel();
+              await state.acpPool.terminate(instanceId, stageId);
             }
           }
 
-          // NOTE: Previously there was a 1s sleep here to "give Restate a moment".
-          // That was a race condition, not a fix — context-sync calls that arrive
-          // after deletion are already guarded by the `instance_deleted` check in
-          // the workflow-context-sync handler. The sleep has been removed.
+          // Abort the Restate workflow (best-effort)
+          try {
+            await restateClient.cancelWorkflow(instanceId);
+          } catch (restateErr) {
+            console.warn(`[delete-workflow] Could not cancel Restate workflow ${instanceId}:`, restateErr);
+          }
 
-          db.deleteWorkflow(id);
+          // Mark the instance as cancelled in the DB
+          try {
+            deps.db.updateInstance(instanceId, {
+              status: 'cancelled',
+              completed_at: new Date().toISOString(),
+            });
+          } catch (dbErr) {
+            console.warn(`[delete-workflow] Could not update instance ${instanceId}:`, dbErr);
+          }
         }
+
+        // NOTE: Previously there was a 1s sleep here to "give Restate a moment".
+        // That was a race condition, not a fix — context-sync calls that arrive
+        // after deletion are already guarded by the `instance_deleted` check in
+        // the workflow-context-sync handler. The sleep has been removed.
+
+        db.deleteWorkflow(id);
+
         // Also clean up any draft (memory cache and DB)
         state.authorDrafts.delete(id);
         db.deleteDraft(id);

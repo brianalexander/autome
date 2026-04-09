@@ -7,6 +7,15 @@ import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Wrench, BookOpen, Pencil, Trash2, Search, Zap, Globe, MessageCircle, Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ToolCallRecord } from '../../lib/api';
+
+// These fields exist in the UI but are not yet backed by DB columns.
+// They are typed as optional here so the component degrades gracefully
+// when the DB returns undefined for them.
+type ToolCallRecordWithOptionals = ToolCallRecord & {
+  permission_status?: 'pending_approval' | 'allowed' | 'rejected' | 'cancelled' | null;
+  permission_options?: Array<{ optionId: string; name: string; kind: string }> | null;
+  exit_code?: number | null;
+};
 import { formatElapsed } from '../../lib/format';
 import { isSubAgentCall, extractSubAgentInfo } from '../../lib/chatUtils';
 import { StreamingMarkdown } from './StreamingMarkdown';
@@ -131,9 +140,9 @@ export function ToolCallCard({
   onPermissionResponse,
   childToolCalls,
 }: {
-  toolCall: ToolCallRecord;
+  toolCall: ToolCallRecordWithOptionals;
   onPermissionResponse?: (toolCallId: string, optionId: string) => void;
-  childToolCalls?: ToolCallRecord[];
+  childToolCalls?: ToolCallRecordWithOptionals[];
 }) {
   const [showIO, setShowIO] = useState(false);
   const [elapsed, setElapsed] = useState(0);

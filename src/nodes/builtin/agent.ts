@@ -16,11 +16,14 @@ const executor: StepExecutor = {
 
     // Find the full stage definition (needed by buildAgentPrompt)
     const stage = definition.stages.find((s) => s.id === stageId);
+    if (!stage) {
+      throw new Error(`Stage "${stageId}" not found in workflow definition`);
+    }
 
     // Build the prompt — uses edge prompt_template if available, otherwise stage context_template.
     // Also auto-injects output requirements from downstream edges.
     // For fan-in stages, mergedInputs contains all upstream outputs keyed by source stage ID.
-    const prompt = buildAgentPrompt(stage!, workflowContext, iteration, {
+    const prompt = buildAgentPrompt(stage, workflowContext, iteration, {
       incomingEdge: input?.incomingEdge,
       sourceOutput: input?.sourceOutput,
       mergedInputs: input?.mergedInputs,

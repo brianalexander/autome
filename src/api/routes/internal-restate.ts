@@ -251,6 +251,14 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
           context: context as WorkflowInstance['context'],
           ...(status === 'completed' || status === 'failed' ? { completed_at: new Date().toISOString() } : {}),
         });
+
+        // Clean up signalledStages for this instance to prevent unbounded growth
+        for (const key of state.signalledStages) {
+          if (key.startsWith(`${instanceId}:`)) {
+            state.signalledStages.delete(key);
+          }
+        }
+
         broadcast('instance:updated', { instanceId, status }, { instanceId });
         return { ok: true };
       } catch (err) {
