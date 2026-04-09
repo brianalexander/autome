@@ -102,34 +102,43 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   }, []);
 
   // Atomically flush any pending streaming text then append a tool segment to the
-  // current assistant message. Uses a setStreamingText updater to read-and-clear
-  // atomically so nothing is lost between the two state updates.
+  // current assistant message. Captures streaming text first, then applies both
+  // state updates sequentially — avoids calling setState inside another setState
+  // updater, which is prohibited in React 18 concurrent mode.
   const appendToolSegment = useCallback((toolCallId: string) => {
+    // Step 1: capture and clear streaming text
+    let flushedText = '';
     setStreamingText((prev) => {
-      if (prev) flushStreamingText(prev);
-      setMessages((msgs) => {
-        const updated = [...msgs];
-        let target = updated[updated.length - 1];
-        if (!target || target.role !== 'assistant') {
-          target = { role: 'assistant', segments: [], timestamp: new Date().toISOString() };
-          updated.push(target);
-        } else {
-          target = { ...target, segments: [...target.segments] };
-          updated[updated.length - 1] = target;
-        }
-        target.segments.push({ type: 'tool', toolCallId });
-        return updated;
-      });
+      flushedText = prev;
       return '';
+    });
+
+    // Step 2: flush any pending text, then append the tool segment.
+    // React 18 automatic batching groups these two setMessages calls into one render.
+    if (flushedText) flushStreamingText(flushedText);
+    setMessages((msgs) => {
+      const updated = [...msgs];
+      let target = updated[updated.length - 1];
+      if (!target || target.role !== 'assistant') {
+        target = { role: 'assistant', segments: [], timestamp: new Date().toISOString() };
+        updated.push(target);
+      } else {
+        target = { ...target, segments: [...target.segments] };
+        updated[updated.length - 1] = target;
+      }
+      target.segments.push({ type: 'tool', toolCallId });
+      return updated;
     });
   }, [flushStreamingText]);
 
   // Finalize the current turn: flush any remaining streaming text and clear streaming state.
   const finalizeTurn = useCallback(() => {
+    let flushedText = '';
     setStreamingText((prev) => {
-      if (prev) flushStreamingText(prev);
+      flushedText = prev;
       return '';
     });
+    if (flushedText) flushStreamingText(flushedText);
     setIsStreaming(false);
   }, [flushStreamingText]);
 

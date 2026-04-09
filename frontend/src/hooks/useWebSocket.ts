@@ -145,14 +145,38 @@ export function useWebSocket(subscriptions?: string[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscriptionsKey]);
 
+  // Track all handlers registered by this hook instance so we can remove them
+  // on unmount. This prevents stale subscriptions from surviving HMR reloads
+  // or React Strict Mode's double-invocation.
+  const registeredHandlersRef = useRef<Array<{ event: string; handler: EventHandler }>>([]);
+
+  useEffect(() => {
+    return () => {
+      for (const { event, handler } of registeredHandlersRef.current) {
+        handlers.get(event)?.delete(handler);
+        if (handlers.get(event)?.size === 0) {
+          handlers.delete(event);
+        }
+      }
+      registeredHandlersRef.current = [];
+    };
+  }, []);
+
   const on = useCallback((event: string, handler: EventHandler) => {
     if (!handlers.has(event)) {
       handlers.set(event, new Set());
     }
     handlers.get(event)!.add(handler);
+    registeredHandlersRef.current.push({ event, handler });
 
     return () => {
       handlers.get(event)?.delete(handler);
+      if (handlers.get(event)?.size === 0) {
+        handlers.delete(event);
+      }
+      registeredHandlersRef.current = registeredHandlersRef.current.filter(
+        (entry) => !(entry.event === event && entry.handler === handler),
+      );
     };
   }, []);
 
