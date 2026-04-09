@@ -78,13 +78,15 @@ export async function syncContextToDb(
   extra?: Record<string, unknown>,
 ): Promise<void> {
   await ctx.run(label, async () => {
-    await fetch(`${orchestratorUrl}/api/internal/workflow-context-sync`, {
+    const res = await fetch(`${orchestratorUrl}/api/internal/workflow-context-sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ instanceId, context, ...extra }),
-    }).catch((err) => {
-      console.error('[workflow] Context sync failed:', err);
     });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Context sync failed (${res.status}): ${body}`);
+    }
     return { synced: true };
   });
 }
@@ -144,6 +146,9 @@ export async function propagateSkip(
       await propagateSkip(ctx, targetId, definition, context);
     }
   }
+
+  const orchestratorUrl = appConfig.orchestratorUrl;
+  await syncContextToDb(ctx, `sync-skip-${sourceStageId}`, orchestratorUrl, ctx.key, context);
 }
 
 // ---------------------------------------------------------------------------
@@ -328,86 +333,100 @@ async function executeMapStage(
   }
 
   const items = rawValue as unknown[];
+
+  if (items.length === 0) {
+    context.stages[stageId].latest = [];
+    context.stages[stageId].status = 'completed';
+    ctx.set('context', context);
+    await syncContextToDb(ctx, `sync-map-empty-${stageId}`, orchestratorUrl, ctx.key, context);
+    await routeDownstream(ctx, stageId, [], definition, context);
+    return;
+  }
+
   const concurrency = stage.concurrency ?? items.length; // Default: unlimited
   const failureTolerance = stage.failure_tolerance ?? 0;
   const results: unknown[] = new Array(items.length).fill(null);
   let failureCount = 0;
 
-  // Process items in batches of `concurrency`
+  // Process items in batches of `concurrency`, each batch runs in parallel
   for (let batchStart = 0; batchStart < items.length; batchStart += concurrency) {
     const batchEnd = Math.min(batchStart + concurrency, items.length);
 
+    const batchPromises = [];
     for (let i = batchStart; i < batchEnd; i++) {
-      const mapInput: StageInput = {
-        ...input,
-        mapElement: items[i],
-        mapIndex: i,
-        sourceOutput: items[i],
-      };
+      batchPromises.push((async () => {
+        const mapInput: StageInput = {
+          ...input,
+          mapElement: items[i],
+          mapIndex: i,
+          sourceOutput: items[i],
+        };
 
-      // Create a sub-context entry for this map iteration
-      const mapStageKey = `${stageId}[${i}]`;
-      if (!context.stages[mapStageKey]) {
-        context.stages[mapStageKey] = { status: 'pending', run_count: 0, runs: [] };
-      }
-
-      try {
-        // Execute using the retry-aware executor directly
-        const config: Record<string, unknown> = stage.config || {};
-        const runStartedAt = await ctx.run(`timestamp-start-${mapStageKey}`, () => new Date().toISOString());
-        context.stages[mapStageKey].status = 'running';
-        context.stages[mapStageKey].run_count = 1;
-        context.stages[mapStageKey].runs.push({ iteration: 1, started_at: runStartedAt, input: items[i] as Record<string, unknown>, status: 'running' as const });
-        ctx.set('context', context);
-
-        const result = await executeWithRetry(
-          ctx,
-          stageId,
-          stage,
-          spec,
-          config,
-          definition,
-          context,
-          mapInput,
-          orchestratorUrl,
-          i + 1,
-        );
-        results[i] = result.output;
-
-        const completedAt = await ctx.run(`timestamp-done-${mapStageKey}`, () => new Date().toISOString());
-        const run = context.stages[mapStageKey].runs[context.stages[mapStageKey].runs.length - 1];
-        if (run) {
-          run.status = 'completed';
-          run.completed_at = completedAt;
-          run.output = result.output as Record<string, unknown> | unknown[];
-          const mapLogs = (result as any).logs as string | undefined;
-          const mapStderr = (result as any).stderr as string | undefined;
-          if (mapLogs) run.logs = mapLogs;
-          if (mapStderr) run.stderr = mapStderr;
+        // Create a sub-context entry for this map iteration
+        const mapStageKey = `${stageId}[${i}]`;
+        if (!context.stages[mapStageKey]) {
+          context.stages[mapStageKey] = { status: 'pending', run_count: 0, runs: [] };
         }
-        context.stages[mapStageKey].status = 'completed';
-        context.stages[mapStageKey].latest = result.output as Record<string, unknown> | unknown[];
-      } catch (err) {
-        failureCount++;
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        const failedAt = await ctx.run(`timestamp-fail-${mapStageKey}`, () => new Date().toISOString());
-        const run = context.stages[mapStageKey].runs[context.stages[mapStageKey].runs.length - 1];
-        if (run) {
-          run.status = 'failed';
-          run.completed_at = failedAt;
-          run.error = errorMsg;
-        }
-        context.stages[mapStageKey].status = 'failed';
-        ctx.set('context', context);
 
-        if (failureCount > failureTolerance) {
-          throw new restate.TerminalError(
-            `Stage "${stageId}" map failed: ${failureCount} failures exceeded tolerance of ${failureTolerance}. Last error: ${errorMsg}`,
+        try {
+          // Execute using the retry-aware executor directly
+          const config: Record<string, unknown> = stage.config || {};
+          const runStartedAt = await ctx.run(`timestamp-start-${mapStageKey}`, () => new Date().toISOString());
+          context.stages[mapStageKey].status = 'running';
+          context.stages[mapStageKey].run_count = 1;
+          context.stages[mapStageKey].runs.push({ iteration: 1, started_at: runStartedAt, input: items[i] as Record<string, unknown>, status: 'running' as const });
+          ctx.set('context', context);
+
+          const result = await executeWithRetry(
+            ctx,
+            stageId,
+            stage,
+            spec,
+            config,
+            definition,
+            context,
+            mapInput,
+            orchestratorUrl,
+            i + 1,
           );
+          results[i] = result.output;
+
+          const completedAt = await ctx.run(`timestamp-done-${mapStageKey}`, () => new Date().toISOString());
+          const run = context.stages[mapStageKey].runs[context.stages[mapStageKey].runs.length - 1];
+          if (run) {
+            run.status = 'completed';
+            run.completed_at = completedAt;
+            run.output = result.output as Record<string, unknown> | unknown[];
+            const mapLogs = (result as any).logs as string | undefined;
+            const mapStderr = (result as any).stderr as string | undefined;
+            if (mapLogs) run.logs = mapLogs;
+            if (mapStderr) run.stderr = mapStderr;
+          }
+          context.stages[mapStageKey].status = 'completed';
+          context.stages[mapStageKey].latest = result.output as Record<string, unknown> | unknown[];
+        } catch (err) {
+          failureCount++;
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          const failedAt = await ctx.run(`timestamp-fail-${mapStageKey}`, () => new Date().toISOString());
+          const run = context.stages[mapStageKey].runs[context.stages[mapStageKey].runs.length - 1];
+          if (run) {
+            run.status = 'failed';
+            run.completed_at = failedAt;
+            run.error = errorMsg;
+          }
+          context.stages[mapStageKey].status = 'failed';
+          ctx.set('context', context);
+
+          if (failureCount > failureTolerance) {
+            throw new restate.TerminalError(
+              `Stage "${stageId}" map failed: ${failureCount} failures exceeded tolerance of ${failureTolerance}. Last error: ${errorMsg}`,
+            );
+          }
+          results[i] = { _error: errorMsg };
         }
-        results[i] = { _error: errorMsg };
-      }
+      })());
     }
+    await Promise.all(batchPromises);
   }
 
   // Store collected results as the stage output

@@ -13,7 +13,7 @@ export type StageOutput = Record<string, unknown>;
 export function initializeContext(triggerEvent: Event, definition: WorkflowDefinition): WorkflowContext {
   // Use the trigger event's timestamp — NOT new Date() — so the value is
   // deterministic on Restate journal replay (no side effects outside ctx.run).
-  const triggerTimestamp = triggerEvent.timestamp || new Date().toISOString();
+  const triggerTimestamp = (triggerEvent as unknown as Record<string, unknown>).timestamp as string || '';
   const stages: Record<string, import('../types/instance.js').StageContext> = {};
 
   for (const stage of definition.stages) {
@@ -94,8 +94,15 @@ export function recordFanInCompletion(
   if (!context.fanInCompletions) context.fanInCompletions = {};
   if (!context.fanInCompletions[targetStageId]) context.fanInCompletions[targetStageId] = {};
 
+  const completions = context.fanInCompletions[targetStageId];
+
+  // If this fan-in has already fired, don't trigger again
+  if (completions['__fired']) {
+    return null;
+  }
+
   // Store with a status marker so trigger_rule can distinguish success/skip/fail
-  context.fanInCompletions[targetStageId][sourceStageId] = { output: sourceOutput, status: sourceStatus };
+  completions[sourceStageId] = { output: sourceOutput, status: sourceStatus };
 
   const stage = definition.stages.find((s) => s.id === targetStageId);
   const triggerRule = stage?.trigger_rule || 'all_success';
@@ -103,11 +110,12 @@ export function recordFanInCompletion(
     (e) => e.target === targetStageId && (e.trigger || 'on_success') === 'on_success',
   );
   const totalExpected = incomingEdges.length;
-  const completions = context.fanInCompletions[targetStageId];
   const arrived = Object.keys(completions).length;
 
-  // Extract statuses for evaluation
-  const statuses = Object.values(completions).map((c) => (c as { status: string }).status);
+  // Extract statuses for evaluation (exclude internal __fired key)
+  const statuses = Object.entries(completions)
+    .filter(([k]) => k !== '__fired')
+    .map(([, c]) => (c as { status: string }).status);
   const successCount = statuses.filter((s) => s === 'completed').length;
   const failedCount = statuses.filter((s) => s === 'failed').length;
 
@@ -135,9 +143,13 @@ export function recordFanInCompletion(
 
   if (!ready) return null;
 
+  // Mark as fired so subsequent upstream completions don't re-trigger
+  completions['__fired'] = true;
+
   // Build merged inputs: { sourceStageId: output, ... } for successful sources only
   const merged: Record<string, unknown> = {};
   for (const [srcId, data] of Object.entries(completions)) {
+    if (srcId === '__fired') continue;
     const entry = data as { status: string; output: unknown };
     if (entry.status === 'completed') {
       merged[srcId] = entry.output;
