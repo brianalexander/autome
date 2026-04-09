@@ -21,8 +21,9 @@ export type ACPMessage = z.infer<typeof ACPMessageSchema>;
 export const StageRunSchema = z.object({
   iteration: z.number(),
   started_at: z.string(),
-  completed_at: z.string().optional(),
+  input: z.any().optional(),
   status: z.enum(['running', 'completed', 'failed']),
+  completed_at: z.string().optional(),
   output: z.any().optional(),
   error: z.string().optional(),
   transcript: z.array(ACPMessageSchema).optional(),

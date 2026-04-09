@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X } from 'lucide-react';
+import { X, Copy, Check } from 'lucide-react';
 import { useNodeTypes } from '../../hooks/queries';
 import {
   isTriggerType,
@@ -19,13 +19,14 @@ export { EdgeConfigPanel } from './EdgeConfigPanel';
 interface ConfigPanelProps {
   stage: StageDefinition;
   definition: WorkflowDefinition;
-  onSave: (updated: StageDefinition) => void;
-  onDelete: () => void;
+  onSave?: (updated: StageDefinition) => void;
+  onDelete?: () => void;
   onClose: () => void;
   onDefinitionChange?: (definition: WorkflowDefinition) => void;
+  readonly?: boolean;
 }
 
-export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDefinitionChange }: ConfigPanelProps) {
+export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDefinitionChange, readonly }: ConfigPanelProps) {
   const { data: specs } = useNodeTypes();
 
   // Local edit state — updated synchronously on every keystroke for responsiveness.
@@ -35,6 +36,14 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   // The debounced flush receives the latest value via a ref so the closure never goes stale.
   const pendingValueRef = useRef<StageDefinition>(stage);
+
+  // Copy config state
+  const [copied, setCopied] = useState(false);
+  const handleCopyConfig = useCallback(() => {
+    navigator.clipboard.writeText(JSON.stringify(stage, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [stage]);
 
   // ID editing state
   const [idDraft, setIdDraft] = useState<string>(stage.id);
@@ -63,12 +72,13 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
     [key: string]: unknown;
   };
   const debouncedFlush = useCallback(() => {
+    if (readonly) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
       // structuredClone happens ONCE per debounce period, not on every keystroke.
-      onSave(structuredClone(pendingValueRef.current));
+      if (onSave) onSave(structuredClone(pendingValueRef.current));
     }, 300);
-  }, [onSave]);
+  }, [onSave, readonly]);
 
   useEffect(() => () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -146,18 +156,48 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
 
   return (
     <div className="w-full h-full bg-surface flex flex-col min-h-0 overflow-hidden">
-      {/* Header */}
-      <div className="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
-        <h3 className="font-semibold text-sm">Configure: {editState.id}</h3>
-        <button onClick={onClose} className="text-text-tertiary hover:text-text-primary transition-colors p-1" title="Close">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      {/* Header — hidden in readonly mode (parent sidebar provides its own) */}
+      {!readonly && (
+        <div className="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
+          <h3 className="font-semibold text-sm">Configure: {editState.id}</h3>
+          <div className="flex items-center gap-1">
+            <button onClick={handleCopyConfig} className="text-text-tertiary hover:text-text-primary transition-colors p-1" title="Copy config as JSON">
+              {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+            <button onClick={onClose} className="text-text-tertiary hover:text-text-primary transition-colors p-1" title="Close">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
-        {/* Stage ID (editable) */}
+        {/* Copy config button — shown in readonly mode (no header) */}
+        {readonly && (
+          <div className="flex justify-end -mt-1 -mb-2">
+            <button
+              onClick={handleCopyConfig}
+              className="flex items-center gap-1.5 text-[10px] text-text-tertiary hover:text-text-primary transition-colors"
+              title="Copy config as JSON"
+            >
+              {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+              {copied ? 'Copied' : 'Copy config'}
+            </button>
+          </div>
+        )}
+        {/* Stage ID (editable unless readonly) */}
         <Field label="Stage ID">
           {(() => {
+            if (readonly) {
+              return (
+                <input
+                  value={editState.id}
+                  readOnly
+                  disabled
+                  className="input-field font-mono text-xs opacity-60 cursor-default"
+                />
+              );
+            }
             const otherIds = definition.stages.filter((s) => s.id !== stage.id).map((s) => s.id);
             const formatError = idDraft && !ID_FORMAT_RE.test(idDraft);
             const uniqueError = !formatError && idDraft !== stage.id && otherIds.includes(idDraft);
@@ -230,7 +270,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
           <input
             value={editState.label || ''}
             onChange={(e) => update('label', e.target.value || undefined)}
-            className="input-field"
+            disabled={readonly}
+            className={`input-field${readonly ? ' opacity-60 cursor-default' : ''}`}
             placeholder={editState.type
               .split('-')
               .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -243,7 +284,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
           <input
             value={editState.description || ''}
             onChange={(e) => update('description', e.target.value || undefined)}
-            className="input-field"
+            disabled={readonly}
+            className={`input-field${readonly ? ' opacity-60 cursor-default' : ''}`}
             placeholder="Short description of what this node does"
           />
         </Field>
@@ -296,6 +338,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <CodeEditor
                 value={typeof cfg.output_schema === 'object' && cfg.output_schema ? JSON.stringify(cfg.output_schema, null, 2) : (cfg.output_schema as string || '')}
                 onChange={(val) => {
+                  if (readonly) return;
                   try {
                     const parsed = JSON.parse(val);
                     update('config.output_schema', parsed);
@@ -303,6 +346,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
                     update('config.output_schema', val || undefined);
                   }
                 }}
+                readOnly={readonly}
                 editorMode="json"
                 minHeight="100px"
               />
@@ -335,6 +379,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <CodeEditor
                 value={typeof cfg.output_schema === 'object' && cfg.output_schema ? JSON.stringify(cfg.output_schema, null, 2) : (cfg.output_schema as string || '')}
                 onChange={(val) => {
+                  if (readonly) return;
                   try {
                     const parsed = JSON.parse(val);
                     update('config.output_schema', parsed);
@@ -342,6 +387,7 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
                     update('config.output_schema', val || undefined);
                   }
                 }}
+                readOnly={readonly}
                 editorMode="json"
                 minHeight="100px"
               />
@@ -375,7 +421,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <input
                 value={(cfg.secret as string) || ''}
                 onChange={(e) => update('config.secret', e.target.value || undefined)}
-                className="input-field font-mono"
+                disabled={readonly}
+                className={`input-field font-mono${readonly ? ' opacity-60 cursor-default' : ''}`}
                 placeholder="Leave empty for no authentication"
               />
               <p className="text-[10px] text-text-tertiary mt-1">
@@ -388,7 +435,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <input
                 value={(cfg.payload_filter as string) || ''}
                 onChange={(e) => update('config.payload_filter', e.target.value || undefined)}
-                className="input-field font-mono text-xs"
+                disabled={readonly}
+                className={`input-field font-mono text-xs${readonly ? ' opacity-60 cursor-default' : ''}`}
                 placeholder="payload.action === 'created'"
               />
               <p className="text-[10px] text-text-tertiary mt-1">
@@ -424,7 +472,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <input
                 value={(cfg.schedule as string) || ''}
                 onChange={(e) => update('config.schedule', e.target.value || undefined)}
-                className="input-field font-mono"
+                disabled={readonly}
+                className={`input-field font-mono${readonly ? ' opacity-60 cursor-default' : ''}`}
                 placeholder="5m"
               />
               <p className="text-[10px] text-text-tertiary mt-1">
@@ -459,7 +508,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <select
                 value={cfg.type || 'manual'}
                 onChange={(e) => update('config.type', e.target.value)}
-                className="input-field"
+                disabled={readonly}
+                className={`input-field${readonly ? ' opacity-60 cursor-default' : ''}`}
               >
                 <option value="manual">Manual (human approval)</option>
                 <option value="conditional">Conditional (JS expression)</option>
@@ -471,7 +521,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <input
                 value={cfg.message || ''}
                 onChange={(e) => update('config.message', e.target.value)}
-                className="input-field"
+                disabled={readonly}
+                className={`input-field${readonly ? ' opacity-60 cursor-default' : ''}`}
                 placeholder="Review before proceeding"
               />
             </Field>
@@ -481,7 +532,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
                 <input
                   value={cfg.condition || ''}
                   onChange={(e) => update('config.condition', e.target.value)}
-                  className="input-field font-mono text-xs"
+                  disabled={readonly}
+                  className={`input-field font-mono text-xs${readonly ? ' opacity-60 cursor-default' : ''}`}
                   placeholder="context.stages['analyzer'].latest.score > 0.8"
                 />
               </Field>
@@ -495,7 +547,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
                   const val = parseInt(e.target.value);
                   update('config.timeout_minutes', isNaN(val) ? undefined : val);
                 }}
-                className="input-field w-24"
+                disabled={readonly}
+                className={`input-field w-24${readonly ? ' opacity-60 cursor-default' : ''}`}
                 min={1}
                 placeholder="∞"
               />
@@ -505,7 +558,8 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
               <select
                 value={cfg.timeout_action || 'reject'}
                 onChange={(e) => update('config.timeout_action', e.target.value)}
-                className="input-field"
+                disabled={readonly}
+                className={`input-field${readonly ? ' opacity-60 cursor-default' : ''}`}
               >
                 <option value="approve">Auto-approve on timeout</option>
                 <option value="reject">Reject on timeout</option>
@@ -519,18 +573,20 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
           <GenericNodeConfig
             editState={editState}
             onUpdate={(updated) => {
+              if (readonly) return;
               pendingValueRef.current = updated;
               setEditState(updated);
               debouncedFlush();
             }}
             upstreamSchema={upstreamSchema}
             nodeType={editState.type}
+            readonly={readonly}
           />
         )}
 
         {/* --- Advanced: Fan-in, Retry, Map (all step types) --- */}
         {!isTriggerType(editState.type) && (
-          <AdvancedStageConfig editState={editState} definition={definition} onUpdate={update} />
+          <AdvancedStageConfig editState={editState} definition={definition} onUpdate={readonly ? () => {} : update} readonly={readonly} />
         )}
       </div>
     </div>
@@ -584,20 +640,23 @@ function GenericNodeConfig({
   onUpdate,
   upstreamSchema,
   nodeType,
+  readonly,
 }: {
   editState: StageDefinition;
   onUpdate: (s: StageDefinition) => void;
   upstreamSchema?: Record<string, unknown>;
   nodeType?: string;
+  readonly?: boolean;
 }) {
   const { data: specs } = useNodeTypes();
   const spec = specs?.find((s) => s.id === editState.type);
 
   const handleChange = useCallback(
     (config: Record<string, unknown>) => {
+      if (readonly) return;
       onUpdate({ ...editState, config });
     },
-    [editState, onUpdate],
+    [editState, onUpdate, readonly],
   );
 
   if (!spec) {
@@ -615,6 +674,7 @@ function GenericNodeConfig({
         nodeType={nodeType}
         returnSchema={(editState.config as Record<string, unknown>)?.output_schema as Record<string, unknown> | undefined}
         sandbox={(editState.config as Record<string, unknown>)?.sandbox as boolean | undefined}
+        readonly={readonly}
       />
     </>
   );

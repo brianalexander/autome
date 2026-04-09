@@ -24,7 +24,6 @@ import { ResizablePanel } from './ui/ResizablePanel';
 import { IconSidebar, type SidebarTab } from './canvas/IconSidebar';
 import { NodePalette } from './canvas/NodePalette';
 import { RuntimeViewer } from './instance/RuntimeViewer';
-import { StatusBadge } from './ui/StatusBadge';
 import { WorkflowInfoBubble } from './canvas/WorkflowInfoBubble';
 import { WorkflowHealthIndicator } from './WorkflowHealthIndicator';
 import { WorkflowSettings } from './canvas/WorkflowSettings';
@@ -129,24 +128,15 @@ function TestRunView({ instanceId, definition, instance, liveStatus, onClose }: 
   const effectiveStatus = liveStatus?.status ?? instance!.status;
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-      <div className="px-6 py-3 border-b border-border flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <button onClick={onClose} className="text-text-tertiary hover:text-text-secondary text-sm">
-            {'\u2190'} Back to Editor
-          </button>
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-bold">{definition.name}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 font-medium">
-              Test Run
-            </span>
-            <StatusBadge status={effectiveStatus} size="md" />
-          </div>
-        </div>
-        <button onClick={onClose} className="px-3 py-1.5 text-sm border border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg transition-colors">
-          Stop &amp; Close
-        </button>
-      </div>
-      <RuntimeViewer instanceId={instanceId} definition={definition} instance={instance!} liveStatus={liveStatus} />
+      <RuntimeViewer
+        instanceId={instanceId}
+        definition={definition}
+        instance={instance!}
+        liveStatus={liveStatus}
+        onClose={onClose}
+        workflowName={`${definition.name} — Test Run`}
+        effectiveStatus={effectiveStatus}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ interface SchemaProperty {
   type?: string;
   description?: string;
   default?: unknown;
+  enum?: unknown[];
 }
 
 interface TriggerDialogProps {
@@ -21,164 +22,101 @@ interface TriggerDialogProps {
   } | null;
 }
 
-// ---------------------------------------------------------------------------
-// Schema-driven form
-// ---------------------------------------------------------------------------
-
-interface SchemaFormProps {
-  properties: Record<string, SchemaProperty>;
-  values: Record<string, string>;
-  onChange: (key: string, value: string) => void;
-  disabled?: boolean;
+/**
+ * Build a template JSON object from a JSON Schema, using defaults or
+ * placeholder values so the user has something to fill in.
+ */
+function buildTemplate(schema: Record<string, unknown>): Record<string, unknown> {
+  const props = schema.properties as Record<string, SchemaProperty> | undefined;
+  if (!props) return {};
+  const required = (schema.required || []) as string[];
+  const result: Record<string, unknown> = {};
+  for (const [key, prop] of Object.entries(props)) {
+    if (prop.default !== undefined) {
+      result[key] = prop.default;
+    } else if (prop.enum && prop.enum.length > 0) {
+      result[key] = prop.enum[0];
+    } else {
+      switch (prop.type) {
+        case 'number':
+        case 'integer':
+          result[key] = 0;
+          break;
+        case 'boolean':
+          result[key] = false;
+          break;
+        case 'array':
+          result[key] = [];
+          break;
+        case 'object':
+          result[key] = {};
+          break;
+        default:
+          result[key] = required.includes(key) ? '' : '';
+          break;
+      }
+    }
+  }
+  return result;
 }
 
-function SchemaForm({ properties, values, onChange, disabled }: SchemaFormProps) {
-  return (
-    <div className="space-y-4">
-      {Object.entries(properties).map(([key, prop]) => {
-        const type = prop.type ?? 'string';
-        const value = values[key] ?? '';
+/**
+ * Validate a payload against the schema's required fields.
+ * Returns an array of error strings (empty = valid).
+ */
+function validatePayload(payload: Record<string, unknown>, schema: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  const required = (schema.required || []) as string[];
+  const props = (schema.properties || {}) as Record<string, SchemaProperty>;
 
-        if (type === 'boolean') {
-          return (
-            <div key={key} className="flex items-start gap-3">
-              <input
-                id={`schema-field-${key}`}
-                type="checkbox"
-                checked={value === 'true'}
-                onChange={(e) => onChange(key, e.target.checked ? 'true' : 'false')}
-                disabled={disabled}
-                className="mt-0.5 h-4 w-4 rounded border-border-subtle text-blue-600 focus:ring-blue-500"
-              />
-              <div>
-                <label htmlFor={`schema-field-${key}`} className="text-sm font-medium text-text-primary">
-                  {key}
-                </label>
-                {prop.description && (
-                  <p className="text-xs text-text-tertiary mt-0.5">{prop.description}</p>
-                )}
-              </div>
-            </div>
-          );
-        }
+  for (const key of required) {
+    const val = payload[key];
+    if (val === undefined || val === null || val === '') {
+      errors.push(`"${key}" is required`);
+    }
+  }
 
-        if (type === 'number') {
-          return (
-            <div key={key}>
-              <label htmlFor={`schema-field-${key}`} className="block text-sm font-medium text-text-primary mb-1">
-                {key}
-              </label>
-              <input
-                id={`schema-field-${key}`}
-                type="number"
-                value={value}
-                onChange={(e) => onChange(key, e.target.value)}
-                disabled={disabled}
-                className="w-full bg-surface border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500"
-              />
-              {prop.description && (
-                <p className="text-xs text-text-tertiary mt-1">{prop.description}</p>
-              )}
-            </div>
-          );
-        }
+  // Type checks for provided values
+  for (const [key, prop] of Object.entries(props)) {
+    const val = payload[key];
+    if (val === undefined || val === null || val === '') continue;
+    if (prop.type === 'number' || prop.type === 'integer') {
+      if (typeof val !== 'number') errors.push(`"${key}" should be a number`);
+    } else if (prop.type === 'boolean') {
+      if (typeof val !== 'boolean') errors.push(`"${key}" should be a boolean`);
+    } else if (prop.type === 'array') {
+      if (!Array.isArray(val)) errors.push(`"${key}" should be an array`);
+    }
+    if (prop.enum && prop.enum.length > 0 && !prop.enum.includes(val)) {
+      errors.push(`"${key}" must be one of: ${prop.enum.map(String).join(', ')}`);
+    }
+  }
 
-        if (type === 'object' || type === 'array') {
-          return (
-            <div key={key}>
-              <label htmlFor={`schema-field-${key}`} className="block text-sm font-medium text-text-primary mb-1">
-                {key}
-                <span className="ml-1.5 text-[10px] text-text-muted font-normal">(JSON)</span>
-              </label>
-              <textarea
-                id={`schema-field-${key}`}
-                value={value}
-                onChange={(e) => onChange(key, e.target.value)}
-                disabled={disabled}
-                placeholder={type === 'array' ? '[]' : '{}'}
-                className="w-full bg-surface border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary font-mono focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500 min-h-[80px] resize-y"
-              />
-              {prop.description && (
-                <p className="text-xs text-text-tertiary mt-1">{prop.description}</p>
-              )}
-            </div>
-          );
-        }
-
-        // Default: string
-        return (
-          <div key={key}>
-            <label htmlFor={`schema-field-${key}`} className="block text-sm font-medium text-text-primary mb-1">
-              {key}
-            </label>
-            <input
-              id={`schema-field-${key}`}
-              type="text"
-              value={value}
-              onChange={(e) => onChange(key, e.target.value)}
-              disabled={disabled}
-              className="w-full bg-surface border border-border-subtle rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500"
-            />
-            {prop.description && (
-              <p className="text-xs text-text-tertiary mt-1">{prop.description}</p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+  return errors;
 }
-
-// ---------------------------------------------------------------------------
-// Main dialog
-// ---------------------------------------------------------------------------
 
 export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPending, outputSchema, validation }: TriggerDialogProps) {
   const [input, setInput] = useState('');
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [schemaErrors, setSchemaErrors] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const firstInputRef = useRef<HTMLInputElement>(null);
 
-  // Derive schema properties if present
-  const schemaProperties = useMemo<Record<string, SchemaProperty> | null>(() => {
-    const props = outputSchema?.properties;
-    if (props && typeof props === 'object' && Object.keys(props).length > 0) {
-      return props as Record<string, SchemaProperty>;
-    }
-    return null;
-  }, [outputSchema]);
+  const hasSchema = !!(outputSchema?.properties && Object.keys(outputSchema.properties as object).length > 0);
 
-  // Reset state when dialog opens
+  // Build template JSON when dialog opens
   useEffect(() => {
     if (isOpen) {
-      setInput('');
-      if (schemaProperties) {
-        // Seed defaults from schema
-        const defaults: Record<string, string> = {};
-        for (const [key, prop] of Object.entries(schemaProperties)) {
-          if (prop.default !== undefined) {
-            const t = prop.type ?? 'string';
-            if (t === 'boolean') {
-              defaults[key] = String(prop.default);
-            } else if (t === 'object' || t === 'array') {
-              defaults[key] = JSON.stringify(prop.default, null, 2);
-            } else {
-              defaults[key] = String(prop.default);
-            }
-          } else {
-            defaults[key] = '';
-          }
-        }
-        setFieldValues(defaults);
-        requestAnimationFrame(() => firstInputRef.current?.focus());
+      setSchemaErrors([]);
+      if (hasSchema && outputSchema) {
+        const template = buildTemplate(outputSchema);
+        setInput(JSON.stringify(template, null, 2));
       } else {
-        setFieldValues({});
-        requestAnimationFrame(() => textareaRef.current?.focus());
+        setInput('');
       }
+      requestAnimationFrame(() => textareaRef.current?.focus());
     }
-  }, [isOpen, schemaProperties]);
+  }, [isOpen, hasSchema, outputSchema]);
 
-  // JSON validation for the raw textarea fallback
+  // Live JSON validation
   const jsonStatus = useMemo(() => {
     const trimmed = input.trim();
     if (!trimmed) return 'empty' as const;
@@ -193,50 +131,29 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
 
   if (!isOpen) return null;
 
-  const handleFieldChange = (key: string, value: string) => {
-    setFieldValues((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const buildSchemaPayload = (): Record<string, unknown> | null => {
-    if (!schemaProperties) return null;
-    const payload: Record<string, unknown> = {};
-    for (const [key, prop] of Object.entries(schemaProperties)) {
-      const raw = fieldValues[key] ?? '';
-      const type = prop.type ?? 'string';
-      if (raw === '' && prop.default === undefined) continue;
-      if (type === 'boolean') {
-        payload[key] = raw === 'true';
-      } else if (type === 'number') {
-        const n = parseFloat(raw);
-        if (!isNaN(n)) payload[key] = n;
-      } else if (type === 'object' || type === 'array') {
-        try {
-          payload[key] = raw ? JSON.parse(raw) : type === 'array' ? [] : {};
-        } catch {
-          // Leave out malformed JSON fields rather than blocking submit
-        }
-      } else {
-        if (raw !== '') payload[key] = raw;
-      }
-    }
-    return payload;
-  };
-
   const handleSubmit = () => {
-    if (schemaProperties) {
-      const payload = buildSchemaPayload();
-      if (payload !== null) onTrigger(payload);
-      return;
-    }
-    // Raw textarea path
     const trimmed = input.trim();
     if (!trimmed) return;
+
     let payload: Record<string, unknown>;
     if (jsonStatus === 'valid') {
       payload = JSON.parse(trimmed) as Record<string, unknown>;
-    } else {
+    } else if (jsonStatus === 'text') {
       payload = { prompt: trimmed };
+    } else {
+      return; // invalid JSON, don't submit
     }
+
+    // Validate against schema if present
+    if (hasSchema && outputSchema && jsonStatus === 'valid') {
+      const errors = validatePayload(payload, outputSchema);
+      if (errors.length > 0) {
+        setSchemaErrors(errors);
+        return;
+      }
+    }
+
+    setSchemaErrors([]);
     onTrigger(payload);
   };
 
@@ -248,7 +165,7 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
     if (e.key === 'Escape') {
       onClose();
     }
-    if (e.key === 'Tab' && !schemaProperties) {
+    if (e.key === 'Tab') {
       e.preventDefault();
       const ta = e.currentTarget as HTMLTextAreaElement;
       const start = ta.selectionStart;
@@ -257,6 +174,23 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
       setTimeout(() => ta.setSelectionRange(start + 2, start + 2), 0);
     }
   };
+
+  // Build description hints from schema
+  const fieldHints = useMemo(() => {
+    if (!hasSchema || !outputSchema) return null;
+    const props = outputSchema.properties as Record<string, SchemaProperty>;
+    const required = (outputSchema.required || []) as string[];
+    const hints: { key: string; type: string; desc?: string; req: boolean }[] = [];
+    for (const [key, prop] of Object.entries(props)) {
+      hints.push({
+        key,
+        type: prop.type || 'string',
+        desc: prop.description,
+        req: required.includes(key),
+      });
+    }
+    return hints.length > 0 ? hints : null;
+  }, [hasSchema, outputSchema]);
 
   const statusIndicator =
     jsonStatus === 'valid'
@@ -267,23 +201,19 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
           ? { text: 'Free text', className: 'text-text-tertiary' }
           : null;
 
-  // Schema-driven: submit is always enabled (empty payload is valid)
-  const schemaSubmitDisabled = isPending;
-  // Raw textarea: require non-empty, valid-ish input
-  const rawSubmitDisabled = !schemaProperties && (!input.trim() || isPending || jsonStatus === 'invalid');
+  const submitDisabled = !input.trim() || isPending || jsonStatus === 'invalid';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
         className="bg-surface-secondary border border-border-subtle rounded-xl w-full max-w-lg mx-4 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={handleKeyDown}
       >
         <div className="p-5 border-b border-border">
           <h3 className="text-lg font-semibold text-text-primary">Trigger: {workflowName}</h3>
           <p className="text-xs text-text-secondary mt-1">
-            {schemaProperties
-              ? 'Fill in the fields below to provide input for the workflow.'
+            {hasSchema
+              ? 'Edit the JSON payload below. Fields are pre-populated from the trigger schema.'
               : 'Enter a prompt or JSON payload for the workflow.'}
           </p>
         </div>
@@ -311,39 +241,55 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
             </div>
           )}
 
-          {schemaProperties ? (
-            <SchemaForm
-              properties={schemaProperties}
-              values={fieldValues}
-              onChange={handleFieldChange}
-              disabled={isPending}
-            />
-          ) : (
-            <>
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Enter input for the workflow..."
-                className={`w-full bg-surface border rounded-lg px-4 py-3 text-sm text-text-primary font-mono focus:outline-none focus:ring-1 min-h-[140px] resize-y ${
-                  jsonStatus === 'invalid'
-                    ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
-                    : 'border-border-subtle focus:border-blue-500 focus:ring-blue-500'
-                }`}
-                disabled={isPending}
-              />
-              <div className="flex items-center justify-between mt-2">
-                {statusIndicator ? (
-                  <span className={`text-[10px] font-medium ${statusIndicator.className}`}>{statusIndicator.text}</span>
-                ) : (
-                  <span />
-                )}
-                <span className="text-[10px] text-text-muted">
-                  {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to run
-                </span>
-              </div>
-            </>
+          {schemaErrors.length > 0 && (
+            <div className="bg-red-950/20 border border-red-500/30 rounded-lg p-3 space-y-1">
+              <div className="text-xs font-medium text-red-400">Validation failed</div>
+              {schemaErrors.map((err, i) => (
+                <div key={i} className="text-[11px] text-red-400/80">• {err}</div>
+              ))}
+            </div>
           )}
+
+          {/* Field hints from schema */}
+          {fieldHints && (
+            <div className="bg-surface border border-border rounded-lg p-3">
+              <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-1.5">Expected fields</div>
+              <div className="space-y-1">
+                {fieldHints.map((h) => (
+                  <div key={h.key} className="flex items-baseline gap-2 text-xs">
+                    <code className="text-blue-400 font-mono text-[11px]">{h.key}</code>
+                    <span className="text-text-muted text-[10px]">{h.type}</span>
+                    {h.req && <span className="text-red-400 text-[10px]">required</span>}
+                    {h.desc && <span className="text-text-tertiary text-[10px] truncate">{h.desc}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => { setInput(e.target.value); setSchemaErrors([]); }}
+            onKeyDown={handleKeyDown}
+            placeholder="Enter input for the workflow..."
+            className={`w-full bg-surface border rounded-lg px-4 py-3 text-sm text-text-primary font-mono focus:outline-none focus:ring-1 min-h-[160px] resize-y ${
+              jsonStatus === 'invalid' || schemaErrors.length > 0
+                ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                : 'border-border-subtle focus:border-blue-500 focus:ring-blue-500'
+            }`}
+            disabled={isPending}
+          />
+          <div className="flex items-center justify-between">
+            {statusIndicator ? (
+              <span className={`text-[10px] font-medium ${statusIndicator.className}`}>{statusIndicator.text}</span>
+            ) : (
+              <span />
+            )}
+            <span className="text-[10px] text-text-muted">
+              {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to run
+            </span>
+          </div>
         </div>
 
         <div className="p-5 border-t border-border flex justify-end gap-3">
@@ -352,7 +298,7 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
           </button>
           <button
             onClick={handleSubmit}
-            disabled={schemaProperties ? schemaSubmitDisabled : rawSubmitDisabled}
+            disabled={submitDisabled}
             className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 transition-colors"
           >
             {isPending ? 'Starting...' : 'Run'}

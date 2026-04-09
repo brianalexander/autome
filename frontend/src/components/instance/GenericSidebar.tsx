@@ -1,65 +1,93 @@
-import { SidebarShell } from '../ui/SidebarShell';
+import { useState } from 'react';
+import { ChevronLeft } from 'lucide-react';
+import { StatusBadge } from '../ui/StatusBadge';
 import { MetadataRow } from '../ui/MetadataRow';
-import { ReadOnlySchemaView } from '../ui/ReadOnlySchemaView';
 import { RunHistory } from './RunHistory';
-import { useNodeTypes } from '../../hooks/queries';
-import type { StageDefinition, StageContext } from '../../lib/api';
+import { ConfigPanel } from '../canvas/ConfigPanel';
+import type { StageDefinition, StageContext, WorkflowDefinition } from '../../lib/api';
 
 export function GenericSidebar({
   stageId,
   stageDef,
   stageCtx,
+  definition,
   onClose,
 }: {
   stageId: string;
   stageDef?: StageDefinition;
   stageCtx: StageContext | null | undefined;
+  definition?: WorkflowDefinition;
   onClose: () => void;
 }) {
-  const { data: nodeTypeList } = useNodeTypes();
-
-  const nodeType = nodeTypeList?.find((nt) => nt.id === stageDef?.type);
-  const configSchema = nodeType?.configSchema as Record<string, unknown> | undefined;
-  const hasSchema =
-    configSchema &&
-    configSchema.properties &&
-    Object.keys(configSchema.properties as object).length > 0;
-
-  const handleCopyConfig = () => {
-    if (stageDef) {
-      navigator.clipboard.writeText(JSON.stringify(stageDef, null, 2));
-    }
-  };
+  const [activeTab, setActiveTab] = useState<'runtime' | 'config'>('runtime');
 
   return (
-    <SidebarShell
-      title={stageDef?.label || stageId}
-      subtitle={stageDef?.type || 'unknown'}
-      statusBadge={stageCtx?.status || 'pending'}
-      onClose={onClose}
-      onCopyConfig={stageDef ? handleCopyConfig : undefined}
-    >
-      {stageDef && (
-        <>
-          {stageDef.description && <MetadataRow label="Description" value={stageDef.description} />}
+    <div className="w-full h-full bg-surface flex flex-col min-h-0 overflow-hidden">
+      {/* Header */}
+      <div className="p-4 pb-0 flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-primary transition-colors flex-shrink-0"
+          >
+            <ChevronLeft className="w-3 h-3" />
+            Overview
+          </button>
+          <h3 className="font-semibold text-sm truncate">{stageDef?.label || stageId}</h3>
+          {stageCtx?.status && <StatusBadge status={stageCtx.status} />}
+        </div>
+        {stageDef?.type && <p className="text-[10px] text-text-tertiary mt-1">{stageDef.type}</p>}
 
-          {/* Map Over section — shown when map_over is set */}
-          {stageDef.map_over && (
-            <div className="rounded-lg border border-indigo-400/40 bg-indigo-500/10 p-3 space-y-2">
-              <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold">Map Over</div>
-              <div>
-                <div className="text-[10px] text-text-tertiary mb-0.5">Expression</div>
-                <code className="text-xs text-indigo-300 bg-indigo-500/10 rounded px-1.5 py-0.5 font-mono block break-all">
-                  {stageDef.map_over}
-                </code>
-              </div>
-              {stageDef.concurrency != null && (
-                <div className="flex gap-4">
+        {/* Tabs */}
+        <div className="flex gap-0 border-b border-border mt-2 -mx-4 px-4">
+          {(['runtime', 'config'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors border-b-2 -mb-px ${
+                activeTab === tab
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-text-tertiary hover:text-text-secondary'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab content */}
+      {activeTab === 'runtime' ? (
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {stageDef && (
+            <>
+              {stageDef.description && <MetadataRow label="Description" value={stageDef.description} />}
+
+              {/* Map Over section — shown when map_over is set */}
+              {stageDef.map_over && (
+                <div className="rounded-lg border border-indigo-400/40 bg-indigo-500/10 p-3 space-y-2">
+                  <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold">Map Over</div>
                   <div>
-                    <div className="text-[10px] text-text-tertiary mb-0.5">Concurrency</div>
-                    <span className="text-xs text-text-primary font-mono">{stageDef.concurrency}</span>
+                    <div className="text-[10px] text-text-tertiary mb-0.5">Expression</div>
+                    <code className="text-xs text-indigo-300 bg-indigo-500/10 rounded px-1.5 py-0.5 font-mono block break-all">
+                      {stageDef.map_over}
+                    </code>
                   </div>
-                  {stageDef.failure_tolerance != null && (
+                  {stageDef.concurrency != null && (
+                    <div className="flex gap-4">
+                      <div>
+                        <div className="text-[10px] text-text-tertiary mb-0.5">Concurrency</div>
+                        <span className="text-xs text-text-primary font-mono">{stageDef.concurrency}</span>
+                      </div>
+                      {stageDef.failure_tolerance != null && (
+                        <div>
+                          <div className="text-[10px] text-text-tertiary mb-0.5">Failure Tolerance</div>
+                          <span className="text-xs text-text-primary font-mono">{stageDef.failure_tolerance}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {stageDef.concurrency == null && stageDef.failure_tolerance != null && (
                     <div>
                       <div className="text-[10px] text-text-tertiary mb-0.5">Failure Tolerance</div>
                       <span className="text-xs text-text-primary font-mono">{stageDef.failure_tolerance}</span>
@@ -67,33 +95,24 @@ export function GenericSidebar({
                   )}
                 </div>
               )}
-              {stageDef.concurrency == null && stageDef.failure_tolerance != null && (
-                <div>
-                  <div className="text-[10px] text-text-tertiary mb-0.5">Failure Tolerance</div>
-                  <span className="text-xs text-text-primary font-mono">{stageDef.failure_tolerance}</span>
-                </div>
-              )}
-            </div>
+            </>
           )}
-
-          <div>
-            <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">Configuration</div>
-            {hasSchema ? (
-              <ReadOnlySchemaView
-                schema={configSchema}
-                values={(stageDef.config as Record<string, unknown>) || {}}
-              />
-            ) : stageDef.config && Object.keys(stageDef.config).length > 0 ? (
-              <pre className="text-xs text-text-secondary bg-surface-secondary rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap break-words font-mono">
-                {JSON.stringify(stageDef.config, null, 2)}
-              </pre>
-            ) : (
-              <div className="text-xs text-text-tertiary py-2">No configuration needed.</div>
-            )}
-          </div>
-        </>
+          {stageCtx?.runs && <RunHistory runs={stageCtx.runs} />}
+        </div>
+      ) : stageDef && definition ? (
+        <div className="flex-1 overflow-hidden min-h-0">
+          <ConfigPanel
+            stage={stageDef}
+            definition={definition}
+            onClose={onClose}
+            readonly
+          />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="text-xs text-text-tertiary py-2">Configuration not available.</div>
+        </div>
       )}
-      {stageCtx?.runs && <RunHistory runs={stageCtx.runs} />}
-    </SidebarShell>
+    </div>
   );
 }

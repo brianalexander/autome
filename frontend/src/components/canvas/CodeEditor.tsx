@@ -383,6 +383,8 @@ interface CodeEditorProps {
   returnSchema?: Record<string, unknown>;
   /** When false, Node.js built-in modules are available in type checking */
   sandbox?: boolean;
+  /** When true, the editor is read-only */
+  readOnly?: boolean;
 }
 
 export function CodeEditor({
@@ -395,6 +397,7 @@ export function CodeEditor({
   nodeType,
   returnSchema,
   sandbox,
+  readOnly,
 }: CodeEditorProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -513,9 +516,10 @@ export function CodeEditor({
           <div className={expanded ? "flex-1 overflow-auto p-3" : ""}>
             <CodeMirror
               value={value}
-              onChange={onChange}
+              onChange={readOnly ? undefined : onChange}
               extensions={extensions}
               theme={githubDark}
+              readOnly={readOnly}
               placeholder={placeholder || (editorMode === 'json' ? PLACEHOLDER_JSON : editorMode === 'condition' ? PLACEHOLDER_CONDITION : editorMode === 'template' ? PLACEHOLDER_TEMPLATE : PLACEHOLDER_CODE)}
               basicSetup={{
                 lineNumbers: true,

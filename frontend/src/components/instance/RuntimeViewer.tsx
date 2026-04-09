@@ -120,6 +120,7 @@ export function RuntimeViewer({
           versionInfo={versionInfo}
           stageProgress={stageProgress}
           duration={duration}
+          onBack={onClose}
         />
 
         {/* Floating widget: actions — top-right of canvas */}
@@ -132,6 +133,14 @@ export function RuntimeViewer({
             >
               View Workflow
             </Link>
+          )}
+          {onClose && !workflowId && (
+            <button
+              onClick={onClose}
+              className="px-2.5 py-1.5 text-xs rounded-lg border bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] shadow-sm backdrop-blur-sm transition-colors"
+            >
+              Close
+            </button>
           )}
           {isActive && (
             <button
@@ -210,6 +219,7 @@ export function RuntimeViewer({
               stageId={selectedStageId}
               stageDef={selectedStageDef}
               stageCtx={selectedStageCtx}
+              definition={definition}
               onClose={() => setSelectedStageId(null)}
             />
           )

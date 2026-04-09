@@ -322,6 +322,35 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
     },
   );
 
+  // POST /api/workflows/:id/clone — Clone a workflow
+  typedApp.post(
+    '/api/workflows/:id/clone',
+    {
+      schema: { params: WorkflowIdParams },
+    },
+    async (request, reply) => {
+      try {
+        const { id } = request.params;
+        const source = db.getWorkflow(id);
+        if (!source) return reply.code(404).send({ error: 'Workflow not found' });
+
+        const { id: _sourceId, version: _version, ...rest } = source;
+        const cloned = db.createWorkflow({
+          ...rest,
+          name: `${source.name} (Copy)`,
+          active: false,
+        });
+
+        db.copyAuthorSegments(id, cloned.id);
+
+        return reply.code(201).send(cloned);
+      } catch (err) {
+        console.error('POST /api/workflows/:id/clone error:', err);
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
   // POST /api/workflows/:id/activate — Start listening for trigger events
   typedApp.post(
     '/api/workflows/:id/activate',

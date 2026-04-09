@@ -31,17 +31,19 @@ interface SchemaFormProps {
   nodeType?: string;
   returnSchema?: Record<string, unknown>;
   sandbox?: boolean;
+  readonly?: boolean;
 }
 
-export function SchemaForm({ schema, value, onChange, outputSchema, nodeType, returnSchema, sandbox }: SchemaFormProps) {
+export function SchemaForm({ schema, value, onChange, outputSchema, nodeType, returnSchema, sandbox, readonly }: SchemaFormProps) {
   const properties = (schema.properties || {}) as Record<string, JSONSchemaProperty>;
   const required = (schema.required || []) as string[];
 
   const updateField = useCallback(
     (field: string, val: unknown) => {
+      if (readonly) return;
       onChange({ ...value, [field]: val });
     },
-    [value, onChange],
+    [value, onChange, readonly],
   );
 
   const entries = Object.entries(properties).filter(([, prop]) => {
@@ -79,6 +81,7 @@ export function SchemaForm({ schema, value, onChange, outputSchema, nodeType, re
           nodeType={nodeType}
           returnSchema={returnSchema}
           sandbox={sandbox}
+          readonly={readonly}
         />
       ))}
     </div>
@@ -95,6 +98,7 @@ function SchemaField({
   nodeType,
   returnSchema,
   sandbox,
+  readonly,
 }: {
   name: string;
   prop: JSONSchemaProperty;
@@ -105,8 +109,11 @@ function SchemaField({
   nodeType?: string;
   returnSchema?: Record<string, unknown>;
   sandbox?: boolean;
+  readonly?: boolean;
 }) {
   const label = prop.title || name;
+
+  const disabledCls = readonly ? ' opacity-60 cursor-default' : '';
 
   // Nested object
   if (prop.type === 'object' && prop.properties) {
@@ -120,6 +127,7 @@ function SchemaField({
           outputSchema={outputSchema}
           nodeType={nodeType}
           returnSchema={returnSchema}
+          readonly={readonly}
         />
       </fieldset>
     );
@@ -132,7 +140,8 @@ function SchemaField({
         <select
           value={String(value ?? prop.default ?? '')}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary"
+          disabled={readonly}
+          className={`w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary${disabledCls}`}
         >
           <option value="">— Select —</option>
           {prop.enum.map((opt) => (
@@ -153,7 +162,8 @@ function SchemaField({
           type="checkbox"
           checked={Boolean(value ?? prop.default ?? false)}
           onChange={(e) => onChange(e.target.checked)}
-          className="rounded border-border"
+          disabled={readonly}
+          className={`rounded border-border${disabledCls}`}
         />
       </Field>
     );
@@ -168,7 +178,8 @@ function SchemaField({
           value={value != null ? String(value) : ''}
           placeholder={prop.default != null ? String(prop.default) : undefined}
           onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
-          className="w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono"
+          disabled={readonly}
+          className={`w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono${disabledCls}`}
         />
       </Field>
     );
@@ -176,7 +187,7 @@ function SchemaField({
 
   // Multiline textarea for templates, prompts, and other non-code text
   if (prop.format === 'textarea') {
-    return <ExpandableTextarea label={label} description={prop.description} required={required} value={value} onChange={onChange} />;
+    return <ExpandableTextarea label={label} description={prop.description} required={required} value={value} onChange={onChange} readonly={readonly} />;
   }
 
   // Dependencies editor — key-value pairs for npm packages
@@ -188,6 +199,7 @@ function SchemaField({
         required={required}
         value={value}
         onChange={onChange}
+        readonly={readonly}
       />
     );
   }
@@ -212,7 +224,9 @@ function SchemaField({
           nodeType={nodeType}
           returnSchema={returnSchema}
           sandbox={sandbox}
+          readOnly={readonly}
           onChange={(raw) => {
+            if (readonly) return;
             // Try to parse as JSON if it looks like an array/object
             if (raw.startsWith('[') || raw.startsWith('{')) {
               try {
@@ -241,7 +255,8 @@ function SchemaField({
         type={prop.format === 'url' ? 'url' : 'text'}
         value={String(stringValue)}
         onChange={(e) => onChange(e.target.value || undefined)}
-        className="w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary"
+        disabled={readonly}
+        className={`w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary${disabledCls}`}
       />
     </Field>
   );
@@ -253,12 +268,14 @@ function DependencyEditor({
   required,
   value,
   onChange,
+  readonly,
 }: {
   label: string;
   description?: string;
   required: boolean;
   value: unknown;
   onChange: (val: unknown) => void;
+  readonly?: boolean;
 }) {
   const deps = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<string, string>;
   const serialized = Object.entries(deps)
@@ -298,10 +315,11 @@ function DependencyEditor({
         onFocus={() => setFocused(true)}
         onBlur={(e) => {
           setFocused(false);
-          commitValue(e.target.value);
+          if (!readonly) commitValue(e.target.value);
         }}
         rows={2}
-        className="w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono resize-y"
+        disabled={readonly}
+        className={`w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono resize-y${readonly ? ' opacity-60 cursor-default' : ''}`}
         spellCheck={false}
         placeholder={"lodash@^4.17.21\naxios@^1.7.0"}
       />
@@ -316,12 +334,14 @@ function ExpandableTextarea({
   required,
   value,
   onChange,
+  readonly,
 }: {
   label: string;
   description?: string;
   required?: boolean;
   value: unknown;
   onChange: (val: unknown) => void;
+  readonly?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const textareaRef = useCallback((node: HTMLTextAreaElement | null) => {
@@ -377,9 +397,10 @@ function ExpandableTextarea({
             <textarea
               ref={textareaRef}
               value={String(displayValue)}
-              onChange={(e) => onChange(e.target.value || undefined)}
+              onChange={(e) => { if (!readonly) onChange(e.target.value || undefined); }}
               rows={expanded ? 20 : 4}
-              className="w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono resize-y"
+              disabled={readonly}
+              className={`w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono resize-y${readonly ? ' opacity-60 cursor-default' : ''}`}
               spellCheck={false}
               placeholder="Enter prompt template... Use {{ output.field }} for interpolation"
             />

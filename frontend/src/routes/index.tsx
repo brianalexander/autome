@@ -90,6 +90,9 @@ function WorkflowsPage() {
             const isWebhook = triggerStages.some((s) => s.type === 'webhook-trigger');
             const hasManualTrigger =
               triggerStages.some((s) => s.type === 'manual-trigger') || workflow.trigger.provider === 'manual';
+            const needsActivation = triggerStages.some(
+              (s) => s.type === 'cron-trigger' || s.type === 'code-trigger',
+            );
 
             return (
               <div
@@ -119,20 +122,22 @@ function WorkflowsPage() {
 
                 {/* Bottom bar — actions, only visible on hover */}
                 <div className="px-4 py-2 border-t border-border/50 flex items-center gap-2">
-                  {/* Activate/deactivate toggle */}
-                  <button
-                    onClick={() => workflow.active
-                      ? deactivateMutation.mutate(workflow.id)
-                      : activateMutation.mutate(workflow.id)
-                    }
-                    className={`text-[11px] px-2 py-0.5 rounded-md transition-colors ${
-                      workflow.active
-                        ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20'
-                        : 'text-text-tertiary hover:bg-surface-secondary hover:text-text-secondary'
-                    }`}
-                  >
-                    {workflow.active ? 'Active' : 'Activate'}
-                  </button>
+                  {/* Activate/deactivate toggle — only for trigger types that need activation */}
+                  {needsActivation && (
+                    <button
+                      onClick={() => workflow.active
+                        ? deactivateMutation.mutate(workflow.id)
+                        : activateMutation.mutate(workflow.id)
+                      }
+                      className={`text-[11px] px-2 py-0.5 rounded-md transition-colors ${
+                        workflow.active
+                          ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20'
+                          : 'text-text-tertiary hover:bg-surface-secondary hover:text-text-secondary'
+                      }`}
+                    >
+                      {workflow.active ? 'Active' : 'Activate'}
+                    </button>
+                  )}
 
                   {hasManualTrigger && (
                     <button
@@ -143,6 +148,21 @@ function WorkflowsPage() {
                       Trigger
                     </button>
                   )}
+
+                  <button
+                    onClick={async () => {
+                      try {
+                        const cloned = await workflowsApi.clone(workflow.id);
+                        queryClient.invalidateQueries({ queryKey: ['workflows'] });
+                        navigate({ to: '/workflows/$workflowId', params: { workflowId: cloned.id } });
+                      } catch (err) {
+                        toast.error(`Clone failed: ${err instanceof Error ? err.message : String(err)}`);
+                      }
+                    }}
+                    className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-0.5 rounded-md hover:bg-surface-secondary transition-colors"
+                  >
+                    Clone
+                  </button>
 
                   <div className="flex-1" />
 

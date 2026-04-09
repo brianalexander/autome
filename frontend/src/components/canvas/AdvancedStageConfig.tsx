@@ -9,11 +9,14 @@ export function AdvancedStageConfig({
   editState,
   definition,
   onUpdate,
+  readonly,
 }: {
   editState: StageDefinition;
   definition: WorkflowDefinition;
   onUpdate: (path: string, value: unknown) => void;
+  readonly?: boolean;
 }) {
+  const disabledCls = readonly ? ' opacity-60 cursor-default' : '';
   // Only show fan-in trigger rule if the stage has multiple incoming edges
   const incomingEdgeCount = definition.edges.filter((e) => e.target === editState.id).length;
 
@@ -27,7 +30,8 @@ export function AdvancedStageConfig({
           <select
             value={editState.input_mode || 'queue'}
             onChange={(e) => onUpdate('input_mode', e.target.value === 'queue' ? undefined : e.target.value)}
-            className="input-field text-xs"
+            disabled={readonly}
+            className={`input-field text-xs${disabledCls}`}
           >
             <option value="queue">Queue (process each input independently)</option>
             <option value="fan_in">Join (wait for multiple inputs)</option>
@@ -46,7 +50,8 @@ export function AdvancedStageConfig({
           <select
             value={editState.trigger_rule || 'all_success'}
             onChange={(e) => onUpdate('trigger_rule', e.target.value === 'all_success' ? undefined : e.target.value)}
-            className="input-field text-xs"
+            disabled={readonly}
+            className={`input-field text-xs${disabledCls}`}
           >
             <option value="all_success">Wait for all (all must succeed)</option>
             <option value="any_success">Any (fire on first success)</option>
@@ -76,7 +81,8 @@ export function AdvancedStageConfig({
                 onUpdate('retry', { ...editState.retry, max_attempts: val });
               }
             }}
-            className="input-field w-16"
+            disabled={readonly}
+            className={`input-field w-16${disabledCls}`}
             min={1}
             max={10}
             placeholder="1"
@@ -91,7 +97,8 @@ export function AdvancedStageConfig({
                 type="number"
                 value={editState.retry.delay_ms ?? 1000}
                 onChange={(e) => onUpdate('retry', { ...editState.retry, delay_ms: parseInt(e.target.value) || 1000 })}
-                className="input-field w-20"
+                disabled={readonly}
+                className={`input-field w-20${disabledCls}`}
                 min={0}
                 step={500}
               />
@@ -105,7 +112,8 @@ export function AdvancedStageConfig({
                 onChange={(e) =>
                   onUpdate('retry', { ...editState.retry, backoff_multiplier: parseFloat(e.target.value) || 2 })
                 }
-                className="input-field w-14"
+                disabled={readonly}
+                className={`input-field w-14${disabledCls}`}
                 min={1}
                 step={0.5}
               />
@@ -121,7 +129,8 @@ export function AdvancedStageConfig({
           type="text"
           value={editState.map_over ?? ''}
           onChange={(e) => onUpdate('map_over', e.target.value || undefined)}
-          className="input-field text-xs font-mono"
+          disabled={readonly}
+          className={`input-field text-xs font-mono${disabledCls}`}
           placeholder="{{ stages.splitter.output.items }}"
         />
         <div className="text-[10px] text-text-tertiary mt-0.5">
@@ -139,7 +148,8 @@ export function AdvancedStageConfig({
                 const val = parseInt(e.target.value);
                 onUpdate('concurrency', isNaN(val) ? undefined : val);
               }}
-              className="input-field w-20"
+              disabled={readonly}
+              className={`input-field w-20${disabledCls}`}
               min={1}
               placeholder="∞"
             />
@@ -153,7 +163,8 @@ export function AdvancedStageConfig({
                   const val = parseInt(e.target.value);
                   onUpdate('failure_tolerance', isNaN(val) ? 0 : val);
                 }}
-                className="input-field w-16"
+                disabled={readonly}
+                className={`input-field w-16${disabledCls}`}
                 min={0}
               />
               <span className="text-xs text-text-secondary">allowed failures</span>

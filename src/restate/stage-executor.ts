@@ -357,7 +357,7 @@ async function executeMapStage(
         const runStartedAt = await ctx.run(`timestamp-start-${mapStageKey}`, () => new Date().toISOString());
         context.stages[mapStageKey].status = 'running';
         context.stages[mapStageKey].run_count = 1;
-        context.stages[mapStageKey].runs.push({ iteration: 1, started_at: runStartedAt, status: 'running' as const });
+        context.stages[mapStageKey].runs.push({ iteration: 1, started_at: runStartedAt, input: items[i], status: 'running' as const });
         ctx.set('context', context);
 
         const result = await executeWithRetry(
@@ -458,6 +458,7 @@ export async function executeStepWithLifecycle(
     context.stages[stageId].runs.push({
       iteration,
       started_at: runStartedAt,
+      input: currentInput?.mergedInputs ?? currentInput?.sourceOutput,
       status: 'running' as const,
     });
     ctx.set('context', context);

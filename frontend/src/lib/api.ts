@@ -126,6 +126,7 @@ export const workflows = {
   getVersion: (id: string, version: number) => request<WorkflowDefinition>(`/workflows/${id}/versions/${version}`),
   activate: (id: string) => request<{ activated: boolean }>(`/workflows/${id}/activate`, { method: 'POST' }),
   deactivate: (id: string) => request<{ deactivated: boolean }>(`/workflows/${id}/deactivate`, { method: 'POST' }),
+  clone: (id: string) => request<WorkflowDefinition>(`/workflows/${id}/clone`, { method: 'POST' }),
   testRun: (workflowId: string, payload?: unknown) =>
     request<{ instance: WorkflowInstance; testWorkflowId: string }>(`/draft/${workflowId}/test-run`, {
       method: 'POST',

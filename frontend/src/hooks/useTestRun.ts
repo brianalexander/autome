@@ -1,7 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useDeleteWorkflow, useInstance, useInstanceStatus, useNodeTypes } from './queries';
 import { workflows as workflowsApi, isTriggerType, type WorkflowDefinition } from '../lib/api';
+
+const TEST_RUN_HASH = '#test-run';
 
 export interface TestRunValidation {
   valid: boolean;
@@ -55,11 +57,15 @@ export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseT
   const { data: testInstance } = useInstance(testRunInstanceId || '');
   const { data: testStatus } = useInstanceStatus(testRunInstanceId || '');
 
+  // Ref so popstate handler always has current workflow ID
+  const testRunWorkflowIdRef = useRef<string | null>(null);
+  testRunWorkflowIdRef.current = testRunWorkflowId;
+
   // Clean up the test workflow when the component unmounts while a test run is active
   useEffect(() => {
     return () => {
-      if (testRunWorkflowId) {
-        deleteWorkflow.mutate(testRunWorkflowId);
+      if (testRunWorkflowIdRef.current) {
+        deleteWorkflow.mutate(testRunWorkflowIdRef.current);
       }
     };
     // Only run on unmount — eslint-disable-next-line is intentional
@@ -74,6 +80,8 @@ export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseT
         setTestRunInstanceId(result.instance.id);
         setTestRunWorkflowId(result.testWorkflowId);
         setTestRunTriggerOpen(false);
+        // Push a history entry so the browser back button can exit the test run
+        window.history.pushState(null, '', window.location.pathname + TEST_RUN_HASH);
       } catch (err) {
         toast.error(`Failed to start test run: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
@@ -112,9 +120,38 @@ export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseT
     if (testRunWorkflowId) {
       deleteWorkflow.mutate(testRunWorkflowId);
     }
+    // Clear the ref so the popstate/hashchange handler doesn't double-fire.
+    testRunWorkflowIdRef.current = null;
     setTestRunInstanceId(null);
     setTestRunWorkflowId(null);
+    // Remove the #test-run hash from the URL
+    if (window.location.hash === TEST_RUN_HASH) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
   }, [testRunWorkflowId, deleteWorkflow]);
+
+  // Listen for browser back button — if the hash disappears, close the test run.
+  // We listen to both popstate and hashchange to cover all browsers/routers.
+  useEffect(() => {
+    if (!testRunInstanceId) return; // Only listen while a test run is active
+
+    const handleNavigation = () => {
+      if (window.location.hash !== TEST_RUN_HASH) {
+        if (testRunWorkflowIdRef.current) {
+          deleteWorkflow.mutate(testRunWorkflowIdRef.current);
+          testRunWorkflowIdRef.current = null;
+        }
+        setTestRunInstanceId(null);
+        setTestRunWorkflowId(null);
+      }
+    };
+    window.addEventListener('popstate', handleNavigation);
+    window.addEventListener('hashchange', handleNavigation);
+    return () => {
+      window.removeEventListener('popstate', handleNavigation);
+      window.removeEventListener('hashchange', handleNavigation);
+    };
+  }, [testRunInstanceId, deleteWorkflow]);
 
   // Derive triggerSchema from definition for the TriggerDialog
   const isTestActive = !!(testRunInstanceId && testInstance);

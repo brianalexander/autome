@@ -669,6 +669,18 @@ export class OrchestratorDB {
     return result.changes;
   }
 
+  copyAuthorSegments(fromStageId: string, toStageId: string): number {
+    const result = this.db
+      .prepare(`
+        INSERT INTO segments (instance_id, stage_id, iteration, segment_index, segment_type, content, tool_call_id, created_at)
+        SELECT instance_id, ?, iteration, segment_index, segment_type, content, NULL, created_at
+        FROM segments
+        WHERE instance_id = 'author' AND stage_id = ?
+      `)
+      .run(toStageId, fromStageId);
+    return result.changes;
+  }
+
   // ---------------------------------------------------------------------------
   // Tool calls
   // ---------------------------------------------------------------------------
