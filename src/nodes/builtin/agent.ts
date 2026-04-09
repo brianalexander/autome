@@ -143,7 +143,7 @@ export const agentNodeSpec: NodeTypeSpec = {
       condition: {
         type: 'string',
         title: 'Condition',
-        description: 'JS expression. Receives output and context. Empty = always taken.',
+        description: 'JS expression evaluated against output (e.g. output.approved === true). Empty = always taken.',
         format: 'code',
       },
     },

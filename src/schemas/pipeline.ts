@@ -143,7 +143,7 @@ export const EdgeDefinitionSchema = z.object({
   }),
   prompt_template: z.string().optional().meta({
     description:
-      'Prompt template injected into the target stage. Template variables: {{ output.<field> }} for source output, {{ stages.<stageId>.output.<field> }} for upstream stages, {{ trigger.<field> }} for trigger payload.',
+      'Jinja2 prompt template injected into the target stage. Use {{ output.<field> }} for source output. Supports conditionals ({% if %}), loops ({% for %}), and filters ({{ value | upper }}).',
   }),
   max_traversals: z.number().int().positive().optional().meta({
     description: 'Maximum number of times this edge can be traversed per workflow run.',
@@ -228,7 +228,7 @@ export const CreateEdgeBodySchema = z
       .meta({ description: 'When this edge fires — "on_success" (default) or "on_error" (fallback path).' }),
     prompt_template: z.string().optional().meta({
       description:
-        'Prompt template using {{ output.<field> }}, {{ stages.<id>.output.<field> }}, or {{ trigger.<field> }}. Required for agent-to-agent edges.',
+        'Jinja2 prompt template. Use {{ output.<field> }} to reference the source stage output. Supports {% if %}, {% for %}, and filters. Required for edges into agent nodes.',
     }),
     max_traversals: z
       .number()
