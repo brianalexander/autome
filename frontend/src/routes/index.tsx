@@ -290,20 +290,20 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
           {preview && !result && (
             <div className="space-y-3">
               <div>
-                <div className="text-sm font-medium">{preview.workflow.name}</div>
-                {preview.workflow.description && (
-                  <div className="text-xs text-text-secondary mt-0.5">{preview.workflow.description}</div>
+                <div className="text-sm font-medium">{preview.bundle.name}</div>
+                {preview.bundle.description && (
+                  <div className="text-xs text-text-secondary mt-0.5">{preview.bundle.description}</div>
                 )}
                 <div className="text-xs text-text-tertiary mt-1">
                   {preview.workflow.stageCount} stages, {preview.workflow.edgeCount} edges
                 </div>
               </div>
 
-              {Object.keys(preview.manifest.agents).length > 0 && (
+              {preview.bundle.requiredAgents.length > 0 && (
                 <div>
-                  <div className="text-xs font-medium text-text-secondary mb-1">Bundled Agents</div>
+                  <div className="text-xs font-medium text-text-secondary mb-1">Required Agents</div>
                   <div className="flex flex-wrap gap-1">
-                    {Object.keys(preview.manifest.agents).map((name) => (
+                    {preview.bundle.requiredAgents.map((name) => (
                       <span
                         key={name}
                         className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-2 py-0.5 rounded"
@@ -315,25 +315,12 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
                 </div>
               )}
 
-              {(preview.manifest.requirements.mcpServers.length > 0 ||
-                preview.manifest.requirements.systemDependencies.length > 0) && (
+              {preview.bundle.requiredMcpServers.length > 0 && (
                 <div>
-                  <div className="text-xs font-medium text-text-secondary mb-1">Requirements</div>
-                  {preview.manifest.requirements.mcpServers.length > 0 && (
-                    <div className="text-xs text-text-tertiary">
-                      MCP Servers: {preview.manifest.requirements.mcpServers.join(', ')}
-                    </div>
-                  )}
-                  {preview.manifest.requirements.systemDependencies.length > 0 && (
-                    <div className="text-xs text-text-tertiary">
-                      System: {preview.manifest.requirements.systemDependencies.join(', ')}
-                    </div>
-                  )}
-                  {preview.manifest.requirements.secrets.length > 0 && (
-                    <div className="text-xs text-text-tertiary">
-                      Secrets: {preview.manifest.requirements.secrets.join(', ')}
-                    </div>
-                  )}
+                  <div className="text-xs font-medium text-text-secondary mb-1">Required MCP Servers</div>
+                  <div className="text-xs text-text-tertiary">
+                    {preview.bundle.requiredMcpServers.join(', ')}
+                  </div>
                 </div>
               )}
             </div>
@@ -343,9 +330,6 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
           {result && (
             <div className="space-y-3">
               <div className="text-sm text-green-600 dark:text-green-400 font-medium">Import successful</div>
-              <div className="text-xs text-text-secondary">
-                Imported {result.importedAgents.length} agent(s) and {result.extractedResources.length} resource(s).
-              </div>
               {result.warnings.length > 0 && (
                 <div className="space-y-1">
                   <div className="text-xs font-medium text-orange-600 dark:text-orange-400">Warnings</div>

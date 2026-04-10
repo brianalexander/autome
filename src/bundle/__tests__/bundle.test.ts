@@ -1,16 +1,15 @@
 /**
- * Tests for bundle export/import/health modules.
+ * Tests for bundle export/import modules.
  *
  * Strategy:
  * - Export: mock discoverAgents so we control what agents are "found" without
- *   touching the filesystem, then verify the manifest structure and archive.
+ *   touching the filesystem, then verify the bundle structure.
  * - Import: use the real exportWorkflow to produce an archive, then importWorkflow
  *   against an in-memory SQLite DB — a real round-trip test.
  * - Health: mock discoverAgents and commandExists to exercise every warning path.
- * - Pure helpers (classifyPathOrigin, stripRootAnchor) tested directly.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
+import { rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -34,12 +33,10 @@ vi.mock('../../acp/provider/registry.js', () => ({
 
 import { discoverAgents } from '../../agents/discovery.js';
 import { commandExists } from '../../utils/shell.js';
-import { listProviders } from '../../acp/provider/registry.js';
 
 import { exportWorkflow } from '../export.js';
 import { importWorkflow, previewBundle } from '../import.js';
 import { checkWorkflowHealth } from '../health.js';
-import { classifyPathOrigin, stripRootAnchor, BUNDLE_FORMAT_VERSION } from '../types.js';
 import { OrchestratorDB } from '../../db/database.js';
 import type { WorkflowDefinition } from '../../types/workflow.js';
 
@@ -69,58 +66,14 @@ function makeAgentStage(agentId: string) {
   };
 }
 
-function makeDiscoveredAgent(name: string, spec: Record<string, unknown> = {}, dir: string = '/tmp') {
+function makeDiscoveredAgent(name: string, spec: Record<string, unknown> = {}) {
   return {
     name,
     source: 'local' as const,
-    path: join(dir, `${name}.json`),
+    path: join(tmpdir(), `${name}.json`),
     spec: { name, model: 'claude-sonnet-4', ...spec },
   };
 }
-
-// ---------------------------------------------------------------------------
-// classifyPathOrigin (pure)
-// ---------------------------------------------------------------------------
-
-describe('classifyPathOrigin', () => {
-  it('classifies home-relative URIs as "home"', () => {
-    expect(classifyPathOrigin('file://~/docs/file.md')).toBe('home');
-    expect(classifyPathOrigin('skill://~/skill.md')).toBe('home');
-  });
-
-  it('classifies absolute URIs as "abs"', () => {
-    expect(classifyPathOrigin('file:///etc/config.json')).toBe('abs');
-    expect(classifyPathOrigin('skill:///opt/skill.md')).toBe('abs');
-  });
-
-  it('classifies relative URIs as "rel"', () => {
-    expect(classifyPathOrigin('file://./docs/a.md')).toBe('rel');
-    expect(classifyPathOrigin('file://docs/a.md')).toBe('rel');
-    expect(classifyPathOrigin('skill://skills/do-thing.md')).toBe('rel');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// stripRootAnchor (pure)
-// ---------------------------------------------------------------------------
-
-describe('stripRootAnchor', () => {
-  it('strips ~/  prefix', () => {
-    expect(stripRootAnchor('~/docs/a.md')).toBe('docs/a.md');
-  });
-
-  it('strips ./  prefix', () => {
-    expect(stripRootAnchor('./docs/a.md')).toBe('docs/a.md');
-  });
-
-  it('strips leading / for absolute paths', () => {
-    expect(stripRootAnchor('/etc/config.json')).toBe('etc/config.json');
-  });
-
-  it('leaves bare relative paths unchanged', () => {
-    expect(stripRootAnchor('docs/a.md')).toBe('docs/a.md');
-  });
-});
 
 // ---------------------------------------------------------------------------
 // exportWorkflow
@@ -137,88 +90,65 @@ describe('exportWorkflow', () => {
 
   it('exports a minimal workflow with no agent stages', async () => {
     const def = makeWorkflow();
-    const { archivePath, manifest, warnings } = await exportWorkflow(def);
+    const { archivePath, bundle, warnings } = await exportWorkflow(def);
 
     expect(archivePath).toMatch(/\.autome$/);
     expect(warnings).toHaveLength(0);
 
-    // Manifest structure
-    expect(manifest.formatVersion).toBe(BUNDLE_FORMAT_VERSION);
-    expect(manifest.name).toBe('Test Workflow');
-    expect(manifest.description).toBe('A test workflow');
-    expect(manifest.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(manifest.agents).toEqual({});
-    expect(manifest.requirements.mcpServers).toEqual([]);
-    expect(manifest.requirements.systemDependencies).toEqual([]);
-    expect(manifest.requirements.secrets).toEqual([]);
+    // Bundle structure
+    expect(bundle.name).toBe('Test Workflow');
+    expect(bundle.description).toBe('A test workflow');
+    expect(bundle.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(bundle.requiredAgents).toEqual([]);
+    expect(bundle.requiredMcpServers).toEqual([]);
+    expect(bundle.workflow).toMatchObject({ name: 'Test Workflow' });
 
-    // Clean up
     await rm(archivePath, { force: true });
   });
 
-  it('warns and skips an agent stage whose agent is not discovered', async () => {
+  it('warns when a referenced agent is not installed locally', async () => {
     vi.mocked(discoverAgents).mockResolvedValue([]);
     const def = makeWorkflow({ stages: [makeAgentStage('missing-agent')] });
 
-    const { manifest, warnings } = await exportWorkflow(def);
+    const { bundle, warnings } = await exportWorkflow(def);
 
     expect(warnings).toHaveLength(1);
     expect(warnings[0].type).toBe('missing_agent');
-    expect(warnings[0].agentId).toBe('missing-agent');
-    expect(manifest.agents).not.toHaveProperty('missing-agent');
+    expect(warnings[0].name).toBe('missing-agent');
+    // The agent name is still included in requiredAgents even if not installed
+    expect(bundle.requiredAgents).toContain('missing-agent');
   });
 
-  it('includes a discovered agent in the manifest', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'autome-export-test-'));
-    try {
-      // Write the agent spec to disk so the export code can copy it
-      const agentSpec = { name: 'my-agent', model: 'claude-sonnet-4' };
-      const agentPath = join(tempDir, 'my-agent.json');
-      await writeFile(agentPath, JSON.stringify(agentSpec), 'utf-8');
+  it('includes the agent name in requiredAgents when discovered', async () => {
+    vi.mocked(discoverAgents).mockResolvedValue([
+      makeDiscoveredAgent('my-agent'),
+    ]);
 
-      vi.mocked(discoverAgents).mockResolvedValue([
-        makeDiscoveredAgent('my-agent', {}, tempDir),
-      ]);
+    const def = makeWorkflow({ stages: [makeAgentStage('my-agent')] });
+    const { bundle, warnings } = await exportWorkflow(def);
 
-      const def = makeWorkflow({ stages: [makeAgentStage('my-agent')] });
-      const { manifest, warnings, archivePath } = await exportWorkflow(def, { workingDir: tempDir });
-
-      expect(warnings).toHaveLength(0);
-      expect(manifest.agents).toHaveProperty('my-agent');
-      expect(manifest.agents['my-agent'].spec).toBe('agents/my-agent.json');
-
-      await rm(archivePath, { force: true });
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+    expect(warnings).toHaveLength(0);
+    expect(bundle.requiredAgents).toContain('my-agent');
   });
 
-  it('collects MCP server commands and secrets from agent spec', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'autome-export-mcp-'));
-    try {
-      const agentSpec = {
-        name: 'mcp-agent',
-        model: 'claude-sonnet-4',
-        mcpServers: {
-          git: { command: 'git-mcp', args: [], env: { GIT_TOKEN: 'secret123' } },
-        },
-      };
-      await writeFile(join(tempDir, 'mcp-agent.json'), JSON.stringify(agentSpec), 'utf-8');
+  it('collects MCP server names from agent spec', async () => {
+    const agentSpec = {
+      mcpServers: {
+        git: { command: 'git-mcp', args: [] },
+        github: { command: 'github-mcp', args: [] },
+      },
+    };
+    vi.mocked(discoverAgents).mockResolvedValue([
+      makeDiscoveredAgent('mcp-agent', agentSpec),
+    ]);
 
-      vi.mocked(discoverAgents).mockResolvedValue([
-        makeDiscoveredAgent('mcp-agent', agentSpec, tempDir),
-      ]);
+    const def = makeWorkflow({ stages: [makeAgentStage('mcp-agent')] });
+    const { bundle, archivePath } = await exportWorkflow(def);
 
-      const def = makeWorkflow({ stages: [makeAgentStage('mcp-agent')] });
-      const { manifest, archivePath } = await exportWorkflow(def, { workingDir: tempDir });
+    expect(bundle.requiredMcpServers).toContain('git');
+    expect(bundle.requiredMcpServers).toContain('github');
 
-      expect(manifest.requirements.mcpServers).toContain('git-mcp');
-      expect(manifest.requirements.secrets).toContain('GIT_TOKEN');
-
-      await rm(archivePath, { force: true });
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+    await rm(archivePath, { force: true });
   });
 
   it('slugifies the workflow name for the archive filename', async () => {
@@ -230,30 +160,39 @@ describe('exportWorkflow', () => {
   });
 
   it('deduplicates agents referenced multiple times across stages', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'autome-dedup-'));
-    try {
-      const agentSpec = { name: 'shared-agent', model: 'claude-sonnet-4' };
-      await writeFile(join(tempDir, 'shared-agent.json'), JSON.stringify(agentSpec), 'utf-8');
+    vi.mocked(discoverAgents).mockResolvedValue([
+      makeDiscoveredAgent('shared-agent'),
+    ]);
 
-      vi.mocked(discoverAgents).mockResolvedValue([
-        makeDiscoveredAgent('shared-agent', {}, tempDir),
-      ]);
+    const def = makeWorkflow({
+      stages: [
+        { id: 'stage_a', type: 'agent', config: { agentId: 'shared-agent' } },
+        { id: 'stage_b', type: 'agent', config: { agentId: 'shared-agent' } },
+      ],
+    });
 
-      const def = makeWorkflow({
-        stages: [
-          { id: 'stage_a', type: 'agent', config: { agentId: 'shared-agent' } },
-          { id: 'stage_b', type: 'agent', config: { agentId: 'shared-agent' } },
-        ],
-      });
+    const { bundle, archivePath } = await exportWorkflow(def);
 
-      const { manifest, archivePath } = await exportWorkflow(def, { workingDir: tempDir });
+    // Only one entry for shared-agent
+    expect(bundle.requiredAgents).toEqual(['shared-agent']);
+    await rm(archivePath, { force: true });
+  });
 
-      // Only one entry for shared-agent
-      expect(Object.keys(manifest.agents)).toHaveLength(1);
-      await rm(archivePath, { force: true });
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+  it('writes a valid JSON file to disk', async () => {
+    const def = makeWorkflow({ stages: [makeAgentStage('my-agent')] });
+    vi.mocked(discoverAgents).mockResolvedValue([makeDiscoveredAgent('my-agent')]);
+
+    const { archivePath } = await exportWorkflow(def);
+
+    const { readFile } = await import('fs/promises');
+    const raw = await readFile(archivePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+
+    expect(parsed.name).toBe('Test Workflow');
+    expect(parsed.requiredAgents).toContain('my-agent');
+    expect(parsed.workflow).toBeDefined();
+
+    await rm(archivePath, { force: true });
   });
 });
 
@@ -262,7 +201,7 @@ describe('exportWorkflow', () => {
 // ---------------------------------------------------------------------------
 
 describe('previewBundle', () => {
-  it('returns manifest and workflow summary without importing', async () => {
+  it('returns bundle and workflow summary without importing', async () => {
     vi.mocked(discoverAgents).mockResolvedValue([]);
 
     const def = makeWorkflow({
@@ -270,17 +209,35 @@ describe('previewBundle', () => {
       edges: [{ id: 'e1', source: 'start', target: 'stage_a' }],
     });
 
-    const { archivePath, manifest: exportedManifest } = await exportWorkflow(def);
+    const { archivePath, bundle: exportedBundle } = await exportWorkflow(def);
 
     const preview = await previewBundle(archivePath);
 
-    expect(preview.manifest.name).toBe(exportedManifest.name);
-    expect(preview.manifest.formatVersion).toBe(BUNDLE_FORMAT_VERSION);
+    expect(preview.bundle.name).toBe(exportedBundle.name);
+    expect(preview.bundle.requiredAgents).toEqual(exportedBundle.requiredAgents);
     expect(preview.workflow.name).toBe(def.name);
     expect(preview.workflow.stageCount).toBe(1);
     expect(preview.workflow.edgeCount).toBe(1);
 
     await rm(archivePath, { force: true });
+  });
+
+  it('throws a clear error on invalid JSON', async () => {
+    const badPath = join(tmpdir(), 'bad-bundle.autome');
+    await writeFile(badPath, 'not valid json', 'utf-8');
+
+    await expect(previewBundle(badPath)).rejects.toThrow('Invalid bundle file');
+
+    await rm(badPath, { force: true });
+  });
+
+  it('throws when workflow or name is missing', async () => {
+    const badPath = join(tmpdir(), 'incomplete-bundle.autome');
+    await writeFile(badPath, JSON.stringify({ name: 'No Workflow' }), 'utf-8');
+
+    await expect(previewBundle(badPath)).rejects.toThrow('Invalid bundle');
+
+    await rm(badPath, { force: true });
   });
 });
 
@@ -290,30 +247,25 @@ describe('previewBundle', () => {
 
 describe('importWorkflow', () => {
   let db: OrchestratorDB;
-  let bundlesDir: string;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     db = new OrchestratorDB(':memory:');
-    bundlesDir = await mkdtemp(join(tmpdir(), 'autome-bundles-'));
     vi.mocked(discoverAgents).mockResolvedValue([]);
     vi.mocked(commandExists).mockResolvedValue(true);
-    vi.mocked(listProviders).mockResolvedValue([]);
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     db.close();
-    await rm(bundlesDir, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
 
-  it('extracts workflow definition and creates it in the database', async () => {
+  it('creates the workflow in the database', async () => {
     const def = makeWorkflow({ name: 'Import Me' });
     const { archivePath } = await exportWorkflow(def);
 
-    const result = await importWorkflow(archivePath, db, { bundlesDir });
+    const result = await importWorkflow(archivePath, db);
 
     expect(result.workflowId).toBeTruthy();
-    expect(result.importedAgents).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
 
     const { data: workflows, total } = db.listWorkflows();
@@ -324,13 +276,15 @@ describe('importWorkflow', () => {
   });
 
   it('round-trip: export → import produces equivalent workflow name and stages', async () => {
+    vi.mocked(discoverAgents).mockResolvedValue([makeDiscoveredAgent('existing-agent')]);
+
     const def = makeWorkflow({
       name: 'Round Trip',
-      stages: [makeAgentStage('missing-agent')],
+      stages: [makeAgentStage('existing-agent')],
     });
 
     const { archivePath } = await exportWorkflow(def);
-    const result = await importWorkflow(archivePath, db, { bundlesDir });
+    const result = await importWorkflow(archivePath, db);
 
     const { data: workflows } = db.listWorkflows();
     const imported = workflows.find((w) => w.id === result.workflowId);
@@ -345,127 +299,50 @@ describe('importWorkflow', () => {
     const def = makeWorkflow({ id: 'original-id', name: 'ID Test' });
     const { archivePath } = await exportWorkflow(def);
 
-    const result = await importWorkflow(archivePath, db, { bundlesDir });
+    const result = await importWorkflow(archivePath, db);
 
     expect(result.workflowId).not.toBe('original-id');
     await rm(archivePath, { force: true });
   });
 
-  it('throws when the archive is missing bundle.json', async () => {
-    // Create a tar.gz without bundle.json
-    const fakeArchive = join(tmpdir(), 'bad-bundle.autome');
-    const stagingDir = await mkdtemp(join(tmpdir(), 'bad-staging-'));
-    try {
-      await writeFile(join(stagingDir, 'workflow.json'), '{}', 'utf-8');
-      const tar = await import('tar');
-      await tar.create({ gzip: true, file: fakeArchive, cwd: stagingDir }, ['.']);
+  it('throws when a required agent is missing and force is not set', async () => {
+    vi.mocked(discoverAgents).mockResolvedValue([]);
 
-      await expect(importWorkflow(fakeArchive, db, { bundlesDir })).rejects.toThrow(
-        'missing bundle.json manifest',
-      );
-    } finally {
-      await rm(stagingDir, { recursive: true, force: true });
-      await rm(fakeArchive, { force: true });
-    }
+    const def = makeWorkflow({ stages: [makeAgentStage('missing-agent')] });
+    const { archivePath } = await exportWorkflow(def);
+
+    // Re-mock so the agent is discovered during export but not during import
+    vi.mocked(discoverAgents).mockResolvedValue([]);
+
+    // The bundle has missing-agent in requiredAgents (from export with warning)
+    await expect(importWorkflow(archivePath, db)).rejects.toThrow('missing required agents');
+
+    await rm(archivePath, { force: true });
   });
 
-  it('throws when the bundle format version is too new', async () => {
-    const stagingDir = await mkdtemp(join(tmpdir(), 'future-staging-'));
-    const fakeArchive = join(tmpdir(), 'future-bundle.autome');
-    try {
-      const manifest = {
-        formatVersion: BUNDLE_FORMAT_VERSION + 999,
-        name: 'Future',
-        exportedAt: new Date().toISOString(),
-        agents: {},
-        requirements: { mcpServers: [], systemDependencies: [], secrets: [] },
-      };
-      await writeFile(join(stagingDir, 'bundle.json'), JSON.stringify(manifest), 'utf-8');
-      await writeFile(
-        join(stagingDir, 'workflow.json'),
-        JSON.stringify(makeWorkflow()),
-        'utf-8',
-      );
-      const tar = await import('tar');
-      await tar.create({ gzip: true, file: fakeArchive, cwd: stagingDir }, ['.']);
+  it('succeeds with a warning when force=true and agents are missing', async () => {
+    // Export with the agent "missing" so it ends up in requiredAgents
+    vi.mocked(discoverAgents).mockResolvedValue([]);
+    const def = makeWorkflow({ stages: [makeAgentStage('missing-agent')] });
+    const { archivePath } = await exportWorkflow(def);
 
-      await expect(importWorkflow(fakeArchive, db, { bundlesDir })).rejects.toThrow(
-        'newer than supported version',
-      );
-    } finally {
-      await rm(stagingDir, { recursive: true, force: true });
-      await rm(fakeArchive, { force: true });
-    }
+    const result = await importWorkflow(archivePath, db, { force: true });
+
+    expect(result.workflowId).toBeTruthy();
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0].type).toBe('missing_agent');
+    expect(result.warnings[0].name).toBe('missing-agent');
+
+    await rm(archivePath, { force: true });
   });
 
-  it('warns about missing system dependencies', async () => {
-    vi.mocked(commandExists).mockImplementation(async (cmd) => cmd !== 'bash');
+  it('throws a clear error on invalid JSON', async () => {
+    const badPath = join(tmpdir(), 'bad-import.autome');
+    await writeFile(badPath, 'not valid json', 'utf-8');
 
-    const stagingDir = await mkdtemp(join(tmpdir(), 'dep-staging-'));
-    const fakeArchive = join(tmpdir(), 'dep-bundle.autome');
-    try {
-      const manifest = {
-        formatVersion: BUNDLE_FORMAT_VERSION,
-        name: 'Dep Test',
-        exportedAt: new Date().toISOString(),
-        agents: {},
-        requirements: {
-          mcpServers: [],
-          systemDependencies: ['bash'],
-          secrets: [],
-        },
-      };
-      await writeFile(join(stagingDir, 'bundle.json'), JSON.stringify(manifest), 'utf-8');
-      await writeFile(
-        join(stagingDir, 'workflow.json'),
-        JSON.stringify(makeWorkflow()),
-        'utf-8',
-      );
-      const tar = await import('tar');
-      await tar.create({ gzip: true, file: fakeArchive, cwd: stagingDir }, ['.']);
+    await expect(importWorkflow(badPath, db)).rejects.toThrow('Invalid bundle file');
 
-      const result = await importWorkflow(fakeArchive, db, { bundlesDir });
-
-      expect(result.warnings.some((w) => w.type === 'missing_dependency')).toBe(true);
-    } finally {
-      await rm(stagingDir, { recursive: true, force: true });
-      await rm(fakeArchive, { force: true });
-    }
-  });
-
-  it('warns about missing MCP server commands', async () => {
-    vi.mocked(commandExists).mockImplementation(async (cmd) => cmd !== 'git-mcp');
-
-    const stagingDir = await mkdtemp(join(tmpdir(), 'mcp-staging-'));
-    const fakeArchive = join(tmpdir(), 'mcp-bundle.autome');
-    try {
-      const manifest = {
-        formatVersion: BUNDLE_FORMAT_VERSION,
-        name: 'MCP Test',
-        exportedAt: new Date().toISOString(),
-        agents: {},
-        requirements: {
-          mcpServers: ['git-mcp'],
-          systemDependencies: [],
-          secrets: [],
-        },
-      };
-      await writeFile(join(stagingDir, 'bundle.json'), JSON.stringify(manifest), 'utf-8');
-      await writeFile(
-        join(stagingDir, 'workflow.json'),
-        JSON.stringify(makeWorkflow()),
-        'utf-8',
-      );
-      const tar = await import('tar');
-      await tar.create({ gzip: true, file: fakeArchive, cwd: stagingDir }, ['.']);
-
-      const result = await importWorkflow(fakeArchive, db, { bundlesDir });
-
-      expect(result.warnings.some((w) => w.type === 'missing_mcp_server')).toBe(true);
-    } finally {
-      await rm(stagingDir, { recursive: true, force: true });
-      await rm(fakeArchive, { force: true });
-    }
+    await rm(badPath, { force: true });
   });
 });
 
@@ -504,7 +381,6 @@ describe('checkWorkflowHealth', () => {
 
   it('warns with missing_mcp_command when an MCP server command is not found', async () => {
     const agentSpec = {
-      name: 'mcp-agent',
       mcpServers: {
         git: { command: 'git-mcp', args: [] },
       },
@@ -524,7 +400,6 @@ describe('checkWorkflowHealth', () => {
 
   it('warns with missing_hook_command when a hook binary is not found', async () => {
     const agentSpec = {
-      name: 'hook-agent',
       hooks: {
         postRun: [{ command: 'some-exotic-tool ./scripts/run.sh' }],
       },
@@ -543,7 +418,6 @@ describe('checkWorkflowHealth', () => {
 
   it('warns about missing secret env vars with known secret key patterns', async () => {
     const agentSpec = {
-      name: 'secret-agent',
       mcpServers: {
         myServer: {
           command: 'my-mcp-server',
@@ -555,7 +429,6 @@ describe('checkWorkflowHealth', () => {
     vi.mocked(discoverAgents).mockResolvedValue([makeDiscoveredAgent('secret-agent', agentSpec)]);
     vi.mocked(commandExists).mockResolvedValue(true);
 
-    // Ensure the env var is not set
     const saved = process.env.MY_API_KEY;
     delete process.env.MY_API_KEY;
 
@@ -573,7 +446,6 @@ describe('checkWorkflowHealth', () => {
 
   it('does not warn about secrets that are already set', async () => {
     const agentSpec = {
-      name: 'set-secret-agent',
       mcpServers: {
         myServer: {
           command: 'my-mcp-server',
@@ -582,9 +454,7 @@ describe('checkWorkflowHealth', () => {
         },
       },
     };
-    vi.mocked(discoverAgents).mockResolvedValue([
-      makeDiscoveredAgent('set-secret-agent', agentSpec),
-    ]);
+    vi.mocked(discoverAgents).mockResolvedValue([makeDiscoveredAgent('set-secret-agent', agentSpec)]);
     vi.mocked(commandExists).mockResolvedValue(true);
 
     process.env.MY_API_KEY = 'already-set';
@@ -601,7 +471,6 @@ describe('checkWorkflowHealth', () => {
 
   it('returns healthy=true when all commands exist and secrets are set', async () => {
     const agentSpec = {
-      name: 'healthy-agent',
       mcpServers: {
         git: { command: 'git', args: [] },
       },

@@ -36,7 +36,7 @@ function makeContext(
       status: (opts.status || 'pending') as any,
       run_count: opts.status === 'completed' ? 1 : 0,
       runs: [],
-      ...(opts.latest !== undefined ? { latest: opts.latest } : {}),
+      ...(opts.latest !== undefined ? { latest: opts.latest as Record<string, unknown> } : {}),
     };
   }
   return ctx;

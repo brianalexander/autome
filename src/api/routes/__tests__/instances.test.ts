@@ -62,7 +62,7 @@ describe('Instance routes', () => {
       definition_version: 1,
       status: 'completed',
       trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
-      context: { stages: {} },
+      context: { trigger: {}, stages: {} },
       current_stage_ids: [],
       is_test: false,
     });
@@ -71,7 +71,7 @@ describe('Instance routes', () => {
       definition_version: 1,
       status: 'completed',
       trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
-      context: { stages: {} },
+      context: { trigger: {}, stages: {} },
       current_stage_ids: [],
       is_test: false,
     });
@@ -100,7 +100,7 @@ describe('Instance routes', () => {
       definition_version: 1,
       status: 'completed',
       trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
-      context: { stages: {} },
+      context: { trigger: {}, stages: {} },
       current_stage_ids: [],
       is_test: false,
     });
@@ -109,7 +109,7 @@ describe('Instance routes', () => {
       definition_version: 1,
       status: 'completed',
       trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
-      context: { stages: {} },
+      context: { trigger: {}, stages: {} },
       current_stage_ids: [],
       is_test: true,
     });

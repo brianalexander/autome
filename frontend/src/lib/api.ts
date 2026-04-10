@@ -42,9 +42,7 @@ export function isTriggerType(type: string, specs?: NodeTypeInfo[]): boolean {
 // Bundle import/export types
 export interface ImportResult {
   workflowId: string;
-  importedAgents: string[];
-  extractedResources: string[];
-  warnings: Array<{ type: string; message: string }>;
+  warnings: Array<{ type: string; name: string; message: string }>;
 }
 
 export interface HealthWarning {
@@ -61,13 +59,13 @@ export interface HealthCheckResult {
 }
 
 export interface BundlePreview {
-  manifest: {
-    formatVersion: number;
+  bundle: {
     name: string;
     description?: string;
     exportedAt: string;
-    agents: Record<string, { spec: string; resources: string[] }>;
-    requirements: { mcpServers: string[]; systemDependencies: string[]; secrets: string[] };
+    sourceProvider: string;
+    requiredAgents: string[];
+    requiredMcpServers: string[];
   };
   workflow: { name: string; description?: string; stageCount: number; edgeCount: number };
 }

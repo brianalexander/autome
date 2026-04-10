@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { createReadStream, existsSync } from 'fs';
+import { createReadStream } from 'fs';
 import { writeFile, unlink, mkdir } from 'fs/promises';
 import { join } from 'path';
 import * as restateClient from '../../restate/client.js';
@@ -426,13 +426,13 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
       if (!workflow) return reply.code(404).send({ error: 'Workflow not found' });
 
       try {
-        const { archivePath, manifest, warnings } = await exportWorkflow(workflow);
+        const { archivePath, bundle, warnings } = await exportWorkflow(workflow);
 
         const filename = `${workflow.name.replace(/[^a-zA-Z0-9_-]/g, '_')}${BUNDLE_EXTENSION}`;
         reply.header('Content-Disposition', `attachment; filename="${filename}"`);
-        reply.header('Content-Type', 'application/gzip');
+        reply.header('Content-Type', 'application/json');
         // Surface any export warnings (e.g. missing agents) via a header so the
-        // caller can display them alongside the download without altering the binary body.
+        // caller can display them alongside the download without altering the body.
         if (warnings.length > 0) {
           reply.header('X-Export-Warnings', JSON.stringify(warnings));
         }
@@ -451,6 +451,8 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
       const data = await request.file();
       if (!data) return reply.code(400).send({ error: 'No file uploaded' });
 
+      const force = (request.query as Record<string, string>).force === 'true';
+
       // Write to temp file
       const tempPath = join(process.cwd(), 'data', `_upload-${Date.now()}${BUNDLE_EXTENSION}`);
       await mkdir(join(process.cwd(), 'data'), { recursive: true });
@@ -462,7 +464,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
       await writeFile(tempPath, Buffer.concat(chunks));
 
       try {
-        const result = await importWorkflow(tempPath, db);
+        const result = await importWorkflow(tempPath, db, { force });
         return result;
       } finally {
         await unlink(tempPath).catch(() => {});
@@ -500,28 +502,14 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
     }
   });
 
-  // GET /api/workflows/:id/bundle-info — check if this workflow has a bundle
+  // GET /api/workflows/:id/bundle-info — bundle info (bundles are no longer stored on disk)
   typedApp.get(
     '/api/workflows/:id/bundle-info',
     {
       schema: { params: WorkflowIdParams },
     },
-    async (request, reply) => {
-      const { id } = request.params;
-      const bundleDir = join(process.cwd(), 'data', 'bundles', id);
-      const manifestPath = join(bundleDir, 'bundle.json');
-
-      if (!existsSync(manifestPath)) {
-        return { hasBundle: false };
-      }
-
-      try {
-        const { readFile } = await import('fs/promises');
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf-8'));
-        return { hasBundle: true, manifest };
-      } catch {
-        return { hasBundle: false };
-      }
+    async (_request, _reply) => {
+      return { hasBundle: false };
     },
   );
 
