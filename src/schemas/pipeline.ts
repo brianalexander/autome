@@ -81,7 +81,10 @@ export const StageDefinitionSchema = z.object({
   readme: z
     .string()
     .optional()
-    .meta({ description: 'Markdown README documenting this stage. Shown in the config panel.' }),
+    .meta({
+      description:
+        'CommonMark markdown README for this stage. Supports headings, lists, code blocks, links, and emphasis. This is for context that ISN\'T already obvious from the stage config — e.g. caveats, callouts, requirements, gotchas, why a particular choice was made, links to relevant docs. Don\'t restate inputs/outputs (those are visible from the config and edges). Shown in the config panel and instance sidebar.',
+    }),
   position: PositionSchema.optional().meta({ description: 'Canvas position for rendering' }),
   /** Node-specific configuration — contents depend on the node type */
   config: z
@@ -162,7 +165,10 @@ export const WorkflowTopLevelTriggerSchema = z.object({
 export const WorkflowDefinitionSchema = z.object({
   id: z.string().meta({ description: 'Workflow UUID' }),
   name: z.string().meta({ description: 'Workflow name' }),
-  description: z.string().optional().meta({ description: 'Workflow description' }),
+  description: z.string().optional().meta({
+    description:
+      'CommonMark markdown README for the workflow. Supports headings, lists, code blocks, links, and emphasis. Use this for high-level context: what the workflow is for, caveats, callouts, requirements, authorship, credits, links to relevant docs. Don\'t restate the graph structure (visible on the canvas) or trigger schema (visible on the trigger node). Shown in the canvas info bubble as a truncated preview; full markdown opens in a modal editor.',
+  }),
   active: z.boolean().meta({ description: 'Whether the workflow is active and can be triggered' }),
   version: z
     .number()
@@ -203,8 +209,11 @@ export const CreateStageBodySchema = StageDefinitionSchema.omit({ position: true
 export const UpdateStageBodySchema = z
   .object({
     type: z.string().optional(),
-    label: z.string().optional().nullable(),
-    readme: z.string().optional().nullable(),
+    label: z.string().optional().nullable().meta({ description: 'Short display label shown on the canvas node' }),
+    readme: z.string().optional().nullable().meta({
+      description:
+        'CommonMark markdown README for this stage. Use this for context that isn\'t already obvious from the stage config — caveats, callouts, requirements, gotchas, why a particular choice was made, links to relevant docs. Don\'t restate inputs/outputs.',
+    }),
     position: PositionSchema.optional(),
     config: z.record(z.string(), z.unknown()).optional().nullable(),
   })
@@ -278,7 +287,10 @@ export const UpdateTriggerBodySchema = z.object({
 export const UpdateMetadataBodySchema = z
   .object({
     name: z.string().optional().meta({ description: 'Workflow name' }),
-    description: z.string().optional().meta({ description: 'Workflow description' }),
+    description: z.string().optional().meta({
+      description:
+        'CommonMark markdown README for the workflow. Use this for high-level context: what the workflow is for, caveats, callouts, requirements, authorship, credits, links to relevant docs. Don\'t restate the graph structure or trigger schema.',
+    }),
   })
   .strict();
 

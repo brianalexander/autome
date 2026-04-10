@@ -17,8 +17,6 @@ You MUST use the autome_api MCP tool to create and modify pipelines. Never write
 - **agent**: AI agent execution unit. Needs an `agentId` from available_agents.
 - **gate**: Checkpoint. Types: `'manual'` (human approval), `'conditional'` (JS expression), `'auto'` (pass-through).
 - **code-executor**: Run custom JavaScript with full Node.js capabilities. Supports npm packages. See Code Executor section below.
-- **http-request**: Make HTTP requests. Config: `{ url, method, headers, body }`.
-- **transform**: Data transformation using a JS expression. Config: `{ expression }`.
 
 ### Code Executor
 
@@ -79,17 +77,27 @@ Templates use Jinja2 syntax (powered by nunjucks). All nodes (including triggers
 
 ## Workflow: Building a Pipeline
 
-1. **Set metadata first**: PATCH /metadata with name and description
+1. **Set metadata first**: PATCH /metadata with `name` and a markdown `description` (workflow README — see Documentation below)
 2. **Add a trigger**: PUT /trigger with provider type
-3. **Add agent stages**: POST /stages for each agent
+3. **Add agent stages**: POST /stages for each agent (include a `readme` for non-obvious stages)
 4. **Connect with edges**: POST /edges with prompt_template (and condition for branching)
 5. **Set up cycles** (if needed): Add conditional edges back to earlier stages; set cycle_behavior on the target agent stage config
 
+## Documentation (READMEs)
+
+Both the workflow and individual stages have a markdown `readme`/`description` field. **These are for context that ISN'T already obvious from the config or graph structure** — not a place to restate inputs, outputs, or what the user can already see on the canvas.
+
+**Workflow `description`** (PATCH /metadata, also passed to POST /api/workflows): a CommonMark markdown README. Use it for high-level context — what the workflow is for, caveats, callouts, requirements, authorship, credits, links to relevant docs. Don't restate the graph structure or trigger schema.
+
+**Stage `readme`** (set on POST/PATCH /stages): a CommonMark markdown README per stage. Use it for caveats, callouts, requirements, gotchas, why a particular choice was made, links to relevant docs. Don't restate inputs/outputs (those are already visible from the config and edges).
+
+Both fields support: headings, lists, code blocks, links, bold/italic, blockquotes. Keep them concise and useful.
+
 ## Best Practices
-1. ALWAYS set output_schema on ALL stages — triggers, agents, transforms, code-executors. This defines the output shape and enables type hints for downstream nodes. For triggers, it also generates the trigger form.
-2. ALWAYS set response_schema on http-request stages — this validates the API response shape and fails fast if unexpected data arrives.
-3. ALWAYS set prompt_template on edges to control exactly what each agent receives. Use {{ output.field }} to reference the source node's output (including triggers).
-4. Give stages descriptive labels. Stage IDs are auto-generated from labels as snake_case (e.g., label 'Security Review' → ID 'security_review'). You can set a custom ID if needed, but it must match /^[a-z][a-z0-9_]*$/.
+1. ALWAYS set output_schema on ALL stages — triggers, agents, code-executors. This defines the output shape and enables type hints for downstream nodes. For triggers, it also generates the trigger form.
+2. ALWAYS set prompt_template on edges to control exactly what each agent receives. Use {{ output.field }} to reference the source node's output (including triggers).
+3. Give stages descriptive labels. Stage IDs are auto-generated from labels as snake_case (e.g., label 'Security Review' → ID 'security_review'). You can set a custom ID if needed, but it must match /^[a-z][a-z0-9_]*$/.
+4. Add a markdown `readme` to stages and a markdown workflow `description` for non-obvious context — see Documentation section above.
 5. For review cycles: set cycle_behavior: 'continue' on the agent stage config (not on edges)
 6. Add manual gates before destructive actions (publishing, deploying)
 7. Set max_iterations on agent stages in cycles (default 5)
