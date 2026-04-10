@@ -168,9 +168,6 @@ export function ValidationPanel({ workflowId }: ValidationPanelProps) {
   if (isLoading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="px-4 py-3 border-b border-[var(--color-border)]">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Issues</h2>
-        </div>
         <div className="flex-1 flex items-center justify-center text-sm text-[var(--color-text-tertiary)]">
           Checking...
         </div>
@@ -180,16 +177,6 @@ export function ValidationPanel({ workflowId }: ValidationPanelProps) {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Issues</h2>
-        {hasIssues && (
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-500/15 text-red-500">
-            {totalIssues}
-          </span>
-        )}
-      </div>
-
       {/* Summary bar */}
       <div className={`px-4 py-3 border-b border-[var(--color-border)] flex items-center gap-2 ${
         hasIssues ? '' : 'text-emerald-500'

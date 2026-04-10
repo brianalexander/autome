@@ -25,11 +25,6 @@ export function VersionsPanel({
 }: VersionsPanelProps) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-[var(--color-border)]">
-        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Version History</h2>
-      </div>
-
       {isNew ? (
         <div className="px-4 py-8 text-center">
           <div className="text-sm text-[var(--color-text-tertiary)]">

@@ -9,11 +9,11 @@ interface IconSidebarProps {
 }
 
 const TABS = [
-  { id: 'author' as const, icon: Bot, label: 'AI Author', shortcut: '⌘1' },
-  { id: 'nodes' as const, icon: Puzzle, label: 'Add Nodes', shortcut: '⌘2' },
-  { id: 'issues' as const, icon: AlertTriangle, label: 'Issues', shortcut: '⌘3' },
-  { id: 'versions' as const, icon: History, label: 'Versions', shortcut: '⌘4' },
-  { id: 'settings' as const, icon: Settings, label: 'Settings', shortcut: '⌘5' },
+  { id: 'author' as const, icon: Bot, label: 'AI Author', shortcut: '1' },
+  { id: 'nodes' as const, icon: Puzzle, label: 'Add Nodes', shortcut: '2' },
+  { id: 'issues' as const, icon: AlertTriangle, label: 'Issues', shortcut: '3' },
+  { id: 'versions' as const, icon: History, label: 'Versions', shortcut: '4' },
+  { id: 'settings' as const, icon: Settings, label: 'Settings', shortcut: '5' },
 ] as const;
 
 export function IconSidebar({ activeTab, onTabChange, badges }: IconSidebarProps) {
