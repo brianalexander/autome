@@ -5,7 +5,7 @@
  */
 import { memo, type ReactNode } from 'react';
 import { type NodeProps } from '@xyflow/react';
-import { Zap } from 'lucide-react';
+import { Zap, FileText } from 'lucide-react';
 import { RunningTimer } from '../../ui/RunningTimer';
 import { BaseNode } from './BaseNode';
 import { resolveLucideIcon } from '../../../lib/iconResolver';
@@ -20,7 +20,7 @@ function resolveIcon(name?: string): ReactNode {
 
 interface GenericNodeData {
   label: string;
-  description?: string;
+  hasReadme?: boolean;
   category?: 'trigger' | 'step';
   icon?: string;
   color?: { bg?: string; border?: string; text?: string };
@@ -78,13 +78,19 @@ export const GenericStepNode = memo(function GenericStepNode({ data, selected, i
     </div>
   ) : null;
 
+  const headerRight = d.hasReadme ? (
+    <span title="Has README">
+      <FileText className="w-3 h-3 text-[var(--color-text-tertiary)] flex-shrink-0" />
+    </span>
+  ) : undefined;
+
   return (
     <BaseNode
       id={id}
       selected={selected}
       icon={resolveIcon(d.icon)}
       label={d.label}
-      subtitle={d.description}
+      headerRight={headerRight}
       headerTint={accentColor}
       handleColor={handleColor}
       handleGlowClass={handleGlowClass}

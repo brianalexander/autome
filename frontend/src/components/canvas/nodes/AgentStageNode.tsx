@@ -1,13 +1,13 @@
 import { memo } from 'react';
 import { type NodeProps } from '@xyflow/react';
-import { Bot } from 'lucide-react';
+import { Bot, FileText } from 'lucide-react';
 import { RunningTimer } from '../../ui/RunningTimer';
 import { BaseNode } from './BaseNode';
 
 interface AgentNodeData {
   label: string;
   stageId?: string;
-  description?: string;
+  hasReadme?: boolean;
   agentId: string;
   agentDescription?: string;
   model?: string;
@@ -43,14 +43,19 @@ export const AgentStageNode = memo(function AgentStageNode({ data, selected, id 
   const isRunning = status === 'running';
   const hasAgentId = d.agentId && d.agentId !== 'unset';
 
-  // Build subtitle: description > agentId > fallback
-  const subtitle = d.description || (hasAgentId ? d.agentId : undefined);
-  const subtitleItalic = !d.description && !hasAgentId;
+  // Build subtitle: agentId > fallback
+  const subtitle = hasAgentId ? d.agentId : undefined;
+  const subtitleItalic = !hasAgentId;
   const subtitleText = subtitle || 'No agent configured';
 
-  // Header right: iteration count + timer/duration
+  // Header right: readme indicator + iteration count + timer/duration
   const headerRight = (
     <>
+      {d.hasReadme && (
+        <span title="Has README">
+          <FileText className="w-3 h-3 text-[var(--color-text-tertiary)] flex-shrink-0" />
+        </span>
+      )}
       {d.runCount != null && d.runCount > 0 && (
         <span className="text-[11px] text-[var(--color-text-tertiary)] font-mono tabular-nums flex-shrink-0">
           {d.runCount}{d.maxIterations ? `/${d.maxIterations}` : ''}

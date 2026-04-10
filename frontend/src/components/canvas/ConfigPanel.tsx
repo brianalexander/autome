@@ -12,6 +12,7 @@ import { CodeEditor } from './CodeEditor';
 import { Field, SchemaPropertiesTree } from './ConfigPanelShared';
 import { AgentConfigSection } from './AgentConfigSection';
 import { AdvancedStageConfig } from './AdvancedStageConfig';
+import { ReadmeEditor } from './ReadmeEditor';
 
 // Re-export EdgeConfigPanel so existing import sites (WorkflowEditor.tsx) don't break.
 export { EdgeConfigPanel } from './EdgeConfigPanel';
@@ -279,14 +280,12 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
           />
         </Field>
 
-        {/* Node Description */}
-        <Field label="Description">
-          <input
-            value={editState.description || ''}
-            onChange={(e) => update('description', e.target.value || undefined)}
-            disabled={readonly}
-            className={`input-field${readonly ? ' opacity-60 cursor-default' : ''}`}
-            placeholder="Short description of what this node does"
+        {/* Stage README */}
+        <Field label="README">
+          <ReadmeEditor
+            value={editState.readme || ''}
+            onChange={(val) => update('readme', val || undefined)}
+            readonly={readonly}
           />
         </Field>
 

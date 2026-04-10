@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, ChevronDown } from 'lucide-react';
 import { StatusBadge } from '../ui/StatusBadge';
-import { MetadataRow } from '../ui/MetadataRow';
 import { RunHistory } from './RunHistory';
 import { ConfigPanel } from '../canvas/ConfigPanel';
+import { StreamingMarkdown } from '../chat/StreamingMarkdown';
 import type { StageDefinition, StageContext, WorkflowDefinition } from '../../lib/api';
 
 export function GenericSidebar({
@@ -20,6 +20,7 @@ export function GenericSidebar({
   onClose: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<'runtime' | 'config'>('runtime');
+  const [readmeExpanded, setReadmeExpanded] = useState(true);
 
   return (
     <div className="w-full h-full bg-surface flex flex-col min-h-0 overflow-hidden">
@@ -61,7 +62,23 @@ export function GenericSidebar({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {stageDef && (
             <>
-              {stageDef.description && <MetadataRow label="Description" value={stageDef.description} />}
+              {stageDef.readme && (
+                <div className="rounded-lg border border-border bg-surface-secondary/50">
+                  <button
+                    type="button"
+                    onClick={() => setReadmeExpanded((v) => !v)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-[10px] text-text-tertiary uppercase tracking-wider font-medium hover:text-text-secondary transition-colors"
+                  >
+                    README
+                    <ChevronDown className={`w-3 h-3 transition-transform ${readmeExpanded ? '' : '-rotate-90'}`} />
+                  </button>
+                  {readmeExpanded && (
+                    <div className="px-3 pb-3">
+                      <StreamingMarkdown content={stageDef.readme} />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Map Over section — shown when map_over is set */}
               {stageDef.map_over && (

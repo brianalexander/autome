@@ -131,7 +131,7 @@ function buildNodes(
         data: {
           label: stage.label || stage.id,
           stageId: stage.id,
-          description: stage.description,
+          hasReadme: !!stage.readme,
           agentId: cfg.agentId || 'unset',
           model: cfg.overrides?.model || undefined,
           status: runtimeStage?.status,
@@ -194,7 +194,7 @@ function buildNodes(
         position: stage.position || { x: 0, y: 0 },
         data: {
           label: stage.label || stage.id,
-          description: stage.description,
+          hasReadme: !!stage.readme,
           category: spec?.category,
           icon: spec?.icon,
           colorBg: spec?.color?.bg,

@@ -78,10 +78,10 @@ export const StageDefinitionSchema = z.object({
       'Node type ID from the node registry. Built-in types: "agent", "gate", "manual-trigger", "webhook-trigger", "cron-trigger", "code-executor". Custom types are discovered from src/nodes/custom/.',
   }),
   label: z.string().optional().meta({ description: 'Human-readable label shown on the canvas node' }),
-  description: z
+  readme: z
     .string()
     .optional()
-    .meta({ description: 'Short description shown below the label on the canvas node' }),
+    .meta({ description: 'Markdown README documenting this stage. Shown in the config panel.' }),
   position: PositionSchema.optional().meta({ description: 'Canvas position for rendering' }),
   /** Node-specific configuration — contents depend on the node type */
   config: z
@@ -204,7 +204,7 @@ export const UpdateStageBodySchema = z
   .object({
     type: z.string().optional(),
     label: z.string().optional().nullable(),
-    description: z.string().optional().nullable(),
+    readme: z.string().optional().nullable(),
     position: PositionSchema.optional(),
     config: z.record(z.string(), z.unknown()).optional().nullable(),
   })
