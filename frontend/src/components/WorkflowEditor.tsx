@@ -134,13 +134,14 @@ interface SidebarPanelProps {
   onWorkflowUpdated: () => void;
   onAddNode: (type: string) => void;
   onRestoreVersion: (version: number) => void;
+  onDefinitionChange: (definition: WorkflowDefinition) => void;
   onExport: (() => void) | undefined;
   healthIndicator: ReactNode | undefined;
 }
 
 function SidebarPanel({
   tab, effectiveId, definition, isNew, versionHistory, restoringVersion,
-  onWorkflowUpdated, onAddNode, onRestoreVersion, onExport, healthIndicator,
+  onWorkflowUpdated, onAddNode, onRestoreVersion, onDefinitionChange, onExport, healthIndicator,
 }: SidebarPanelProps) {
   return (
     <ResizablePanel side="left" defaultWidth={384} minWidth={280} maxWidth={600} className="border-r border-border flex flex-col bg-surface min-h-0 overflow-hidden">
@@ -161,6 +162,8 @@ function SidebarPanel({
           {tab === 'settings' && (
             <WorkflowSettings
               isNew={isNew}
+              definition={definition}
+              onDefinitionChange={onDefinitionChange}
               onExport={onExport}
               healthIndicator={healthIndicator}
             />
@@ -508,6 +511,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
             onWorkflowUpdated={handleWorkflowUpdated}
             onAddNode={handleAddNodeFromPalette}
             onRestoreVersion={handleRestoreVersion}
+            onDefinitionChange={handleDefinitionChange}
             onExport={!isNew ? handleExport : undefined}
             healthIndicator={!isNew ? <WorkflowHealthIndicator workflowId={workflowId!} /> : undefined}
           />

@@ -23,10 +23,9 @@ interface AgentConfigSectionProps {
   definition: WorkflowDefinition;
   /** Path-based update function from the parent ConfigPanel */
   update: (path: string, value: unknown) => void;
-  onDefinitionChange?: (definition: WorkflowDefinition) => void;
 }
 
-export function AgentConfigSection({ stage, definition, update, onDefinitionChange }: AgentConfigSectionProps) {
+export function AgentConfigSection({ stage, definition, update }: AgentConfigSectionProps) {
   const cfg = (stage.config || {}) as {
     agentId?: string;
     max_iterations?: number;
@@ -154,17 +153,6 @@ export function AgentConfigSection({ stage, definition, update, onDefinitionChan
           </Field>
         </div>
       )}
-
-      <Field label="ACP Provider (workflow default)">
-        <ProviderSelect
-          value={definition.acpProvider}
-          onChange={(val) => onDefinitionChange?.({ ...definition, acpProvider: val })}
-          emptyLabel="System default"
-        />
-        <p className="text-[10px] text-text-tertiary mt-0.5">
-          Applies to all stages. Use the stage override below to change it per stage.
-        </p>
-      </Field>
 
       {/* Overrides section */}
       <OverridesSection

@@ -326,7 +326,6 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
             stage={editState}
             definition={definition}
             update={update}
-            onDefinitionChange={onDefinitionChange}
           />
         )}
 
