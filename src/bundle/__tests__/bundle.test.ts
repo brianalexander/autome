@@ -100,7 +100,6 @@ describe('exportWorkflow', () => {
     expect(bundle.description).toBe('A test workflow');
     expect(bundle.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(bundle.requiredAgents).toEqual([]);
-    expect(bundle.requiredMcpServers).toEqual([]);
     expect(bundle.workflow).toMatchObject({ name: 'Test Workflow' });
 
     await rm(archivePath, { force: true });
@@ -129,26 +128,6 @@ describe('exportWorkflow', () => {
 
     expect(warnings).toHaveLength(0);
     expect(bundle.requiredAgents).toContain('my-agent');
-  });
-
-  it('collects MCP server names from agent spec', async () => {
-    const agentSpec = {
-      mcpServers: {
-        git: { command: 'git-mcp', args: [] },
-        github: { command: 'github-mcp', args: [] },
-      },
-    };
-    vi.mocked(discoverAgents).mockResolvedValue([
-      makeDiscoveredAgent('mcp-agent', agentSpec),
-    ]);
-
-    const def = makeWorkflow({ stages: [makeAgentStage('mcp-agent')] });
-    const { bundle, archivePath } = await exportWorkflow(def);
-
-    expect(bundle.requiredMcpServers).toContain('git');
-    expect(bundle.requiredMcpServers).toContain('github');
-
-    await rm(archivePath, { force: true });
   });
 
   it('slugifies the workflow name for the archive filename', async () => {

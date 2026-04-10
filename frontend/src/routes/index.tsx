@@ -315,14 +315,6 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
                 </div>
               )}
 
-              {preview.bundle.requiredMcpServers.length > 0 && (
-                <div>
-                  <div className="text-xs font-medium text-text-secondary mb-1">Required MCP Servers</div>
-                  <div className="text-xs text-text-tertiary">
-                    {preview.bundle.requiredMcpServers.join(', ')}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 

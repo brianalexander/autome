@@ -12,7 +12,8 @@ export type { ExportWarning };
 
 /**
  * Export a workflow as a .autome bundle (plain JSON).
- * Collects required agent names and their MCP server names from locally installed agents.
+ * The bundle contains the workflow definition + the names of agents it references.
+ * Importers are responsible for having matching agents in their environment.
  */
 export async function exportWorkflow(
   definition: WorkflowDefinition,
@@ -27,33 +28,19 @@ export async function exportWorkflow(
     }
   }
 
-  // Discover what's installed locally to validate references and find MCP names
+  // Warn about agents referenced but not installed locally — bundle still ships with the reference
   const workDir = options?.workingDir || process.cwd();
   const installed = await discoverAgents(workDir);
-  const installedMap = new Map(installed.map((a) => [a.name, a]));
+  const installedNames = new Set(installed.map((a) => a.name));
 
-  // Warn about agents referenced but not installed locally
   const warnings: ExportWarning[] = [];
   for (const name of requiredAgents) {
-    if (!installedMap.has(name)) {
+    if (!installedNames.has(name)) {
       warnings.push({
         type: 'missing_agent',
         name,
         message: `Agent "${name}" is referenced by this workflow but not installed locally. The bundle will still include the reference.`,
       });
-    }
-  }
-
-  // Collect MCP server names from installed agent specs that this workflow uses
-  const requiredMcpServers = new Set<string>();
-  for (const name of requiredAgents) {
-    const agent = installedMap.get(name);
-    if (!agent) continue;
-    const mcpServers = (agent.spec as { mcpServers?: Record<string, unknown> }).mcpServers;
-    if (mcpServers) {
-      for (const serverName of Object.keys(mcpServers)) {
-        requiredMcpServers.add(serverName);
-      }
     }
   }
 
@@ -64,7 +51,6 @@ export async function exportWorkflow(
     sourceProvider: config.acpProvider || 'kiro',
     workflow: definition,
     requiredAgents: [...requiredAgents].sort(),
-    requiredMcpServers: [...requiredMcpServers].sort(),
   };
 
   // Write as a plain JSON file

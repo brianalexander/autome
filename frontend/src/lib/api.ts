@@ -65,7 +65,6 @@ export interface BundlePreview {
     exportedAt: string;
     sourceProvider: string;
     requiredAgents: string[];
-    requiredMcpServers: string[];
   };
   workflow: { name: string; description?: string; stageCount: number; edgeCount: number };
 }
