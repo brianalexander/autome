@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAgents, useAgent } from '../../hooks/queries';
 import {
   type StageDefinition,
@@ -336,43 +336,14 @@ function OverridesSection({ overrides, canonicalSpec, onChange, onReset }: Overr
             />
           </Field>
 
-          <Field label="Additional MCP Servers">
-            <div className="space-y-2">
-              {(overrides?.additional_mcp_servers || []).map((server: MCPServerConfig, i: number) => (
-                <div key={i} className="flex items-center gap-2 text-xs bg-surface-secondary rounded p-2">
-                  <span className="font-mono flex-1">{server.name}</span>
-                  <button
-                    onClick={() => {
-                      const servers = [...(overrides?.additional_mcp_servers || [])];
-                      servers.splice(i, 1);
-                      updateOverride('additional_mcp_servers', servers.length ? servers : undefined);
-                    }}
-                    className="text-red-600 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() => {
-                  const name = prompt('MCP server name:');
-                  const command = prompt('Command (e.g., npx):');
-                  const argsStr = prompt('Args (comma-separated):');
-                  if (name && command) {
-                    const servers: MCPServerConfig[] = [...(overrides?.additional_mcp_servers || [])];
-                    servers.push({
-                      name,
-                      command,
-                      args: argsStr?.split(',').map((s) => s.trim()) || [],
-                    });
-                    updateOverride('additional_mcp_servers', servers);
-                  }
-                }}
-                className="text-xs text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
-              >
-                + Add MCP Server
-              </button>
-            </div>
+          <Field
+            label="Additional MCP Servers"
+            description="Keyed by server name. Each entry takes a command, args (array), and optional env (object)."
+          >
+            <McpServersEditor
+              value={overrides?.additional_mcp_servers}
+              onChange={(servers) => updateOverride('additional_mcp_servers', servers)}
+            />
           </Field>
 
           {hasOverrides && (
@@ -385,6 +356,117 @@ function OverridesSection({ overrides, canonicalSpec, onChange, onReset }: Overr
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MCP Servers JSON editor
+// ---------------------------------------------------------------------------
+
+const MCP_PLACEHOLDER = `{
+  "github": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": {
+      "GITHUB_TOKEN": "$GITHUB_TOKEN"
+    }
+  }
+}`;
+
+/**
+ * Convert the array storage form (`[{ name, command, args, env }]`) into the
+ * keyed object form (`{ name: { command, args, env } }`) shown in the editor.
+ */
+function serversToKeyed(servers: MCPServerConfig[] | undefined): string {
+  if (!servers || servers.length === 0) return '';
+  const obj: Record<string, { command: string; args: string[]; env?: Record<string, string> }> = {};
+  for (const s of servers) {
+    obj[s.name] = {
+      command: s.command,
+      args: s.args || [],
+      ...(s.env ? { env: s.env } : {}),
+    };
+  }
+  return JSON.stringify(obj, null, 2);
+}
+
+/**
+ * Parse the keyed object form back into the array storage form.
+ * Returns null if the JSON is invalid.
+ */
+function keyedToServers(json: string): MCPServerConfig[] | null {
+  if (!json.trim()) return null;
+  try {
+    const parsed = JSON.parse(json);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const servers: MCPServerConfig[] = [];
+    for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object') continue;
+      const v = value as { command?: unknown; args?: unknown; env?: unknown };
+      if (typeof v.command !== 'string') continue;
+      const args = Array.isArray(v.args) ? v.args.filter((a): a is string => typeof a === 'string') : [];
+      const env =
+        v.env && typeof v.env === 'object' && !Array.isArray(v.env)
+          ? (v.env as Record<string, string>)
+          : undefined;
+      servers.push({ name, command: v.command, args, ...(env ? { env } : {}) });
+    }
+    return servers;
+  } catch {
+    return null;
+  }
+}
+
+function McpServersEditor({
+  value,
+  onChange,
+}: {
+  value: MCPServerConfig[] | undefined;
+  onChange: (servers: MCPServerConfig[] | undefined) => void;
+}) {
+  // Local text state so users can type freely without losing intermediate invalid JSON.
+  // Sync from `value` only when the parent prop changes (mounting / external updates).
+  const initial = serversToKeyed(value);
+  const [text, setText] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset local text when the upstream value changes (e.g. switching stages).
+  useEffect(() => {
+    setText(serversToKeyed(value));
+    setError(null);
+    // We intentionally only watch the serialized form so editing in place doesn't loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serversToKeyed(value)]);
+
+  const commit = (raw: string) => {
+    if (!raw.trim()) {
+      setError(null);
+      onChange(undefined);
+      return;
+    }
+    const servers = keyedToServers(raw);
+    if (servers === null) {
+      setError('Invalid JSON or wrong shape — expected `{ "name": { "command": "...", "args": [...], "env": { ... } } }`');
+      return;
+    }
+    setError(null);
+    onChange(servers.length > 0 ? servers : undefined);
+  };
+
+  return (
+    <div className="space-y-1">
+      <CodeEditor
+        value={text}
+        onChange={(val) => {
+          setText(val);
+          commit(val);
+        }}
+        editorMode="json"
+        placeholder={MCP_PLACEHOLDER}
+        minHeight="140px"
+      />
+      {error && <p className="text-[10px] text-red-500">{error}</p>}
     </div>
   );
 }
