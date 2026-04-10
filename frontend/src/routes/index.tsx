@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useWorkflows, useTriggerWorkflow, useDeleteWorkflow, useActivateWorkflow, useDeactivateWorkflow } from '../hooks/queries';
 import { TriggerDialog } from '../components/TriggerDialog';
 import { workflows as workflowsApi, isTriggerType, type BundlePreview, type ImportResult } from '../lib/api';
+import { stripMarkdown } from '../lib/format';
 
 export const Route = createFileRoute('/')({
   component: WorkflowsPage,
@@ -110,7 +111,7 @@ function WorkflowsPage() {
                   </h3>
                   {workflow.description && (
                     <p className="text-xs text-text-tertiary line-clamp-2 mb-2">
-                      {workflow.description}
+                      {stripMarkdown(workflow.description)}
                     </p>
                   )}
                   <div className="flex items-center gap-2 text-[10px] text-text-muted">
@@ -292,7 +293,7 @@ function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported
               <div>
                 <div className="text-sm font-medium">{preview.bundle.name}</div>
                 {preview.bundle.description && (
-                  <div className="text-xs text-text-secondary mt-0.5">{preview.bundle.description}</div>
+                  <div className="text-xs text-text-secondary mt-0.5">{stripMarkdown(preview.bundle.description)}</div>
                 )}
                 <div className="text-xs text-text-tertiary mt-1">
                   {preview.workflow.stageCount} stages, {preview.workflow.edgeCount} edges

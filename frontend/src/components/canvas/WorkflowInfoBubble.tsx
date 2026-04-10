@@ -1,5 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
+import { ReadmeEditor } from './ReadmeEditor';
+import { stripMarkdown } from '../../lib/format';
 
 interface WorkflowInfoBubbleProps {
   name: string;
@@ -20,96 +22,80 @@ export function WorkflowInfoBubble({
   backLink,
   onBack,
 }: WorkflowInfoBubbleProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [readmeOpen, setReadmeOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea to content
-  const autoResize = useCallback(() => {
-    const ta = textareaRef.current;
-    if (ta) {
-      ta.style.height = 'auto';
-      ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
-    }
-  }, []);
-
+  // Close on click outside (when README modal is not open)
   useEffect(() => {
-    if (expanded) autoResize();
-  }, [expanded, description, autoResize]);
-
-  // Collapse on click outside — listen on both document and the React Flow pane
-  // (the pane captures mousedown before it bubbles to document)
-  useEffect(() => {
-    if (!expanded) return;
+    if (readmeOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setExpanded(false);
+        // Nothing to collapse — bubble is always compact now
       }
     };
-    document.addEventListener('mousedown', handleClickOutside, true); // capture phase
+    document.addEventListener('mousedown', handleClickOutside, true);
     return () => document.removeEventListener('mousedown', handleClickOutside, true);
-  }, [expanded]);
+  }, [readmeOpen]);
+
+  const previewText = stripMarkdown(description || '');
+  const placeholderText = description ? '' : 'Add a README...';
 
   return (
-    <div className="absolute top-3 left-3 z-40" ref={containerRef}>
-      <div
-        className={`
-          bg-[var(--color-surface)] border border-[var(--color-border)]
-          rounded-xl shadow-lg backdrop-blur-sm
-          transition-all duration-200 ease-out
-          ${expanded ? 'max-w-[420px] px-3.5 py-3' : 'max-w-[280px] px-3 py-2'}
-        `}
-      >
-        {/* Name row */}
-        <div className="flex items-center gap-2">
-          {backLink ? (
-            <Link
-              to={backLink}
-              className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] text-sm flex-shrink-0 transition-colors"
-            >
-              ←
-            </Link>
-          ) : onBack ? (
-            <button
-              onClick={onBack}
-              className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] text-sm flex-shrink-0 transition-colors"
-            >
-              ←
-            </button>
-          ) : null}
-          <input
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            onFocus={() => setExpanded(true)}
-            className="flex-1 text-sm font-semibold bg-transparent border-none focus:outline-none text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] min-w-0"
-            placeholder="Workflow name..."
-          />
-        </div>
-
-        {/* Description — single line when collapsed, auto-growing textarea when expanded */}
-        {expanded ? (
-          <textarea
-            ref={textareaRef}
-            value={description}
-            onChange={(e) => {
-              onDescriptionChange(e.target.value);
-              autoResize();
-            }}
-            onFocus={autoResize}
-            rows={1}
-            className="w-full mt-1.5 text-xs bg-[var(--color-surface-secondary)] border border-[var(--color-border)] rounded-lg px-2 py-1.5 focus:outline-none focus:border-[var(--color-accent)] text-[var(--color-text-secondary)] placeholder:text-[var(--color-text-tertiary)] resize-none transition-colors"
-            placeholder="Add a description..."
-          />
-        ) : (
-          <div
-            onClick={() => setExpanded(true)}
-            className="mt-0.5 text-xs text-[var(--color-text-tertiary)] truncate cursor-text"
-            title={description || 'Click to add description'}
-          >
-            {description || 'Add description...'}
+    <>
+      <div className="absolute top-3 left-3 z-40" ref={containerRef}>
+        <div
+          className="
+            bg-[var(--color-surface)] border border-[var(--color-border)]
+            rounded-xl shadow-lg backdrop-blur-sm
+            max-w-[280px] px-3 py-2
+          "
+        >
+          {/* Name row */}
+          <div className="flex items-center gap-2">
+            {backLink ? (
+              <Link
+                to={backLink}
+                className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] text-sm flex-shrink-0 transition-colors"
+              >
+                ←
+              </Link>
+            ) : onBack ? (
+              <button
+                onClick={onBack}
+                className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] text-sm flex-shrink-0 transition-colors"
+              >
+                ←
+              </button>
+            ) : null}
+            <input
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              className="flex-1 text-sm font-semibold bg-transparent border-none focus:outline-none text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] min-w-0"
+              placeholder="Workflow name..."
+            />
           </div>
-        )}
+
+          {/* Description preview — click to open the README modal */}
+          <button
+            type="button"
+            onClick={() => setReadmeOpen(true)}
+            className="block w-full text-left mt-0.5 text-xs text-[var(--color-text-tertiary)] truncate cursor-pointer hover:text-[var(--color-text-secondary)] transition-colors"
+            title={previewText || 'Click to add a README'}
+          >
+            {previewText || placeholderText}
+          </button>
+        </div>
       </div>
-    </div>
+
+      {/* README editor — modal-only, controlled */}
+      <ReadmeEditor
+        value={description || ''}
+        onChange={onDescriptionChange}
+        modalOnly
+        title="Workflow README"
+        expanded={readmeOpen}
+        onClose={() => setReadmeOpen(false)}
+      />
+    </>
   );
 }

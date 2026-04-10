@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Maximize2, Minimize2, Eye, Edit3 } from 'lucide-react';
+import { Maximize2, Minimize2, Eye, Edit3, X } from 'lucide-react';
 import { StreamingMarkdown } from '../chat/StreamingMarkdown';
 
 interface ReadmeEditorProps {
@@ -7,10 +7,35 @@ interface ReadmeEditorProps {
   onChange: (val: string) => void;
   readonly?: boolean;
   placeholder?: string;
+  /** Title for the modal header (defaults to "README"). */
+  title?: string;
+  /** When true, only renders the modal — no inline content. */
+  modalOnly?: boolean;
+  /** Externally control the modal's open state (overrides internal state when defined). */
+  expanded?: boolean;
+  /** Called when the modal is closed (via X, Escape, or backdrop click). Required when expanded is controlled. */
+  onClose?: () => void;
 }
 
-export function ReadmeEditor({ value, onChange, readonly, placeholder }: ReadmeEditorProps) {
-  const [expanded, setExpanded] = useState(false);
+export function ReadmeEditor({
+  value,
+  onChange,
+  readonly,
+  placeholder,
+  title = 'README',
+  modalOnly = false,
+  expanded: expandedProp,
+  onClose,
+}: ReadmeEditorProps) {
+  const [internalExpanded, setInternalExpanded] = useState(false);
+  const expanded = expandedProp ?? internalExpanded;
+  const setExpanded = (val: boolean) => {
+    if (expandedProp !== undefined) {
+      if (!val) onClose?.();
+    } else {
+      setInternalExpanded(val);
+    }
+  };
   const [mode, setMode] = useState<'view' | 'edit'>(value ? 'view' : 'edit');
 
   // When the user opens an empty README, default to edit mode
@@ -56,14 +81,26 @@ export function ReadmeEditor({ value, onChange, readonly, placeholder }: ReadmeE
           </button>
         </div>
       )}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="text-text-tertiary hover:text-text-primary transition-colors p-1"
-        title={expanded ? 'Collapse' : 'Expand'}
-      >
-        {expanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-      </button>
+      {!modalOnly && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="text-text-tertiary hover:text-text-primary transition-colors p-1"
+          title={expanded ? 'Collapse' : 'Expand'}
+        >
+          {expanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+        </button>
+      )}
+      {modalOnly && expanded && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="text-text-tertiary hover:text-text-primary transition-colors p-1"
+          title="Close"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   );
 
@@ -103,8 +140,8 @@ export function ReadmeEditor({ value, onChange, readonly, placeholder }: ReadmeE
 
   return (
     <div className="space-y-1.5">
-      {/* Inline mode */}
-      {!expanded && (
+      {/* Inline mode (skipped when modalOnly is true) */}
+      {!modalOnly && !expanded && (
         <>
           {renderContent(false)}
           <div className="flex justify-end">{renderToolbar()}</div>
@@ -118,7 +155,7 @@ export function ReadmeEditor({ value, onChange, readonly, placeholder }: ReadmeE
           <div className="fixed inset-0 z-50 flex items-center justify-center p-8 pointer-events-none">
             <div className="bg-surface border border-border rounded-xl w-[90vw] max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl pointer-events-auto">
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0">
-                <span className="text-xs font-medium text-text-secondary">README</span>
+                <span className="text-xs font-medium text-text-secondary">{title}</span>
                 {renderToolbar()}
               </div>
               <div className="flex-1 overflow-auto p-4">{renderContent(true)}</div>

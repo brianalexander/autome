@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { StatusBadge } from '../ui/StatusBadge';
+import { stripMarkdown } from '../../lib/format';
 
 interface InstanceInfoBubbleProps {
   workflowName?: string;
@@ -58,7 +59,7 @@ export function InstanceInfoBubble({
         {/* Description */}
         {workflowDescription && (
           <div className="mt-0.5 text-xs text-[var(--color-text-tertiary)] truncate">
-            {workflowDescription}
+            {stripMarkdown(workflowDescription)}
           </div>
         )}
 
