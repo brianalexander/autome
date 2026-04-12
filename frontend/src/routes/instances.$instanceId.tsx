@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { z } from 'zod';
 import {
   useInstance,
   useInstanceStatus,
@@ -13,10 +14,14 @@ import { useWebSocket } from '../hooks/useWebSocket';
 
 export const Route = createFileRoute('/instances/$instanceId')({
   component: InstanceDetail,
+  validateSearch: z.object({
+    stageId: z.string().optional(),
+  }),
 });
 
 function InstanceDetail() {
   const { instanceId } = Route.useParams();
+  const { stageId: initialStageId } = Route.useSearch();
   // Subscribe to instance-scoped events so the server only sends relevant updates
   useWebSocket([`instance:${instanceId}`]);
   const { data: instance, isLoading: instanceLoading } = useInstance(instanceId);
@@ -76,6 +81,7 @@ function InstanceDetail() {
           isActive={isActive}
           onCancel={() => cancelInstance.mutate(instanceId)}
           cancelPending={cancelInstance.isPending}
+          initialStageId={initialStageId}
         />
       ) : (
         <div className="p-6 text-text-tertiary">Loading workflow definition...</div>

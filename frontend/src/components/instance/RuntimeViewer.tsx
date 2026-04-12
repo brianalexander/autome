@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useApproveGate, useRejectGate, useCancelInstance } from '../../hooks/queries';
 import { WorkflowCanvas } from '../canvas/WorkflowCanvas';
@@ -40,6 +40,7 @@ export interface RuntimeViewerProps {
   isActive?: boolean;
   onCancel?: () => void;
   cancelPending?: boolean;
+  initialStageId?: string;
 }
 
 // --- Main component ---
@@ -61,13 +62,21 @@ export function RuntimeViewer({
   isActive: isActiveProp,
   onCancel,
   cancelPending,
+  initialStageId,
 }: RuntimeViewerProps) {
   const approveGate = useApproveGate();
   const rejectGate = useRejectGate();
   const cancelInstance = useCancelInstance();
 
-  const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(initialStageId ?? null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+
+  // Sync when a deep-link stageId arrives after initial mount
+  useEffect(() => {
+    if (initialStageId && initialStageId !== selectedStageId) {
+      setSelectedStageId(initialStageId);
+    }
+  }, [initialStageId]);
 
   const rawContext = liveStatus?.context ?? instance.context;
   const internalEffectiveStatus = liveStatus?.status ?? instance.status;

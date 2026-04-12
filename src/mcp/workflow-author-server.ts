@@ -197,64 +197,82 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
-      name: 'ui_action',
+      name: 'show_test_run',
       description: [
-        'Show the user something in the UI.',
-        'Only call when the user EXPLICITLY asks (e.g. "show me the test run", "where did it fail?", "open the failed stage").',
-        'Do NOT call this proactively while doing your work — the user does not want to be navigated around without consent.',
+        'Open the test run viewer in the editor for a specific instance.',
+        'Only call when the user EXPLICITLY asks (e.g. "show me the test run", "open it").',
+        'Do NOT call proactively — the user does not want to be navigated around without consent.',
         '',
-        'Available actions:',
-        '  show_test_run — Opens an active test run viewer for a specific instanceId.',
-        '  navigate — Jumps the UI to a route path (stub, coming soon).',
-        '  highlight_element — Pulses a UI element by CSS id or data-ui-id (stub, coming soon).',
-        '  toast — Shows a notification toast (stub, coming soon).',
-        '',
-        'Example: user says "run a test" → call start_test_run, wait for terminal-state push, summarize in chat. Do NOT call ui_action.',
-        'Example: user says "show me the test run" → call ui_action({ action: "show_test_run", instanceId: "<id>" }).',
+        'Example: user says "run a test and let me know how it goes." → call start_test_run, wait for push, summarize in chat. Do NOT call show_test_run.',
+        'Example: user says "ok show me the test run." → call show_test_run.',
       ].join('\n'),
       inputSchema: {
         type: 'object' as const,
         properties: {
-          workflow_id: {
-            type: 'string',
-            description: 'The workflow ID (used to scope the broadcast). Use the workflow_id from your context.',
-          },
-          action: {
-            type: 'string',
-            enum: ['show_test_run', 'navigate', 'highlight_element', 'toast'],
-            description: 'The UI action to perform.',
-          },
           instanceId: {
             type: 'string',
-            description: 'For show_test_run: the instance ID returned by start_test_run.',
+            description: 'The instance ID returned by start_test_run.',
           },
           testWorkflowId: {
             type: 'string',
-            description: 'For show_test_run: the testWorkflowId returned by start_test_run.',
+            description: 'The testWorkflowId returned by start_test_run.',
           },
+        },
+        required: ['instanceId', 'testWorkflowId'],
+      },
+    },
+    {
+      name: 'navigate',
+      description: 'Navigate the UI to a path.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
           to: {
             type: 'string',
-            description: 'For navigate: the route path or URL to navigate to (stub).',
+            description: 'The route path to navigate to (e.g. "/instances/abc").',
           },
-          elementId: {
+        },
+        required: ['to'],
+      },
+    },
+    {
+      name: 'highlight_stage',
+      description: [
+        'Highlight a stage on the canvas with a pulse animation.',
+        'Use after navigating to draw the user\'s attention to a particular stage.',
+      ].join('\n'),
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          stageId: {
             type: 'string',
-            description: 'For highlight_element: the CSS id or data-ui-id of the element to pulse (stub).',
+            description: 'The stage ID to highlight.',
           },
           pulseMs: {
             type: 'number',
-            description: 'For highlight_element: how long to pulse in milliseconds (stub).',
+            description: 'Duration of the pulse animation in milliseconds (default: 2500).',
           },
+        },
+        required: ['stageId'],
+      },
+    },
+    {
+      name: 'toast',
+      description: 'Show a notification toast in the UI.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
           level: {
             type: 'string',
-            enum: ['info', 'warn', 'error'],
-            description: 'For toast: the severity level (stub).',
+            enum: ['info', 'success', 'warn', 'error'],
+            description: 'Severity level of the toast.',
           },
           text: {
             type: 'string',
-            description: 'For toast: the message text (stub).',
+            description: 'The message to display in the toast.',
           },
         },
-        required: ['workflow_id', 'action'],
+        required: ['level', 'text'],
       },
     },
   ],
@@ -686,39 +704,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   // -----------------------------------------------------------------------
-  // ui_action
+  // show_test_run
   // -----------------------------------------------------------------------
-  if (name === 'ui_action') {
+  if (name === 'show_test_run') {
     try {
-      const workflowId = args?.workflow_id as string;
-      const action = args?.action as string;
-      if (!workflowId) {
-        return { content: [{ type: 'text', text: 'Error: "workflow_id" is required' }], isError: true };
-      }
-      if (!action) {
-        return { content: [{ type: 'text', text: 'Error: "action" is required' }], isError: true };
-      }
-
-      const payload: Record<string, unknown> = {
-        workflowId,
-        action,
-      };
-
-      // Map action-specific fields
-      if (action === 'show_test_run') {
-        payload.instanceId = args?.instanceId;
-        payload.testWorkflowId = args?.testWorkflowId;
-      } else if (action === 'navigate') {
-        payload.to = args?.to;
-      } else if (action === 'highlight_element') {
-        payload.elementId = args?.elementId;
-        if (args?.pulseMs != null) payload.pulseMs = args.pulseMs;
-      } else if (action === 'toast') {
-        payload.level = args?.level;
-        payload.text = args?.text;
+      const instanceId = args?.instanceId as string;
+      const testWorkflowId = args?.testWorkflowId as string;
+      if (!instanceId || !testWorkflowId) {
+        return {
+          content: [{ type: 'text', text: 'Error: "instanceId" and "testWorkflowId" are required' }],
+          isError: true,
+        };
       }
 
-      const result = await apiPost('/api/internal/ui-action', payload);
+      const WORKFLOW_ID = process.env.WORKFLOW_ID as string;
+      const result = await apiPost('/api/internal/ui-action', {
+        action: 'show_test_run',
+        instanceId,
+        testWorkflowId,
+        workflowId: WORKFLOW_ID,
+      });
       if (!result.ok) {
         return {
           content: [{ type: 'text', text: `API error (${result.status}): ${JSON.stringify(result.body)}` }],
@@ -726,7 +731,104 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, action }, null, 2) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true }, null, 2) }] };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // navigate
+  // -----------------------------------------------------------------------
+  if (name === 'navigate') {
+    try {
+      const to = args?.to as string;
+      if (!to) {
+        return { content: [{ type: 'text', text: 'Error: "to" is required' }], isError: true };
+      }
+
+      const WORKFLOW_ID = process.env.WORKFLOW_ID as string;
+      const result = await apiPost('/api/internal/ui-action', {
+        action: 'navigate',
+        to,
+        workflowId: WORKFLOW_ID,
+      });
+      if (!result.ok) {
+        return {
+          content: [{ type: 'text', text: `API error (${result.status}): ${JSON.stringify(result.body)}` }],
+          isError: true,
+        };
+      }
+
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, to }, null, 2) }] };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // highlight_stage
+  // -----------------------------------------------------------------------
+  if (name === 'highlight_stage') {
+    try {
+      const stageId = args?.stageId as string;
+      if (!stageId) {
+        return { content: [{ type: 'text', text: 'Error: "stageId" is required' }], isError: true };
+      }
+
+      const WORKFLOW_ID = process.env.WORKFLOW_ID as string;
+      const pulseMs = args?.pulseMs as number | undefined;
+      const result = await apiPost('/api/internal/ui-action', {
+        action: 'highlight_element',
+        elementId: stageId,
+        workflowId: WORKFLOW_ID,
+        ...(pulseMs != null ? { pulseMs } : {}),
+      });
+      if (!result.ok) {
+        return {
+          content: [{ type: 'text', text: `API error (${result.status}): ${JSON.stringify(result.body)}` }],
+          isError: true,
+        };
+      }
+
+      return { content: [{ type: 'text', text: JSON.stringify({ highlighted: true }, null, 2) }] };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // toast
+  // -----------------------------------------------------------------------
+  if (name === 'toast') {
+    try {
+      const level = args?.level as string;
+      const text = args?.text as string;
+      if (!level || !text) {
+        return {
+          content: [{ type: 'text', text: 'Error: "level" and "text" are required' }],
+          isError: true,
+        };
+      }
+
+      const WORKFLOW_ID = process.env.WORKFLOW_ID as string;
+      const result = await apiPost('/api/internal/ui-action', {
+        action: 'toast',
+        level,
+        text,
+        workflowId: WORKFLOW_ID,
+      });
+      if (!result.ok) {
+        return {
+          content: [{ type: 'text', text: `API error (${result.status}): ${JSON.stringify(result.body)}` }],
+          isError: true,
+        };
+      }
+
+      return { content: [{ type: 'text', text: JSON.stringify({ shown: true }, null, 2) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
