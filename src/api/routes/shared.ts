@@ -15,6 +15,7 @@ export interface RouteDeps {
   manualTrigger: ManualTriggerProvider;
   authorPool?: AgentPool;
   acpPool?: AgentPool;
+  assistantPool?: AgentPool;
 }
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,7 @@ export interface RouteDeps {
 export interface SharedState {
   authorPool: AgentPool;
   acpPool: AgentPool;
+  assistantPool: AgentPool;
   forceStoppedStages: Set<string>;
   signalledStages: Set<string>;
   authorDrafts: Map<string, WorkflowDefinition>;

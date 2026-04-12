@@ -19,6 +19,7 @@ export type { RouteDeps } from './routes/shared.js';
 export async function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   const authorPool = deps.authorPool ?? new AgentPool();
   const acpPool = deps.acpPool ?? new AgentPool();
+  const assistantPool = deps.assistantPool ?? new AgentPool();
 
   // Pre-warm the draft cache from DB so drafts survive server restarts
   const authorDrafts = new Map<string, WorkflowDefinition>();
@@ -33,6 +34,7 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   const state: SharedState = {
     authorPool,
     acpPool,
+    assistantPool,
     forceStoppedStages: new Set<string>(),
     signalledStages: new Set<string>(),
     authorDrafts,

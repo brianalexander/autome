@@ -36,6 +36,7 @@ let eventBus: EventBus;
 let manualTrigger: ManualTriggerProvider;
 let authorPool: AgentPool;
 let acpPool: AgentPool;
+let assistantPool: AgentPool;
 let stopTestRunListener: (() => void) | undefined;
 let janitorInterval: ReturnType<typeof setInterval> | undefined;
 
@@ -118,6 +119,7 @@ async function start() {
   // Initialize ACP process pools
   authorPool = new AgentPool({ provider: acpProvider });
   acpPool = new AgentPool({ provider: acpProvider });
+  assistantPool = new AgentPool({ provider: acpProvider });
 
   // Run crash recovery before accepting connections
   await runCrashRecovery(db, acpProvider);
@@ -159,7 +161,7 @@ async function start() {
   await app.register(websocketPlugin);
 
   // Register routes with all dependencies
-  await app.register(registerRoutes, { db, eventBus, manualTrigger, authorPool, acpPool });
+  await app.register(registerRoutes, { db, eventBus, manualTrigger, authorPool, acpPool, assistantPool });
 
   // Graceful shutdown hook
   app.addHook('onClose', async () => {
@@ -170,6 +172,7 @@ async function start() {
     await eventBus.stopAll().catch(() => {});
     await authorPool?.terminateAll().catch(() => {});
     await acpPool?.terminateAll().catch(() => {});
+    await assistantPool?.terminateAll().catch(() => {});
     db.close();
   });
 

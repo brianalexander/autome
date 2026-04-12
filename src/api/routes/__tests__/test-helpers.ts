@@ -26,9 +26,11 @@ export async function buildTestApp() {
   const deps = { db, eventBus, manualTrigger, acpPool, authorPool };
 
   const authorDrafts = new Map<string, WorkflowDefinition>();
+  const assistantPool = new AgentPool();
   const state: SharedState = {
     authorPool,
     acpPool,
+    assistantPool,
     forceStoppedStages: new Set<string>(),
     signalledStages: new Set<string>(),
     authorDrafts,

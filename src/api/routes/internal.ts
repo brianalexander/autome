@@ -8,6 +8,7 @@ import { errorMessage } from '../../utils/errors.js';
 import { broadcast } from '../websocket.js';
 import { registerRestateRoutes } from './internal-restate.js';
 import { registerAuthorRoutes } from './internal-author.js';
+import { registerAssistantRoutes } from './internal-assistant.js';
 
 // ---------------------------------------------------------------------------
 // Schema for POST /api/internal/ui-action
@@ -50,6 +51,9 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
 
   // Register AI author session management (author chat, drafts, segments, etc.)
   registerAuthorRoutes(app, deps, state);
+
+  // Register AI assistant session management (global run overseer chat, segments, etc.)
+  registerAssistantRoutes(app, deps, state);
 
   // POST /api/internal/validate-code — TypeScript type-checking for the code editor
   typedApp.post(

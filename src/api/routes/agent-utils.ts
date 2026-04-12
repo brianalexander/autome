@@ -58,7 +58,7 @@ export interface WireAcpEventsOpts {
   instanceId: string;
   stageId: string;
   iteration: number;
-  eventPrefix: 'agent' | 'author';
+  eventPrefix: 'agent' | 'author' | 'assistant';
   filterPayload: Record<string, string>;
   /** Broadcast scope for filtering — instance or workflow level. */
   scope?: BroadcastScope;
@@ -310,7 +310,7 @@ export interface SessionConfig {
     additional_tools?: string[];
     additional_mcp_servers?: Array<{ name: string; command: string; args: string[]; env?: Record<string, string> }>;
   };
-  eventPrefix: 'agent' | 'author';
+  eventPrefix: 'agent' | 'author' | 'assistant';
   filterPayload: Record<string, string>;
   /** Broadcast scope for filtering events to subscribed clients. */
   scope?: BroadcastScope;
