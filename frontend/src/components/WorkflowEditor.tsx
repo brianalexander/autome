@@ -36,7 +36,7 @@ import {
 } from '../lib/api';
 import { useDraftLifecycle } from '../hooks/useDraftLifecycle';
 import { useTestRun } from '../hooks/useTestRun';
-import { useUiActions } from '../hooks/useUiActions';
+import { registerUiCapabilities, unregisterUiCapabilities } from '../hooks/useGlobalUiActions';
 
 // ---------------------------------------------------------------------------
 // Small co-located sub-components (not exported — only used by WorkflowEditor)
@@ -303,8 +303,20 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   // --- Canvas ref ---
   const canvasActionsRef = useRef<WorkflowCanvasHandle | null>(null);
 
-  // Mount UI action dispatcher — handles agent-requested UI operations (show_test_run, etc.)
-  useUiActions({ currentWorkflowId: effectiveId, on, openTestRunViewer, navigate, canvasHandle: canvasActionsRef });
+  // Register editor capabilities with the global ui:action dispatcher.
+  // The global hook in __root.tsx reads these to route actions to the active editor.
+  useEffect(() => {
+    registerUiCapabilities({
+      canvasHandle: canvasActionsRef,
+      openTestRunViewer: (instanceId, testWorkflowId) => {
+        registerActiveTestRun(instanceId, testWorkflowId);
+      },
+      activeWorkflowId: effectiveId,
+    });
+    return () => {
+      unregisterUiCapabilities(['canvasHandle', 'openTestRunViewer', 'activeWorkflowId']);
+    };
+  }, [effectiveId, registerActiveTestRun]);
 
   // Listen for AI Author-initiated test runs — register the run but do NOT auto-open viewer.
   // The Test Run button will switch to "View Test Run" so the user can open it when ready.
