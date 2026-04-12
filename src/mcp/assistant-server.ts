@@ -47,6 +47,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: 'string',
             description: 'ISO 8601 timestamp — only return runs created at or after this time',
           },
+          until: {
+            type: 'string',
+            description: 'ISO 8601 timestamp — only return runs created before this time. Use with `since` for a date range.',
+          },
           limit: {
             type: 'number',
             description: 'Maximum number of runs to return (default: 20)',
@@ -341,23 +345,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const status = args?.status as string | undefined;
       const definitionId = args?.definitionId as string | undefined;
       const since = args?.since as string | undefined;
+      const until = args?.until as string | undefined;
       const limit = (args?.limit as number | undefined) ?? 20;
       const suspectedStalledFilter = args?.suspected_stalled as boolean | undefined;
 
       const params = new URLSearchParams();
       if (status) params.set('status', status);
       if (definitionId) params.set('definitionId', definitionId);
-      // When filtering by `since` client-side, fetch more records to avoid missing results
-      params.set('limit', since ? '200' : String(limit));
+      // When filtering by date range client-side, fetch more records to avoid missing results
+      params.set('limit', (since || until) ? '200' : String(limit));
 
-      const result = await apiGet(`/api/instances?${params.toString()}`);
+      const [result, workflowsResult] = await Promise.all([
+        apiGet(`/api/instances?${params.toString()}`),
+        apiGet('/api/workflows?limit=200'),
+      ]);
       if (!result.ok) {
         return { content: [{ type: 'text', text: errorText(result.status, result.body) }], isError: true };
       }
 
+      // Build workflow name lookup
+      const workflowNameMap = new Map<string, string>();
+      if (workflowsResult.ok) {
+        const wfRaw = workflowsResult.body as { data?: Array<{ id: string; name: string }> } | Array<{ id: string; name: string }>;
+        const wfRows = Array.isArray(wfRaw) ? wfRaw : (wfRaw.data ?? []);
+        for (const wf of wfRows) workflowNameMap.set(wf.id, wf.name);
+      }
+
       type InstanceRow = {
         id: string;
-        workflow_name?: string;
+        definition_id?: string;
         status: string;
         created_at: string;
         completed_at?: string | null;
@@ -373,16 +389,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // Exclude test instances
       let filtered = rows.filter((r) => !r.is_test);
 
-      // Apply since filter
+      // Apply date range filter (since/until)
       if (since) {
         const sinceTs = new Date(since).getTime();
         filtered = filtered.filter((r) => new Date(r.created_at).getTime() >= sinceTs);
+      }
+      if (until) {
+        const untilTs = new Date(until).getTime();
+        filtered = filtered.filter((r) => new Date(r.created_at).getTime() < untilTs);
       }
 
       // Annotate with suspected_stalled
       const annotated = filtered.map((r) => ({
         instanceId: r.id,
-        workflowName: r.workflow_name ?? null,
+        workflowName: (r.definition_id ? workflowNameMap.get(r.definition_id) : null) ?? null,
         status: r.status,
         createdAt: r.created_at,
         completedAt: r.completed_at ?? null,
