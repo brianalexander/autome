@@ -17,9 +17,13 @@ export { initializeContext, findEntryStages, isTerminalStage, evaluateEdges } fr
 type StageOutput = Record<string, unknown>;
 
 // Types for workflow input/state
-interface WorkflowInput {
+export interface WorkflowInput {
   definition: WorkflowDefinition;
   triggerEvent: Event;
+  /** If present, use this context directly instead of calling initializeContext() */
+  seedContext?: WorkflowContext;
+  /** If present, use these stage IDs as entry points instead of calling findEntryStages() */
+  entryStageIds?: string[];
 }
 
 export interface WorkflowState {
@@ -34,32 +38,85 @@ export const pipelineWorkflow = restate.workflow({
   handlers: {
     // Main run handler — executes exactly once per workflow ID
     run: async (ctx: restate.WorkflowContext, input: WorkflowInput): Promise<WorkflowContext> => {
-      const { definition, triggerEvent } = input;
+      const { definition, triggerEvent, seedContext, entryStageIds } = input;
       const orchestratorUrl = appConfig.orchestratorUrl;
-      const context = initializeContext(triggerEvent, definition);
+
+      // Use the seed context if provided (resume path), otherwise initialize fresh
+      const context: WorkflowContext = seedContext
+        ? JSON.parse(JSON.stringify(seedContext))
+        : initializeContext(triggerEvent, definition);
+
+      // If resuming, reset the entry stages to pending so they re-execute cleanly
+      if (seedContext && entryStageIds) {
+        for (const stageId of entryStageIds) {
+          if (context.stages[stageId]) {
+            context.stages[stageId] = {
+              ...context.stages[stageId],
+              status: 'pending',
+              // Keep run_count and runs for history; they were preserved by launchWorkflowWithResume
+            };
+          }
+        }
+      }
 
       ctx.set('status', 'running');
       ctx.set('context', context);
       ctx.set('currentStageIds', [] as string[]);
 
       // Find entry stages and execute the graph
-      const entryStages = findEntryStages(definition);
+      const entryStages = entryStageIds ?? findEntryStages(definition);
 
       if (entryStages.length === 0) {
         throw new restate.TerminalError('Workflow has no entry stages (all stages have incoming edges)');
       }
 
-      // Build initial inputs for entry stages — pass trigger output through the trigger→entry edges
+      // Build initial inputs for entry stages
       const triggerStageIds = new Set(definition.stages.filter((s) => nodeRegistry.isTriggerType(s.type)).map((s) => s.id));
       const entryInputs = new Map<string, import('../nodes/types.js').StageInput>();
-      for (const entryId of entryStages) {
-        // Find the trigger edge that points to this entry stage
-        const triggerEdge = definition.edges.find((e) => triggerStageIds.has(e.source) && e.target === entryId);
-        if (triggerEdge) {
-          entryInputs.set(entryId, {
-            incomingEdge: triggerEdge,
-            sourceOutput: triggerEvent.payload,
-          });
+
+      if (seedContext && entryStageIds) {
+        // Resume path: build inputs from the completed upstream stages in the seed context.
+        // For each entry stage, collect all incoming edges and look up the source's latest output.
+        for (const entryId of entryStages) {
+          const incomingEdges = definition.edges.filter((e) => e.target === entryId);
+          if (incomingEdges.length === 0) {
+            // No upstream — entry stage with no edges, no input to pass
+            continue;
+          }
+          if (incomingEdges.length === 1) {
+            const edge = incomingEdges[0];
+            const sourceOutput = context.stages[edge.source]?.latest;
+            entryInputs.set(entryId, {
+              incomingEdge: edge,
+              sourceOutput,
+            });
+          } else {
+            // Fan-in: collect all upstream outputs into mergedInputs.
+            // Skip source stages that are not yet completed (e.g. reset in a diamond topology).
+            const mergedInputs: Record<string, unknown> = {};
+            for (const edge of incomingEdges) {
+              const sourceStage = context.stages[edge.source];
+              if (sourceStage?.status !== 'completed') {
+                console.warn(
+                  `[pipeline-workflow] Resume fan-in: source stage '${edge.source}' is not completed (status: ${sourceStage?.status ?? 'unknown'}), skipping edge to '${entryId}'`,
+                );
+                continue;
+              }
+              mergedInputs[edge.source] = sourceStage.latest;
+            }
+            entryInputs.set(entryId, { mergedInputs });
+          }
+        }
+      } else {
+        // Normal (non-resume) path: pass trigger payload through trigger→entry edges
+        for (const entryId of entryStages) {
+          const triggerEdge = definition.edges.find((e) => triggerStageIds.has(e.source) && e.target === entryId);
+          if (triggerEdge) {
+            entryInputs.set(entryId, {
+              incomingEdge: triggerEdge,
+              sourceOutput: triggerEvent.payload,
+            });
+          }
         }
       }
 

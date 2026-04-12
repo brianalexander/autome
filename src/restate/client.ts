@@ -3,6 +3,7 @@ import type { Ingress } from '@restatedev/restate-sdk-clients';
 import { pipelineWorkflow } from './pipeline-workflow.js';
 import type { WorkflowDefinition } from '../types/workflow.js';
 import type { Event } from '../types/events.js';
+import type { WorkflowContext } from '../types/instance.js';
 import { config } from '../config.js';
 
 let restateClient: Ingress | null = null;
@@ -20,6 +21,22 @@ export async function startWorkflow(instanceId: string, definition: WorkflowDefi
   const client = getRestateClient();
   const handle = await client.workflowClient(pipelineWorkflow, instanceId).workflowSubmit({ definition, triggerEvent });
   return handle;
+}
+
+export async function startWorkflowResume(
+  restateKey: string,
+  definition: WorkflowDefinition,
+  triggerEvent: Event,
+  seedContext: WorkflowContext,
+  entryStageIds: string[],
+) {
+  const client = getRestateClient();
+  return client.workflowClient(pipelineWorkflow, restateKey).workflowSubmit({
+    definition,
+    triggerEvent,
+    seedContext,
+    entryStageIds,
+  });
 }
 
 export async function approveGate(instanceId: string, stageId: string, data?: unknown) {

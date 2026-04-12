@@ -1,8 +1,8 @@
 import type { OrchestratorDB } from '../db/database.js';
 import type { WorkflowDefinition } from '../schemas/pipeline.js';
 import type { Event } from '../types/events.js';
-import type { InitiatedBy } from '../types/instance.js';
-import { startWorkflow as restateStart } from '../restate/client.js';
+import type { InitiatedBy, WorkflowInstance, WorkflowContext } from '../types/instance.js';
+import { startWorkflow as restateStart, startWorkflowResume } from '../restate/client.js';
 import { findEntryStages } from '../restate/pipeline-workflow.js';
 import { broadcast } from '../api/websocket.js';
 import { errorMessage } from '../utils/errors.js';
@@ -170,4 +170,138 @@ export async function launchWorkflow(
   );
 
   return { instance, restateError };
+}
+
+export interface ResumeResult {
+  restateError?: string;
+  resumeCount: number;
+  restateWorkflowId: string;
+}
+
+/**
+ * Resume a failed or cancelled workflow instance from the given entry stages.
+ *
+ * Mints a new Restate workflow key (`{id}-r{n}`) so that Restate's exactly-once
+ * guarantee is not violated, but keeps the same DB instance_id so the UI sees
+ * the run as a continuation of the same instance.
+ */
+export async function launchWorkflowWithResume(
+  db: OrchestratorDB,
+  instance: WorkflowInstance,
+  definition: WorkflowDefinition,
+  fromStageIds: string[],
+): Promise<ResumeResult> {
+  // Build seed context: deep-clone the current context, then reset stages that
+  // need to re-execute (the entry stages and everything reachable from them).
+  const seedContext: WorkflowContext = JSON.parse(JSON.stringify(instance.context));
+
+  // BFS from fromStageIds to find all downstream stages that must be reset.
+  // We track visited nodes separately from stagesToReset so that we traverse
+  // THROUGH completed stages (to discover further downstream nodes that may
+  // need resetting) without adding those completed stages to the reset set.
+  // Completed stages already have valid output and must not be clobbered —
+  // this is critical for diamond/fan-in topologies where one arm may have
+  // already finished successfully.
+  const stagesToReset = new Set<string>();
+  const visited = new Set<string>(fromStageIds);
+  const queue = [...fromStageIds];
+
+  // Entry stages are always reset regardless of status.
+  for (const id of fromStageIds) {
+    stagesToReset.add(id);
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const edge of definition.edges) {
+      if (edge.source === current && !visited.has(edge.target)) {
+        visited.add(edge.target);
+        queue.push(edge.target);
+        // Only reset stages that are not already completed — completed stages
+        // have valid output and should be preserved in diamond/fan-in graphs.
+        if (seedContext.stages[edge.target]?.status !== 'completed') {
+          stagesToReset.add(edge.target);
+        }
+      }
+    }
+  }
+
+  // Determine which edges touch reset stages (source OR target is being reset)
+  // so we can clear edgeTraversals for them.
+  const edgesToClear = new Set<string>();
+  for (const edge of definition.edges) {
+    if (stagesToReset.has(edge.source) || stagesToReset.has(edge.target)) {
+      edgesToClear.add(edge.id);
+    }
+  }
+
+  // Reset each stage: keep run_count and runs for history, clear status to pending.
+  for (const stageId of stagesToReset) {
+    if (seedContext.stages[stageId]) {
+      seedContext.stages[stageId] = {
+        ...seedContext.stages[stageId],
+        status: 'pending',
+        // run_count and runs are intentionally kept for history
+      };
+    }
+  }
+
+  // Clear edgeTraversals for edges that touch reset stages
+  if (seedContext.edgeTraversals) {
+    for (const edgeId of edgesToClear) {
+      delete seedContext.edgeTraversals[edgeId];
+    }
+  }
+
+  // Clear fanInCompletions for stages that are being reset
+  if (seedContext.fanInCompletions) {
+    for (const stageId of stagesToReset) {
+      delete seedContext.fanInCompletions[stageId];
+    }
+  }
+
+  // Clear pendingInputs for stages that are being reset
+  if (seedContext.pendingInputs) {
+    for (const stageId of stagesToReset) {
+      delete seedContext.pendingInputs[stageId];
+    }
+  }
+
+  const resumeCount = (instance.resume_count ?? 0) + 1;
+  const restateKey = `${instance.id}-r${resumeCount}`;
+
+  let restateError: string | undefined;
+  try {
+    await startWorkflowResume(
+      restateKey,
+      definition,
+      instance.trigger_event as unknown as Event,
+      seedContext,
+      fromStageIds,
+    );
+  } catch (err) {
+    restateError = errorMessage(err);
+  }
+
+  if (restateError) {
+    return { restateError, resumeCount, restateWorkflowId: restateKey };
+  }
+
+  // Update the DB instance to reflect the new run
+  // completed_at: undefined → updateInstance's ?? null coercion clears the column
+  db.updateInstance(instance.id, {
+    restate_workflow_id: restateKey,
+    resume_count: resumeCount,
+    status: 'running',
+    context: seedContext,
+    completed_at: undefined,
+  });
+
+  broadcast(
+    'instance:resumed',
+    { instanceId: instance.id, resumeCount, fromStageIds },
+    { instanceId: instance.id },
+  );
+
+  return { resumeCount, restateWorkflowId: restateKey };
 }

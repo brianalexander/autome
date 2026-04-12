@@ -378,6 +378,14 @@ export class OrchestratorDB {
     txn();
   }
 
+  /** Atomically flip a failed/cancelled instance to 'running'. Returns true if successful, false if the status was already changed (lost race). */
+  atomicResumeInstance(id: string): boolean {
+    const result = this.sqlite.prepare(
+      `UPDATE instances SET status = 'running', updated_at = ? WHERE id = ? AND status IN ('failed', 'cancelled')`
+    ).run(new Date().toISOString(), id);
+    return result.changes > 0;
+  }
+
   deleteInstance(id: string): void {
     this.sqlite.transaction(() => {
       this.db.delete(schema.renderedPrompts).where(eq(schema.renderedPrompts.instance_id, id)).run();

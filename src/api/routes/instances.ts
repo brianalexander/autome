@@ -8,6 +8,8 @@ import type { RouteDeps, SharedState } from './shared.js';
 import type { SessionConfig } from './agent-utils.js';
 import { sendChatMessage } from './agent-utils.js';
 import { errorMessage } from '../../utils/errors.js';
+import { launchWorkflowWithResume } from '../../workflow/launch.js';
+import { nodeRegistry } from '../../nodes/registry.js';
 
 // Zod schemas for instance routes
 const InstanceIdParams = z.object({ id: z.string() });
@@ -28,6 +30,9 @@ const PromptQuerySchema = z.object({
 const GateApproveBody = z.object({ data: z.unknown().optional() });
 const GateRejectBody = z.object({
   reason: z.string().optional(),
+});
+const ResumeBody = z.object({
+  fromStageId: z.string().optional(),
 });
 const StageMessageBody = z.object({
   message: z.string(),
@@ -274,6 +279,100 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
 
         return { cancelled: true, stoppedStages: runningStages };
       } catch (err) {
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // POST /api/instances/:id/resume — Resume a failed or cancelled workflow instance
+  typedApp.post(
+    '/api/instances/:id/resume',
+    {
+      schema: { params: InstanceIdParams, body: ResumeBody },
+    },
+    async (request, reply) => {
+      try {
+        const { id: instanceId } = request.params;
+        const { fromStageId } = request.body;
+
+        // 1. Get the instance from DB
+        const instance = deps.db.getInstance(instanceId);
+        if (!instance) return reply.code(404).send({ error: 'Instance not found' });
+
+        // 2. Guard: only failed or cancelled instances can be resumed
+        if (instance.status !== 'failed' && instance.status !== 'cancelled') {
+          return reply.code(409).send({
+            error: `Cannot resume instance with status '${instance.status}'. Only failed or cancelled instances can be resumed.`,
+          });
+        }
+
+        // 3. Get the version-pinned workflow definition stored with this instance
+        const definition = deps.db.getInstanceDefinition(instanceId);
+        if (!definition) return reply.code(404).send({ error: 'Workflow definition not found' });
+
+        // 4. Guard: definition version must match
+        if (instance.definition_version != null && definition.version != null && definition.version !== instance.definition_version) {
+          return reply.code(409).send({
+            error: `Definition has been modified since this run (version ${instance.definition_version} → ${definition.version}). Re-run from trigger instead.`,
+          });
+        }
+
+        // 5. Determine fromStageIds
+        let fromStageIds: string[];
+        if (fromStageId) {
+          fromStageIds = [fromStageId];
+        } else {
+          fromStageIds = Object.entries(instance.context?.stages ?? {})
+            .filter(([, ctx]) => ctx.status === 'failed')
+            .map(([id]) => id);
+          if (fromStageIds.length === 0) {
+            return reply.code(400).send({ error: 'No failed stages found to resume from.' });
+          }
+        }
+
+        // 6. Validate that all fromStageIds exist in the definition
+        const definedStageIds = new Set(definition.stages.map((s) => s.id));
+        for (const sid of fromStageIds) {
+          if (!definedStageIds.has(sid)) {
+            return reply.code(400).send({ error: `Stage '${sid}' not found in workflow definition.` });
+          }
+        }
+
+        // 6b. Guard: none of the fromStageIds may be trigger stages
+        const triggerStageIds = definition.stages
+          .filter(s => nodeRegistry.isTriggerType(s.type))
+          .map(s => s.id);
+        const triggerConflicts = fromStageIds.filter(id => triggerStageIds.includes(id));
+        if (triggerConflicts.length > 0) {
+          return reply.code(400).send({
+            error: `Cannot resume from trigger stage(s): ${triggerConflicts.join(', ')}. Resume from a non-trigger stage instead.`,
+          });
+        }
+
+        // 7. Atomic compare-and-swap: flip status from failed/cancelled → running
+        const locked = deps.db.atomicResumeInstance(instanceId);
+        if (!locked) {
+          return reply.code(409).send({ error: 'Instance is already being resumed by another request.' });
+        }
+
+        // 8. Launch the resume
+        const result = await launchWorkflowWithResume(deps.db, instance, definition, fromStageIds);
+
+        // 9. If restateError, roll back to the original status and return 500
+        if (result.restateError) {
+          deps.db.updateInstance(instanceId, { status: instance.status });
+          return reply.code(500).send({ error: `Failed to start resumed workflow: ${result.restateError}` });
+        }
+
+        // 10. Return success
+        return {
+          instanceId,
+          resumeCount: result.resumeCount,
+          fromStageIds,
+          restateWorkflowId: result.restateWorkflowId,
+        };
+      } catch (err) {
+        console.error('[resume] Error:', err);
         return reply.code(500).send({ error: errorMessage(err) });
       }
     },
