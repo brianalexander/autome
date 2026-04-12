@@ -4,6 +4,23 @@ import { JsonRpcTransport } from './json-rpc.js';
 
 const execAsync = promisify(exec);
 
+// Module-level PID registry — survives across all ProcessHandle instances.
+// Used as a last-resort fallback to kill spawned processes on process exit.
+const _trackedPids = new Set<number>();
+
+let _exitHandlerRegistered = false;
+function ensureExitHandler() {
+  if (_exitHandlerRegistered) return;
+  _exitHandlerRegistered = true;
+  process.on('exit', () => {
+    for (const pid of _trackedPids) {
+      // Kill the entire process group first (works because we spawn with detached: true)
+      try { process.kill(-pid, 'SIGKILL'); } catch { /* not a group leader or already dead */ }
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+    }
+  });
+}
+
 export interface ProcessSpawnOptions {
   command: string;
   args: string[];
@@ -51,7 +68,15 @@ export class ProcessHandle {
       cwd: options.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...options.env },
+      detached: true,  // Creates a new process group — enables kill(-pid) for the entire tree
     });
+    // Don't let the child keep the parent alive; our exit handler will kill it
+    this.process.unref();
+
+    if (this.process.pid) {
+      _trackedPids.add(this.process.pid);
+      ensureExitHandler();
+    }
 
     this._transport = new JsonRpcTransport(
       this.process.stdout!,
@@ -68,6 +93,7 @@ export class ProcessHandle {
     });
 
     this.process.on('close', (code, signal) => {
+      if (this.process?.pid) _trackedPids.delete(this.process.pid);
       this._destroyed = true;
       this._transport?.close();
       this.onClose?.({ code, signal, stderr: this._stderrBuffer.trim() });
@@ -119,6 +145,7 @@ export class ProcessHandle {
     if (!this.process || this.process.killed) return;
 
     if (options?.immediate) {
+      if (this.process.pid) _trackedPids.delete(this.process.pid);
       this.killProcessTree(this.process.pid!);
       try { this.process.kill('SIGKILL'); } catch { /* already dead */ }
       return;
@@ -133,6 +160,7 @@ export class ProcessHandle {
 
     setTimeout(() => {
       if (this.process && !this.process.killed) {
+        if (this.process.pid) _trackedPids.delete(this.process.pid);
         this.killProcessTree(this.process.pid!);
         try { this.process.kill('SIGTERM'); } catch { /* already dead */ }
       }

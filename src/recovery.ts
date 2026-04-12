@@ -3,14 +3,45 @@
  * Cleans up stale state from previous crashes/restarts.
  */
 
+import { execSync } from 'child_process';
 import type { OrchestratorDB } from './db/database.js';
 import type { AcpProvider } from './acp/provider/types.js';
 import { cancelWorkflow } from './restate/client.js';
 
+/**
+ * Kill a process and its entire subtree.
+ * Finds children via pgrep BEFORE killing the parent (killing the parent first
+ * would reparent children to init, making them invisible to pgrep -P).
+ */
+function killOrphanTree(pid: number): void {
+  try {
+    // Recurse into children first
+    try {
+      const out = execSync(`pgrep -P ${pid}`, { encoding: 'utf-8', timeout: 5000 }).trim();
+      for (const child of out.split('\n').filter(Boolean)) {
+        const cpid = parseInt(child, 10);
+        if (!isNaN(cpid) && cpid > 0) killOrphanTree(cpid);
+      }
+    } catch { /* no children or pgrep unavailable */ }
+
+    // Kill the process group first (works if the child was spawned with detached: true)
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* not a group leader or dead */ }
+    // Then the process itself
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+  } catch { /* process may already be dead */ }
+}
+
 export async function runCrashRecovery(db: OrchestratorDB, provider: AcpProvider): Promise<void> {
   console.log('[recovery] Running crash recovery...');
 
-  // 1. Mark all active ACP sessions as errored and clear PIDs
+  // 1. Kill any orphaned processes from the previous run, then clear PIDs
+  const stalePids = db.getActiveSessionPids();
+  if (stalePids.length > 0) {
+    console.log(`[recovery] Killing ${stalePids.length} orphaned process(es): ${stalePids.join(', ')}`);
+    for (const pid of stalePids) {
+      killOrphanTree(pid);
+    }
+  }
   db.clearAcpSessionPids();
 
   // 2. Mark any in-progress instances as failed, with best-effort Restate cancellation
