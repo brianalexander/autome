@@ -18,6 +18,8 @@ export function AssistantChat() {
   const { data: segments } = useQuery({
     queryKey: ['segments', INSTANCE_ID, STAGE_ID],
     queryFn: () => assistantApi.getSegments(),
+    staleTime: Infinity,            // Only refetch when explicitly invalidated (clearChat)
+    refetchOnWindowFocus: false,     // Prevent background refetch from wiping live stream
   });
 
   const initialMessages = useMemo(() => {
