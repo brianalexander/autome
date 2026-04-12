@@ -843,14 +843,14 @@ export class OrchestratorDB {
       .onConflictDoNothing()
       .run();
     // Always update — the second phase may bring new data.
-    // title/kind/status are set directly so null can clear a previously-set value.
-    // raw_input, raw_output, parent_tool_use_id use COALESCE because they arrive in
-    // separate phases and a missing value in one phase must not wipe the other phase's data.
+    // All optional fields use COALESCE so a missing value in one phase does not
+    // wipe the other phase's data (e.g. tool_call has title but tool_call_update
+    // does not — COALESCE preserves the original title).
     this.db
       .update(schema.toolCalls)
       .set({
-        title: data.title ?? null,
-        kind: data.kind ?? null,
+        title: sql`COALESCE(${data.title ?? null}, ${schema.toolCalls.title})`,
+        kind: sql`COALESCE(${data.kind ?? null}, ${schema.toolCalls.kind})`,
         status: data.status,
         raw_input: sql`COALESCE(${data.rawInput ?? null}, ${schema.toolCalls.raw_input})`,
         raw_output: sql`COALESCE(${data.rawOutput ?? null}, ${schema.toolCalls.raw_output})`,

@@ -157,6 +157,7 @@ export function wireAcpEvents(client: AcpClient, db: OrchestratorDB, opts: WireA
       instanceId,
       stageId,
       iteration,
+      title: data.title || undefined,
       kind: data.kind,
       status: data.status || 'completed',
       rawInput: safeStringify(data.rawInput),
