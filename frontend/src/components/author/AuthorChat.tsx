@@ -44,7 +44,7 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
       if (messages.length > 0) {
         setEphemeralSystemMessages((prev) => [
           ...prev,
-          ...messages.map((m: PendingAuthorMessage) => ({ text: m.text, timestamp: m.created_at })),
+          ...messages.map((m: PendingAuthorMessage) => ({ text: m.text, timestamp: m.created_at || new Date().toISOString() })),
         ]);
       }
     }).catch((err) => {
@@ -59,7 +59,7 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
       if (d.workflowId !== workflowId || !d.text) return;
       setEphemeralSystemMessages((prev) => [
         ...prev,
-        { text: d.text!, timestamp: d.timestamp ?? new Date().toISOString() },
+        { text: d.text!, timestamp: d.timestamp || new Date().toISOString() },
       ]);
     });
     return unsub;

@@ -37,10 +37,8 @@ describe('formatTime', () => {
   });
 
   it('returns empty string for an invalid date string', () => {
-    // Invalid date causes toLocaleTimeString to throw/return invalid — caught to ''
     const result = formatTime('not-a-date');
-    // Some environments return "Invalid Date" from toLocaleTimeString; we just check it doesn't throw
-    expect(typeof result).toBe('string');
+    expect(result).toBe('');
   });
 
   it('handles empty string input without throwing', () => {

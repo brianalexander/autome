@@ -22,6 +22,8 @@ export interface ChatMessage {
     rawInput?: string;
     rawOutput?: string;
     parentToolUseId?: string;
+    createdAt?: string;
+    updatedAt?: string;
   }>;
 }
 
@@ -53,8 +55,11 @@ export const THINKING_WORDS = [
 // --- Formatting helpers ---
 
 export function formatTime(iso: string): string {
+  if (!iso) return '';
   try {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   } catch {
     return '';
   }

@@ -104,10 +104,13 @@ export function AcpChatPane({
       segments: [{ type: 'text' as const, content: m.text }],
       timestamp: m.timestamp,
     }));
-    // Merge and sort by timestamp
-    return [...chat.messages, ...ephemeral].sort((a, b) =>
-      a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0,
-    );
+    // Merge and sort by timestamp; treat missing/falsy timestamps as current time
+    const now = new Date().toISOString();
+    return [...chat.messages, ...ephemeral].sort((a, b) => {
+      const ta = a.timestamp || now;
+      const tb = b.timestamp || now;
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
   }, [chat.messages, ephemeralSystemMessages]);
 
   // --- Local UI state ---
@@ -151,6 +154,7 @@ export function AcpChatPane({
         const d = data as Record<string, unknown>;
         const tcId = d.toolCallId as string;
         const parentToolUseId = d.parentToolUseId as string | undefined;
+        const existingTc = chat.liveToolCalls.get(tcId);
         chat.appendToolSegment(tcId);
         chat.updateToolCall(tcId, {
           id: tcId,
@@ -162,7 +166,10 @@ export function AcpChatPane({
             : null,
           raw_output: null,
           parentToolUseId: parentToolUseId || null,
-          created_at: new Date().toISOString(),
+          // Only set created_at on the first event for this tcId; preserve it for
+          // stream-continuation events so the creation timestamp stays accurate.
+          ...(existingTc ? {} : { created_at: new Date().toISOString() }),
+          // Always set updated_at — tool_call events are live "tool is running" signals.
           updated_at: new Date().toISOString(),
         } as ToolCallRecord);
       }),
@@ -175,7 +182,7 @@ export function AcpChatPane({
         const parentToolUseId = (d.parentToolUseId as string | undefined) ?? (existing as (ToolCallRecord & { parentToolUseId?: string }) | undefined)?.parentToolUseId;
         chat.updateToolCall(tcId, {
           id: tcId,
-          title: existing?.title ?? null,
+          title: (d.title as string) || existing?.title || null,
           kind: (d.kind as string) || existing?.kind || null,
           status: (d.status as string) || 'completed',
           raw_input: d.rawInput

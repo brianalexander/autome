@@ -51,12 +51,12 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
                 : JSON.stringify(tc.rawOutput)
               : null,
             parent_tool_use_id: tc.parentToolUseId as string | undefined,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            created_at: (tc.createdAt as string) || new Date().toISOString(),
+            updated_at: (tc.updatedAt as string) || new Date().toISOString(),
           });
         }
       }
-      return { role: m.role, timestamp: m.timestamp, segments };
+      return { role: m.role, timestamp: m.timestamp || new Date().toISOString(), segments };
     });
     return { restoredMessages: msgs, restoredToolCalls: toolCalls };
   }, [initialMessages]);
@@ -191,14 +191,18 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   }, []);
 
   // Merge a partial or complete tool call record update into liveToolCalls.
+  // The fallback created_at/updated_at are only applied when creating a brand-new
+  // record (existing is undefined). For existing records the caller must explicitly
+  // pass updated_at if it wants to bump the timestamp — preventing spurious
+  // duration inflation for DB-restored tool calls that receive live progress events.
   const updateToolCall = useCallback((tcId: string, update: Partial<ToolCallRecord> & { id: string }) => {
     setLiveToolCalls((prev) => {
       const next = new Map(prev);
       const existing = next.get(tcId);
+      const nowIso = new Date().toISOString();
       next.set(tcId, {
-        ...(existing || { id: tcId, title: null, kind: null, created_at: new Date().toISOString() }),
+        ...(existing || { id: tcId, title: null, kind: null, created_at: nowIso, updated_at: nowIso }),
         ...update,
-        updated_at: new Date().toISOString(),
       } as ToolCallRecord);
       return next;
     });

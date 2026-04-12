@@ -2,6 +2,16 @@ import type { SegmentRecord } from './api';
 import type { ChatMessage } from './chatUtils';
 
 /**
+ * Return s if it is a non-empty, parseable ISO date string; otherwise return
+ * the current time as an ISO string. Prevents "Invalid Date" from propagating
+ * into the UI when the backend provides a missing or malformed created_at.
+ */
+function toValidIso(s: string | null | undefined): string {
+  if (s && !isNaN(new Date(s).getTime())) return s;
+  return new Date().toISOString();
+}
+
+/**
  * Convert an ordered list of SegmentRecords into grouped ChatMessages.
  * Segments of type 'user' become user messages; 'text' and 'tool' segments
  * are grouped into assistant messages. A role change flushes the current message.
@@ -24,7 +34,7 @@ export function segmentsToMessages(segments: SegmentRecord[]): ChatMessage[] | u
         .filter((s): s is { type: 'text'; content: string } => s.type === 'text')
         .map((s) => s.content)
         .join(''),
-      timestamp: currentTimestamp,
+      timestamp: toValidIso(currentTimestamp),
       segments: [...currentSegments],
       toolCalls: currentToolCalls.length > 0 ? [...currentToolCalls] : undefined,
     });
@@ -36,7 +46,7 @@ export function segmentsToMessages(segments: SegmentRecord[]): ChatMessage[] | u
     if (seg.segment_type === 'user') {
       if (currentRole === 'assistant') flushMessage();
       currentRole = 'user';
-      currentTimestamp = seg.created_at;
+      currentTimestamp = toValidIso(seg.created_at);
       currentSegments.push({ type: 'text', content: seg.content || '' });
       flushMessage();
       currentRole = null;
@@ -45,7 +55,7 @@ export function segmentsToMessages(segments: SegmentRecord[]): ChatMessage[] | u
       if (currentRole !== 'assistant') {
         flushMessage();
         currentRole = 'assistant';
-        currentTimestamp = seg.created_at;
+        currentTimestamp = toValidIso(seg.created_at);
       }
       if (seg.segment_type === 'text' && seg.content) {
         currentSegments.push({ type: 'text', content: seg.content });
@@ -59,6 +69,8 @@ export function segmentsToMessages(segments: SegmentRecord[]): ChatMessage[] | u
           rawInput: seg.tool_call.raw_input || undefined,
           rawOutput: seg.tool_call.raw_output || undefined,
           parentToolUseId: seg.tool_call.parent_tool_use_id || undefined,
+          createdAt: toValidIso(seg.tool_call.created_at),
+          updatedAt: toValidIso(seg.tool_call.updated_at),
         });
       }
     }

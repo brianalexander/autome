@@ -266,7 +266,7 @@ export function ToolCallCard({
                   const childIsRunning = child.status === 'in_progress' || child.status === 'pending';
                   const childDisplayName = childInfo.server && childInfo.tool
                     ? `@${childInfo.server}/${childInfo.tool}`
-                    : child.title || 'Tool call';
+                    : child.title || child.kind || 'Tool call';
                   const childStart = new Date(child.created_at).getTime();
                   const childEnd = new Date(child.updated_at).getTime();
                   const completedDuration = Math.max(0, (childEnd - childStart) / 1000);

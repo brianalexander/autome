@@ -625,6 +625,7 @@ export class OrchestratorDB {
         segment_type: segmentType,
         content: content ?? null,
         tool_call_id: toolCallId ?? null,
+        created_at: new Date().toISOString(),
       }).run();
 
       return row.nextIndex;
@@ -828,6 +829,8 @@ export class OrchestratorDB {
         raw_input: data.rawInput ?? null,
         raw_output: data.rawOutput ?? null,
         parent_tool_use_id: data.parentToolUseId ?? null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .onConflictDoNothing()
       .run();
@@ -844,7 +847,7 @@ export class OrchestratorDB {
         raw_input: sql`COALESCE(${data.rawInput ?? null}, ${schema.toolCalls.raw_input})`,
         raw_output: sql`COALESCE(${data.rawOutput ?? null}, ${schema.toolCalls.raw_output})`,
         parent_tool_use_id: sql`COALESCE(${data.parentToolUseId ?? null}, ${schema.toolCalls.parent_tool_use_id})`,
-        updated_at: sql`datetime('now')`,
+        updated_at: new Date().toISOString(),
       })
       .where(eq(schema.toolCalls.id, data.id))
       .run();
@@ -860,7 +863,7 @@ export class OrchestratorDB {
     if (fromStatuses.length === 0) return 0;
     const result = this.db
       .update(schema.toolCalls)
-      .set({ status: toStatus, updated_at: sql`datetime('now')` })
+      .set({ status: toStatus, updated_at: new Date().toISOString() })
       .where(
         and(
           eq(schema.toolCalls.instance_id, instanceId),
@@ -965,6 +968,19 @@ export class OrchestratorDB {
       .set({ model_name: modelName, updated_at: sql`datetime('now')` })
       .where(eq(schema.acpSessions.key, key))
       .run();
+  }
+
+  /** Return all non-null process PIDs for sessions marked 'active'. */
+  getActiveSessionPids(): number[] {
+    const rows = this.db
+      .select({ pid: schema.acpSessions.process_pid })
+      .from(schema.acpSessions)
+      .where(and(
+        eq(schema.acpSessions.status, 'active'),
+        sql`${schema.acpSessions.process_pid} IS NOT NULL`,
+      ))
+      .all();
+    return rows.map(r => r.pid!).filter(p => p > 0);
   }
 
   clearAcpSessionPids(): void {
