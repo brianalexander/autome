@@ -45,7 +45,7 @@ export function AssistantChat() {
   return (
     <AcpChatPane
       eventPrefix="assistant"
-      eventFilter={{ instanceId: INSTANCE_ID, stageId: STAGE_ID }}
+      eventFilter={{}}  // No filter — single global session, all assistant:* events are ours
       placeholder="Ask the assistant..."
       emptyMessage="Ask anything..."
       isActive
