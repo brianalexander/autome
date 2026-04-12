@@ -16,6 +16,8 @@ import { createProvider, initializeProviders } from './acp/provider/registry.js'
 import { setDefaultProvider } from './agents/discovery.js';
 import { runCrashRecovery } from './recovery.js';
 import { launchWorkflow } from './workflow/launch.js';
+import { cleanupOrphanTests } from './workflow/test-run-janitor.js';
+import { startTestRunListener } from './workflow/test-run-listener.js';
 import { initializeRegistry, nodeRegistry } from './nodes/registry.js';
 import {
   initTriggerLifecycle,
@@ -34,6 +36,8 @@ let eventBus: EventBus;
 let manualTrigger: ManualTriggerProvider;
 let authorPool: AgentPool;
 let acpPool: AgentPool;
+let stopTestRunListener: (() => void) | undefined;
+let janitorInterval: ReturnType<typeof setInterval> | undefined;
 
 // Create Fastify app
 const app = Fastify({ logger: false });
@@ -63,7 +67,7 @@ async function start() {
       const nonTriggerStageIds = workflow.stages
         .filter((s) => !nodeRegistry.isTriggerType(s.type))
         .map((s) => s.id);
-      const { restateError, validationError } = await launchWorkflow(db, workflow, event, nonTriggerStageIds, workflow.id);
+      const { restateError, validationError } = await launchWorkflow(db, workflow, event, nonTriggerStageIds, workflow.id, { initiatedBy: 'cron' });
       if (validationError) {
         console.error(`[event-bus] Payload validation failed for ${workflow.id}: ${validationError}`);
         return;
@@ -92,12 +96,40 @@ async function start() {
   const acpProvider = createProvider(effectiveProviderName);
   setDefaultProvider(acpProvider);
 
+  // Regenerate per-provider agent files from canonical (agents/<name>/) on every
+  // boot. The canonical is the source of truth; per-provider variants under
+  // .claude/agents/, .kiro/agents/, etc. are gitignored build artifacts. This
+  // hook keeps them in sync so editing canonical and restarting the server is
+  // all you need to push prompt changes to the active provider — no manual
+  // POST /api/agents/generate required.
+  try {
+    const { generateAgentConfigs } = await import('./agents/adapter.js');
+    const result = await generateAgentConfigs(acpProvider);
+    if (result.generated.length > 0) {
+      console.log(`[agents] Regenerated ${result.generated.length} canonical agent(s) for ${acpProvider.name}: ${result.generated.join(', ')}`);
+    }
+    if (result.errors.length > 0) {
+      console.warn('[agents] Some canonical agents failed to regenerate:', result.errors);
+    }
+  } catch (err) {
+    console.warn('[agents] Canonical agent regeneration skipped:', err instanceof Error ? err.message : String(err));
+  }
+
   // Initialize ACP process pools
   authorPool = new AgentPool({ provider: acpProvider });
   acpPool = new AgentPool({ provider: acpProvider });
 
   // Run crash recovery before accepting connections
   await runCrashRecovery(db, acpProvider);
+
+  // Start test-run listener (before routes so it's ready when first event fires)
+  stopTestRunListener = startTestRunListener({ db, authorPool });
+
+  // Initial janitor sweep + hourly interval
+  try { cleanupOrphanTests(db); } catch (err) { console.error('[janitor] Initial sweep failed:', err); }
+  janitorInterval = setInterval(() => {
+    try { cleanupOrphanTests(db); } catch (err) { console.error('[janitor] Periodic sweep failed:', err); }
+  }, 60 * 60 * 1000);
 
   // Register plugins
   await app.register(fastifyCors);
@@ -133,6 +165,8 @@ async function start() {
   app.addHook('onClose', async () => {
     console.log('Shutting down...');
     deactivateAllTriggers();
+    stopTestRunListener?.();
+    if (janitorInterval) clearInterval(janitorInterval);
     await eventBus.stopAll().catch(() => {});
     await authorPool?.terminateAll().catch(() => {});
     await acpPool?.terminateAll().catch(() => {});

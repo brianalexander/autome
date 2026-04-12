@@ -14,10 +14,30 @@ export const workflows = sqliteTable(
     definition: text('definition').notNull(),
     version: integer('version').notNull().default(1),
     is_test: integer('is_test').notNull().default(0),
+    parent_workflow_id: text('parent_workflow_id'),
     created_at: text('created_at').notNull().default("(datetime('now'))"),
     updated_at: text('updated_at').notNull().default("(datetime('now'))"),
   },
-  (table) => [index('idx_workflows_is_test').on(table.is_test)],
+  (table) => [
+    index('idx_workflows_is_test').on(table.is_test),
+    index('idx_workflows_parent').on(table.parent_workflow_id),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// pending_author_messages
+// ---------------------------------------------------------------------------
+
+export const pendingAuthorMessages = sqliteTable(
+  'pending_author_messages',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    workflow_id: text('workflow_id').notNull(),
+    text: text('text').notNull(),
+    kind: text('kind').notNull().default('system'),
+    created_at: text('created_at').notNull().default("(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"),
+  },
+  (table) => [index('idx_pending_author_messages_workflow').on(table.workflow_id)],
 );
 
 // ---------------------------------------------------------------------------
@@ -36,6 +56,8 @@ export const instances = sqliteTable(
     current_stage_ids: text('current_stage_ids'),
     restate_workflow_id: text('restate_workflow_id'),
     is_test: integer('is_test').notNull().default(0),
+    initiated_by: text('initiated_by').notNull().default('user'),
+    resume_count: integer('resume_count').notNull().default(0),
     created_at: text('created_at').notNull().default("(datetime('now'))"),
     updated_at: text('updated_at').notNull().default("(datetime('now'))"),
     completed_at: text('completed_at'),

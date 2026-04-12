@@ -1,6 +1,7 @@
 import type { OrchestratorDB } from '../db/database.js';
 import type { WorkflowDefinition } from '../schemas/pipeline.js';
 import type { Event } from '../types/events.js';
+import type { InitiatedBy } from '../types/instance.js';
 import { startWorkflow as restateStart } from '../restate/client.js';
 import { findEntryStages } from '../restate/pipeline-workflow.js';
 import { broadcast } from '../api/websocket.js';
@@ -10,6 +11,12 @@ import { jsonSchemaToZod } from '../nodes/schema-to-zod.js';
 
 interface LaunchOptions {
   isTest?: boolean;
+  /**
+   * Who initiated this workflow run. Defaults to 'user'.
+   * Use 'author' for AI Author test runs, 'webhook' for webhook triggers,
+   * 'cron' for scheduled runs.
+   */
+  initiatedBy?: InitiatedBy;
   /**
    * When true, mark entry stages as failed with a detailed run record.
    * When false (e.g. webhook), only update instance status to failed.
@@ -47,7 +54,7 @@ export async function launchWorkflow(
   definitionId: string,
   opts?: LaunchOptions,
 ): Promise<LaunchResult> {
-  const { isTest = false, markEntryStagesOnError = true } = opts ?? {};
+  const { isTest = false, initiatedBy = 'user', markEntryStagesOnError = true } = opts ?? {};
 
   // Validate trigger payload against the trigger stage's payload_schema (if configured)
   const triggerStage = workflow.stages.find(s => nodeRegistry.isTriggerType(s.type));
@@ -110,6 +117,8 @@ export async function launchWorkflow(
     definition_id: workflow.id,
     definition_version: workflow.version,
     is_test: isTest || undefined,
+    initiated_by: initiatedBy,
+    resume_count: 0,
     status: 'running',
     trigger_event: event as unknown as Record<string, unknown>,
     context,

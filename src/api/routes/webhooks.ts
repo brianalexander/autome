@@ -90,7 +90,7 @@ export function registerWebhookRoutes(app: FastifyInstance, deps: RouteDeps, sta
           event,
           nonTriggerStageIds,
           workflow.id,
-          { markEntryStagesOnError: false },
+          { markEntryStagesOnError: false, initiatedBy: 'webhook' },
         );
         if (validationError) {
           return reply.code(422).send({ error: 'Payload validation failed', details: validationError });

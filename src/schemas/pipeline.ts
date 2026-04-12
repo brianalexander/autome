@@ -186,7 +186,28 @@ export const WorkflowDefinitionSchema = z.object({
     description:
       'Default ACP provider for this workflow\'s agent stages (e.g. "kiro", "opencode"). Overrides the system-wide ACP_PROVIDER env var.',
   }),
+  /** Parent workflow ID — set on test workflows to link them to the originating workflow */
+  parent_workflow_id: z.string().optional().meta({
+    description: 'Parent workflow ID. Set on test workflows to link them to the originating workflow.',
+  }),
+  /** AI Author settings for this workflow */
+  authoring: z.object({
+    auto_test: z.boolean().optional().meta({
+      description:
+        'When true, the AI Author automatically runs tests after meaningful edits and iterates on failures. When false (default), it proposes a test and waits for confirmation.',
+    }),
+  }).optional().meta({
+    description: 'AI Author settings for this workflow',
+  }),
 });
+
+// ---------------------------------------------------------------------------
+// WorkflowAuthoring type export
+// ---------------------------------------------------------------------------
+
+export type WorkflowAuthoring = {
+  auto_test?: boolean;
+};
 
 // ---------------------------------------------------------------------------
 // Request body schemas for the draft sub-resource API

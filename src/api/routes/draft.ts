@@ -61,6 +61,7 @@ import {
 } from '../../schemas/pipeline.js';
 import type { RouteDeps, SharedState } from './shared.js';
 import { getDraft, saveDraft, mergePatch, resolveDraftId } from './shared.js';
+import { broadcast } from '../websocket.js';
 import { getValidAgentIds, validateAgentId } from './agent-utils.js';
 import { validateStageConfig, validateGraphStructure, findUpstreamOutputSchema } from './validation.js';
 import { errorMessage } from '../../utils/errors.js';
@@ -623,7 +624,10 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
 
         // Temporarily persist the draft to DB so the workflow can reference it
         const { id: _draftId, ...draftWithoutId } = draft;
-        const testDef = deps.db.createWorkflow({ ...draftWithoutId, name: `[Test] ${draft.name}` }, { isTest: true });
+        const testDef = deps.db.createWorkflow(
+          { ...draftWithoutId, name: `[Test] ${draft.name}` },
+          { isTest: true, parentWorkflowId: workflowId },
+        );
         const testWorkflowId = testDef.id;
 
         // Create trigger event
@@ -640,10 +644,24 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
           event,
           nonTriggerStageIds,
           testWorkflowId,
-          { isTest: true },
+          { isTest: true, initiatedBy: 'author' },
         );
         if (validationError) {
           return reply.code(422).send({ error: 'Payload validation failed', details: validationError });
+        }
+
+        // Notify the editor for this workflow so it can auto-open the test run viewer
+        if (instance) {
+          broadcast(
+            'author:test_run_started',
+            {
+              workflowId,
+              instanceId: instance.id,
+              testWorkflowId: testDef.id,
+              startedAt: instance.created_at,
+            },
+            { workflowId },
+          );
         }
 
         return reply.code(201).send({ instance, testWorkflowId });

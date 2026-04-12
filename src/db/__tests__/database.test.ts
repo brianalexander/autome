@@ -36,6 +36,8 @@ function makeInstanceInput(definitionId: string): Omit<WorkflowInstance, 'id' | 
     trigger_event: makeEvent() as unknown as Record<string, unknown>,
     context: { trigger: { ref: 'main' }, stages: {} },
     current_stage_ids: [],
+    initiated_by: 'user',
+    resume_count: 0,
   };
 }
 

@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
+import type { InitiatedBy } from '../../types/instance.js';
 import { broadcast } from '../websocket.js';
 import * as restateClient from '../../restate/client.js';
 import type { RouteDeps, SharedState } from './shared.js';
@@ -14,6 +15,7 @@ const InstanceStageParams = z.object({ id: z.string(), stageId: z.string() });
 const InstanceQuerySchema = z.object({
   status: z.string().optional(),
   definitionId: z.string().optional(),
+  initiatedBy: z.enum(['user', 'author', 'webhook', 'cron']).optional(),
   limit: z.coerce.number().min(1).max(200).default(50).optional(),
   offset: z.coerce.number().min(0).default(0).optional(),
 });
@@ -43,9 +45,10 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
     async (request, reply) => {
       try {
         const query = request.query;
-        const filter: { status?: string; definitionId?: string; limit?: number; offset?: number } = {};
+        const filter: { status?: string; definitionId?: string; initiatedBy?: InitiatedBy; limit?: number; offset?: number } = {};
         if (query.status) filter.status = query.status;
         if (query.definitionId) filter.definitionId = query.definitionId;
+        if (query.initiatedBy) filter.initiatedBy = query.initiatedBy as InitiatedBy;
         if (query.limit != null) filter.limit = query.limit;
         if (query.offset != null) filter.offset = query.offset;
         const result = db.listInstances(filter);

@@ -65,6 +65,8 @@ describe('Instance routes', () => {
       context: { trigger: {}, stages: {} },
       current_stage_ids: [],
       is_test: false,
+      initiated_by: 'user',
+      resume_count: 0,
     });
     db.createInstance({
       definition_id: wf2Id,
@@ -74,6 +76,8 @@ describe('Instance routes', () => {
       context: { trigger: {}, stages: {} },
       current_stage_ids: [],
       is_test: false,
+      initiated_by: 'user',
+      resume_count: 0,
     });
 
     const res = await app.inject({
@@ -103,6 +107,8 @@ describe('Instance routes', () => {
       context: { trigger: {}, stages: {} },
       current_stage_ids: [],
       is_test: false,
+      initiated_by: 'user',
+      resume_count: 0,
     });
     db.createInstance({
       definition_id: wfId,
@@ -112,6 +118,8 @@ describe('Instance routes', () => {
       context: { trigger: {}, stages: {} },
       current_stage_ids: [],
       is_test: true,
+      initiated_by: 'author',
+      resume_count: 0,
     });
 
     const res = await app.inject({ method: 'GET', url: '/api/instances' });

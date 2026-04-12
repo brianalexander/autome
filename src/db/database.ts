@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import type { WorkflowDefinition, MCPServerConfig } from '../types/workflow.js';
-import type { WorkflowInstance } from '../types/instance.js';
+import type { WorkflowInstance, InitiatedBy, PendingAuthorMessage } from '../types/instance.js';
 import type { CustomProviderConfig } from '../types/events.js';
 import * as schema from './schema.js';
 
@@ -93,11 +93,16 @@ export class OrchestratorDB {
 
   createWorkflow(
     input: Omit<WorkflowDefinition, 'id'> & { id?: string },
-    opts?: { isTest?: boolean },
+    opts?: { isTest?: boolean; parentWorkflowId?: string },
   ): WorkflowDefinition {
     const id = uuidv4();
     const { id: _inputId, ...rest } = input as Omit<WorkflowDefinition, 'id'> & { id?: string };
-    const workflow: WorkflowDefinition = { ...rest, id, version: 1 };
+    const workflow: WorkflowDefinition = {
+      ...rest,
+      id,
+      version: 1,
+      ...(opts?.parentWorkflowId ? { parent_workflow_id: opts.parentWorkflowId } : {}),
+    };
     this.db.insert(schema.workflows).values({
       id,
       name: workflow.name,
@@ -105,6 +110,7 @@ export class OrchestratorDB {
       active: workflow.active ? 1 : 0,
       definition: JSON.stringify(workflow),
       is_test: opts?.isTest ? 1 : 0,
+      parent_workflow_id: opts?.parentWorkflowId ?? null,
       version: 1,
     }).run();
     // Store version 1 in workflow_versions
@@ -257,6 +263,9 @@ export class OrchestratorDB {
       created_at: now,
       updated_at: now,
       ...input,
+      // Apply defaults for new lineage fields after spread so callers can override
+      initiated_by: input.initiated_by ?? 'user',
+      resume_count: input.resume_count ?? 0,
     };
     this.db.insert(schema.instances).values({
       id: instance.id,
@@ -268,6 +277,8 @@ export class OrchestratorDB {
       current_stage_ids: JSON.stringify(instance.current_stage_ids),
       restate_workflow_id: instance.restate_workflow_id ?? null,
       is_test: instance.is_test ? 1 : 0,
+      initiated_by: instance.initiated_by ?? 'user',
+      resume_count: instance.resume_count ?? 0,
       created_at: instance.created_at,
       updated_at: instance.updated_at,
       completed_at: instance.completed_at ?? null,
@@ -289,6 +300,7 @@ export class OrchestratorDB {
     status?: string;
     definitionId?: string;
     includeTest?: boolean;
+    initiatedBy?: InitiatedBy;
     limit?: number;
     offset?: number;
   }): { data: WorkflowInstance[]; total: number } {
@@ -299,6 +311,7 @@ export class OrchestratorDB {
     if (filter?.status) conditions.push(eq(schema.instances.status, filter.status));
     if (filter?.definitionId) conditions.push(eq(schema.instances.definition_id, filter.definitionId));
     if (!filter?.includeTest) conditions.push(eq(schema.instances.is_test, 0));
+    if (filter?.initiatedBy) conditions.push(eq(schema.instances.initiated_by, filter.initiatedBy));
     const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
 
     const countResult = this.db
@@ -318,6 +331,8 @@ export class OrchestratorDB {
       current_stage_ids: schema.instances.current_stage_ids,
       restate_workflow_id: schema.instances.restate_workflow_id,
       is_test: schema.instances.is_test,
+      initiated_by: schema.instances.initiated_by,
+      resume_count: schema.instances.resume_count,
       created_at: schema.instances.created_at,
       updated_at: schema.instances.updated_at,
       completed_at: schema.instances.completed_at,
@@ -354,6 +369,8 @@ export class OrchestratorDB {
           restate_workflow_id: updated.restate_workflow_id ?? null,
           updated_at: sql`datetime('now')`,
           completed_at: updated.completed_at ?? null,
+          resume_count: updated.resume_count ?? 0,
+          initiated_by: updated.initiated_by ?? 'user',
         })
         .where(eq(schema.instances.id, id))
         .run();
@@ -382,6 +399,8 @@ export class OrchestratorDB {
       | 'current_stage_ids'
       | 'restate_workflow_id'
       | 'is_test'
+      | 'initiated_by'
+      | 'resume_count'
       | 'created_at'
       | 'updated_at'
       | 'completed_at'
@@ -397,6 +416,8 @@ export class OrchestratorDB {
       current_stage_ids: row.current_stage_ids ? JSON.parse(row.current_stage_ids) : [],
       restate_workflow_id: row.restate_workflow_id ?? undefined,
       is_test: !!row.is_test,
+      initiated_by: (row.initiated_by ?? 'user') as WorkflowInstance['initiated_by'],
+      resume_count: row.resume_count ?? 0,
       created_at: row.created_at,
       updated_at: row.updated_at,
       completed_at: row.completed_at ?? undefined,
@@ -1061,6 +1082,96 @@ export class OrchestratorDB {
       .from(schema.draftAliases)
       .all();
     return rows.map((r) => ({ fromId: r.from_id, toId: r.to_id }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test workflow helpers
+  // ---------------------------------------------------------------------------
+
+  /** Return all workflows flagged as is_test=1, in rowid (insertion) order. */
+  listTestWorkflows(): WorkflowDefinition[] {
+    const rows = this.db
+      .select({ id: schema.workflows.id, definition: schema.workflows.definition, version: schema.workflows.version })
+      .from(schema.workflows)
+      .where(eq(schema.workflows.is_test, 1))
+      .orderBy(sql`rowid`)
+      .all();
+    return rows.map((r) => {
+      const workflow = JSON.parse(r.definition) as WorkflowDefinition;
+      workflow.version = r.version;
+      return workflow;
+    });
+  }
+
+  /**
+   * Returns true if the given workflow definition has at least one instance in
+   * a non-terminal state. Uses LIMIT 1 so it never scans the full table.
+   */
+  hasNonTerminalInstances(definitionId: string): boolean {
+    const row = this.sqlite
+      .prepare<[string], { found: number }>(
+        `SELECT 1 AS found FROM instances
+         WHERE definition_id = ?
+           AND status IN ('running', 'waiting_gate', 'waiting_input', 'pending')
+         LIMIT 1`,
+      )
+      .get(definitionId);
+    return row !== undefined;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pending author messages
+  // ---------------------------------------------------------------------------
+
+  addPendingAuthorMessage(msg: { workflow_id: string; text: string; kind: 'system' | 'user' }): void {
+    this.db.insert(schema.pendingAuthorMessages).values({
+      workflow_id: msg.workflow_id,
+      text: msg.text,
+      kind: msg.kind,
+    }).run();
+  }
+
+  /**
+   * Atomically delete and return all pending messages for a workflow.
+   * Idempotent under concurrent calls — the second call returns [].
+   */
+  flushPendingAuthorMessages(workflowId: string): PendingAuthorMessage[] {
+    const rows = this.sqlite.transaction((): PendingAuthorMessage[] => {
+      const fetched = this.sqlite
+        .prepare<[string], { id: number; workflow_id: string; text: string; kind: string; created_at: string }>(
+          'SELECT id, workflow_id, text, kind, created_at FROM pending_author_messages WHERE workflow_id = ? ORDER BY id',
+        )
+        .all(workflowId);
+      if (fetched.length > 0) {
+        this.sqlite
+          .prepare('DELETE FROM pending_author_messages WHERE workflow_id = ?')
+          .run(workflowId);
+      }
+      return fetched.map((r) => ({
+        id: r.id,
+        workflow_id: r.workflow_id,
+        text: r.text,
+        kind: r.kind as 'system' | 'user',
+        created_at: r.created_at,
+      }));
+    })();
+    return rows;
+  }
+
+  listPendingAuthorMessages(workflowId: string): PendingAuthorMessage[] {
+    const rows = this.db
+      .select()
+      .from(schema.pendingAuthorMessages)
+      .where(eq(schema.pendingAuthorMessages.workflow_id, workflowId))
+      .orderBy(asc(schema.pendingAuthorMessages.id))
+      .all();
+    return rows.map((r) => ({
+      id: r.id!,
+      workflow_id: r.workflow_id,
+      text: r.text,
+      kind: r.kind as 'system' | 'user',
+      created_at: r.created_at,
+    }));
   }
 
   // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import { errorMessage } from '../../utils/errors.js';
 import { config as appConfig } from '../../config.js';
 import type { WorkflowInstance } from '../../types/instance.js';
 import { createProvider } from '../../acp/provider/registry.js';
+import { notifyWorkflowFinished } from '../../workflow/test-run-listener.js';
 
 // Zod schemas
 
@@ -260,6 +261,14 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
         }
 
         broadcast('instance:updated', { instanceId, status }, { instanceId });
+
+        // Notify test-run listener (non-blocking — errors must not fail the callback)
+        try {
+          notifyWorkflowFinished(instanceId, status);
+        } catch (err) {
+          console.error('[workflow-finished] notifyWorkflowFinished error (non-fatal):', err);
+        }
+
         return { ok: true };
       } catch (err) {
         console.error('[workflow-finished] Error:', err);
