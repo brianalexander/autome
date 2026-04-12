@@ -74,11 +74,16 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   // ordering bugs when interleaved with ephemeral system messages.
   const turnFinalizedRef = useRef(false);
 
-  // Re-seed if initialMessages changes after mount (e.g., react-query cache update)
+  // Re-seed if initialMessages changes after mount (e.g., react-query cache update).
+  // CRITICAL: skip re-seed while streaming — a background refetch returning stale DB
+  // data must not wipe the live messages + streaming text accumulated from WS events.
   const prevInitialRef = useRef(initialMessages);
+  const isStreamingRef = useRef(false);
+  isStreamingRef.current = isStreaming;
   useEffect(() => {
     if (prevInitialRef.current === initialMessages) return;
     prevInitialRef.current = initialMessages;
+    if (isStreamingRef.current) return; // Don't wipe live state during active stream
     if (restoredMessages.length > 0) {
       setMessages(restoredMessages);
       setLiveToolCalls(restoredToolCalls);
