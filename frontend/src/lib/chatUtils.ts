@@ -73,18 +73,17 @@ export function formatModelName(model: string): string {
 export function formatToolCallXml(tc: ToolCallRecord): string {
   const title = tc.title || tc.kind || 'tool';
 
-  // Attributes
-  let attrs = `name="${title}"`;
-  if (tc.kind) attrs += ` kind="${tc.kind}"`;
-  attrs += ` status="${tc.status}"`;
+  // Attributes (shared between tool_start and tool_result)
+  const baseAttrs = `name="${title}"${tc.kind ? ` kind="${tc.kind}"` : ''}`;
+  let startAttrs = baseAttrs + ` status="${tc.status}"`;
   const start = new Date(tc.created_at).getTime();
   const end = new Date(tc.updated_at).getTime();
   const durationSecs = Math.max(0, (end - start) / 1000);
   if (durationSecs >= 0.1) {
-    attrs += ` duration="${durationSecs < 60 ? durationSecs.toFixed(1) + 's' : Math.floor(durationSecs / 60) + ':' + String(Math.floor(durationSecs % 60)).padStart(2, '0')}"`;
+    startAttrs += ` duration="${durationSecs < 60 ? durationSecs.toFixed(1) + 's' : Math.floor(durationSecs / 60) + ':' + String(Math.floor(durationSecs % 60)).padStart(2, '0')}"`;
   }
 
-  // Reason (intent) — separated from input
+  // Extract reason (intent) and input JSON, stripping internal meta-keys.
   let reason = '';
   let inputJson = '';
   if (tc.raw_input) {
@@ -100,22 +99,19 @@ export function formatToolCallXml(tc: ToolCallRecord): string {
     }
   }
 
-  let result = `\n<tool_call ${attrs}>`;
-  if (reason) result += `\n  reason: ${reason}`;
-  if (inputJson) {
-    // Indent JSON body by 2 spaces
-    result += `\n  input:\n${inputJson
-      .split('\n')
-      .map((l) => '    ' + l)
-      .join('\n')}`;
-  }
-  result += `\n</tool_call>\n`;
+  // <tool_start> — body is the raw JSON input at root indent (no `input:` label,
+  // no extra nesting). Optional `reason:` line above the JSON when present.
+  // No leading or trailing newlines: spacing between adjacent tool blocks is
+  // controlled entirely by the caller's join separator (formatSegmentsAsTranscript
+  // joins with '\n'), so consecutive tools end up flush with a single line break.
+  let result = `<tool_start ${startAttrs}>`;
+  if (reason) result += `\nreason: ${reason}`;
+  if (inputJson) result += `\n${inputJson}`;
+  result += `\n</tool_start>`;
 
-  // Output — already unwrapped at storage time
+  // <tool_result> — full output, never truncated. Copy fidelity is critical.
   if (tc.raw_output) {
-    const output = tc.raw_output;
-    const trimmed = output.length > 1000 ? output.slice(0, 1000) + '\n...' : output;
-    result += `<tool_result name="${title}" status="${tc.status}">\n${trimmed}\n</tool_result>\n`;
+    result += `\n<tool_result ${baseAttrs} status="${tc.status}">\n${tc.raw_output}\n</tool_result>`;
   }
 
   return result;

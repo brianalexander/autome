@@ -66,6 +66,14 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [liveToolCalls, setLiveToolCalls] = useState<Map<string, ToolCallRecord>>(restoredToolCalls);
 
+  // Tracks whether the previous assistant turn has been finalized via `done` /
+  // `cancelled`. When true, the NEXT chunk or tool segment must start a new
+  // assistant message rather than appending to the previous one — otherwise
+  // back-to-back agent turns (e.g. one triggered by an injected message) would
+  // be merged into a single bubble with the original turn's timestamp, causing
+  // ordering bugs when interleaved with ephemeral system messages.
+  const turnFinalizedRef = useRef(false);
+
   // Re-seed if initialMessages changes after mount (e.g., react-query cache update)
   const prevInitialRef = useRef(initialMessages);
   useEffect(() => {
@@ -81,10 +89,14 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   // Extracted here to eliminate the duplicated inline version across tool_call and done handlers.
   const flushStreamingText = useCallback((textToFlush: string) => {
     if (!textToFlush) return;
+    // Capture-and-clear the turn-finalized flag synchronously so concurrent
+    // chunks within the SAME new turn don't each create their own message.
+    const startNewTurn = turnFinalizedRef.current;
+    if (startNewTurn) turnFinalizedRef.current = false;
     setMessages((msgs) => {
       const updated = [...msgs];
       let target = updated[updated.length - 1];
-      if (!target || target.role !== 'assistant') {
+      if (!target || target.role !== 'assistant' || startNewTurn) {
         target = { role: 'assistant', segments: [], timestamp: new Date().toISOString() };
         updated.push(target);
       } else {
@@ -115,11 +127,16 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
 
     // Step 2: flush any pending text, then append the tool segment.
     // React 18 automatic batching groups these two setMessages calls into one render.
+    // flushStreamingText already consumed turnFinalizedRef if there was pending
+    // text — re-capture here so a tool-first turn (no leading text) still
+    // creates a new assistant message.
     if (flushedText) flushStreamingText(flushedText);
+    const startNewTurn = turnFinalizedRef.current;
+    if (startNewTurn) turnFinalizedRef.current = false;
     setMessages((msgs) => {
       const updated = [...msgs];
       let target = updated[updated.length - 1];
-      if (!target || target.role !== 'assistant') {
+      if (!target || target.role !== 'assistant' || startNewTurn) {
         target = { role: 'assistant', segments: [], timestamp: new Date().toISOString() };
         updated.push(target);
       } else {
@@ -132,6 +149,8 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   }, [flushStreamingText]);
 
   // Finalize the current turn: flush any remaining streaming text and clear streaming state.
+  // Marks the turn as finalized so the NEXT chunk/tool starts a fresh assistant message
+  // rather than appending to this one (preventing back-to-back turn merge bugs).
   const finalizeTurn = useCallback(() => {
     let flushedText = '';
     setStreamingText((prev) => {
@@ -140,6 +159,7 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
     });
     if (flushedText) flushStreamingText(flushedText);
     setIsStreaming(false);
+    turnFinalizedRef.current = true;
   }, [flushStreamingText]);
 
   // Add a user message and mark streaming as started.

@@ -83,11 +83,11 @@ describe('formatModelName', () => {
 // formatToolCallXml
 // ---------------------------------------------------------------------------
 describe('formatToolCallXml', () => {
-  it('produces a tool_call XML element', () => {
+  it('produces a tool_start XML element', () => {
     const tc = makeToolCallRecord();
     const xml = formatToolCallXml(tc);
-    expect(xml).toContain('<tool_call');
-    expect(xml).toContain('</tool_call>');
+    expect(xml).toContain('<tool_start');
+    expect(xml).toContain('</tool_start>');
     expect(xml).toContain('name="bash"');
     expect(xml).toContain('status="completed"');
   });
@@ -139,13 +139,14 @@ describe('formatToolCallXml', () => {
     expect(xml).toContain('reason: list files');
   });
 
-  it('includes input JSON when extra args present', () => {
+  it('includes raw input JSON when extra args present (no input: label)', () => {
     const tc = makeToolCallRecord({
       raw_input: JSON.stringify({ command: 'ls -la' }),
     });
     const xml = formatToolCallXml(tc);
-    expect(xml).toContain('input:');
+    expect(xml).not.toContain('input:');
     expect(xml).toContain('"command"');
+    expect(xml).toContain('"ls -la"');
   });
 
   it('strips meta-keys (__tool_name, __mcp_server) from displayed input', () => {
@@ -158,10 +159,12 @@ describe('formatToolCallXml', () => {
     expect(xml).toContain('"command"');
   });
 
-  it('omits input section when raw_input is null', () => {
+  it('omits JSON body when raw_input is null', () => {
     const tc = makeToolCallRecord({ raw_input: null });
     const xml = formatToolCallXml(tc);
-    expect(xml).not.toContain('input:');
+    expect(xml).toContain('<tool_start');
+    // No JSON body between open and close tags
+    expect(xml).toMatch(/<tool_start[^>]*>\s*<\/tool_start>/);
   });
 
   it('handles malformed raw_input JSON gracefully', () => {
@@ -176,13 +179,13 @@ describe('formatToolCallXml', () => {
     expect(xml).toContain('file.txt');
   });
 
-  it('truncates raw_output longer than 1000 characters', () => {
-    const longOutput = 'x'.repeat(1100);
+  it('does NOT truncate raw_output regardless of length (full fidelity copy)', () => {
+    const longOutput = 'x'.repeat(5000);
     const tc = makeToolCallRecord({ raw_output: longOutput });
     const xml = formatToolCallXml(tc);
-    expect(xml).toContain('...');
-    // Should contain first 1000 chars
-    expect(xml).toContain('x'.repeat(100));
+    // Full output preserved — no truncation marker
+    expect(xml).toContain('x'.repeat(5000));
+    expect(xml).not.toMatch(/x{1,5000}\.{3}/);
   });
 
   it('omits tool_result when raw_output is null', () => {
@@ -213,12 +216,12 @@ describe('formatSegmentsAsTranscript', () => {
     expect(result).toBe('Hi');
   });
 
-  it('includes tool_call XML for tool segments', () => {
+  it('includes tool_start XML for tool segments', () => {
     const tc = makeToolCallRecord({ id: 'tc-x' });
     const segments = [{ type: 'tool' as const, toolCallId: 'tc-x' }];
     const toolCalls = new Map([['tc-x', tc]]);
     const result = formatSegmentsAsTranscript(segments, toolCalls);
-    expect(result).toContain('<tool_call');
+    expect(result).toContain('<tool_start');
   });
 
   it('skips tool segments whose id is not in the map', () => {
