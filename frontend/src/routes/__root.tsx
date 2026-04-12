@@ -2,7 +2,7 @@ import { createRootRoute, Outlet, Link, useNavigate } from '@tanstack/react-rout
 import { useTestRunCompletionToast } from '../hooks/useTestRunCompletionToast';
 import { Toaster, toast } from 'sonner';
 import { useTheme, type ThemeMode } from '../hooks/useTheme';
-import { Sun, Moon, Monitor, ChevronsUpDown, Bell } from 'lucide-react';
+import { Sun, Moon, Monitor, ChevronsUpDown, Bell, MessageSquare } from 'lucide-react';
 import { useActiveProvider, useAcpProviders, useSetSystemProvider, useApprovals } from '../hooks/queries';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '../hooks/useClickOutside';
@@ -136,6 +136,14 @@ function RootLayout() {
   const { on } = useWebSocket();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  const [assistantOpen, setAssistantOpen] = useState(() =>
+    localStorage.getItem('assistant-dock-open') === 'true'
+  );
+  useEffect(() => {
+    localStorage.setItem('assistant-dock-open', String(assistantOpen));
+  }, [assistantOpen]);
+
   // Show toast notifications when test runs complete on other workflow pages
   useTestRunCompletionToast();
 
@@ -193,13 +201,24 @@ function RootLayout() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAssistantOpen(v => !v)}
+            className={`p-1.5 rounded-lg transition-colors ${
+              assistantOpen
+                ? 'text-blue-400 bg-blue-500/10'
+                : 'text-text-tertiary hover:text-text-secondary'
+            }`}
+            title={assistantOpen ? 'Close Assistant' : 'Open Assistant'}
+          >
+            <MessageSquare size={16} />
+          </button>
           <ApprovalBadge />
           <ProviderSelector />
           <ThemeToggle />
         </div>
       </header>
       <main className="flex-1 flex min-h-0 overflow-hidden bg-surface-secondary">
-        <AssistantDock />
+        <AssistantDock isOpen={assistantOpen} />
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <Outlet />
         </div>
