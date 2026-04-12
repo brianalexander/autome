@@ -144,6 +144,30 @@ function RootLayout() {
     localStorage.setItem('assistant-dock-open', String(assistantOpen));
   }, [assistantOpen]);
 
+  // Global ui:action listener — handles navigate + toast from the assistant.
+  // The editor-scoped useUiActions in WorkflowEditor handles show_test_run +
+  // highlight_element (which need canvas context). This global listener catches
+  // actions that fire from any page.
+  useEffect(() => {
+    const unsub = on('ui:action', (data: unknown) => {
+      const d = data as { action?: string; to?: string; level?: string; text?: string; elementId?: string; pulseMs?: number };
+      if (d.action === 'navigate' && d.to) {
+        navigate({ to: d.to });
+      } else if (d.action === 'toast' && d.text) {
+        if (d.level === 'error') toast.error(d.text);
+        else if (d.level === 'warn') toast.warning(d.text);
+        else if (d.level === 'success') toast.success(d.text);
+        else toast.info(d.text);
+      } else if (d.action === 'highlight_element' && d.elementId) {
+        // Fallback: scroll to DOM element (canvas highlight handled by WorkflowEditor's useUiActions)
+        setTimeout(() => {
+          document.getElementById(d.elementId!)?.scrollIntoView({ behavior: 'smooth' });
+        }, 500); // delay to let navigation settle
+      }
+    });
+    return unsub;
+  }, [on, navigate]);
+
   // Show toast notifications when test runs complete on other workflow pages
   useTestRunCompletionToast();
 
