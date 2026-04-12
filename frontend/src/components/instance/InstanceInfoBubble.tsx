@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { StatusBadge } from '../ui/StatusBadge';
 import { stripMarkdown } from '../../lib/format';
@@ -25,6 +26,8 @@ export function InstanceInfoBubble({
   onBack,
   backLink,
 }: InstanceInfoBubbleProps) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div className="absolute top-3 left-3 z-40 max-w-[360px]">
       <div
@@ -56,11 +59,15 @@ export function InstanceInfoBubble({
           </span>
         </div>
 
-        {/* Description */}
+        {/* Description — click to expand/collapse */}
         {workflowDescription && (
-          <div className="mt-0.5 text-xs text-[var(--color-text-tertiary)] truncate">
+          <button
+            type="button"
+            onClick={() => setExpanded(v => !v)}
+            className={`mt-0.5 text-xs text-[var(--color-text-tertiary)] text-left w-full hover:text-[var(--color-text-secondary)] transition-colors ${expanded ? '' : 'truncate'}`}
+          >
             {stripMarkdown(workflowDescription)}
-          </div>
+          </button>
         )}
 
         {/* Status line */}
