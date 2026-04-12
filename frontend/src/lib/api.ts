@@ -308,3 +308,22 @@ export const authorApi = {
   flushPendingMessages: (workflowId: string): Promise<{ messages: PendingAuthorMessage[] }> =>
     request(`/author/pending-messages/${encodeURIComponent(workflowId)}/flush`, { method: 'POST' }),
 };
+
+// Assistant chat API
+export const assistantApi = {
+  sendMessage: (message: string) =>
+    request<{ ok: boolean }>('/assistant/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+  stop: () =>
+    request<{ ok: boolean }>('/assistant/stop', { method: 'POST' }),
+  getSegments: () =>
+    request<SegmentRecord[]>('/assistant/segments'),
+  deleteSegments: () =>
+    request<void>('/assistant/segments', { method: 'DELETE' }),
+  restartSession: () =>
+    request<{ ok: boolean }>('/assistant/restart-session', { method: 'POST' }),
+  clearChat: () =>
+    request<{ ok: boolean }>('/assistant/clear-chat', { method: 'POST' }),
+};

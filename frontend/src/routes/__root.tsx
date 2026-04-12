@@ -1,4 +1,4 @@
-import { createRootRoute, Outlet, Link, useNavigate } from '@tanstack/react-router';
+import { createRootRoute, Outlet, Link, useNavigate, useLocation } from '@tanstack/react-router';
 import { useTestRunCompletionToast } from '../hooks/useTestRunCompletionToast';
 import { Toaster, toast } from 'sonner';
 import { useTheme, type ThemeMode } from '../hooks/useTheme';
@@ -8,6 +8,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useQueryClient } from '@tanstack/react-query';
+import { AssistantDock } from '../components/assistant/AssistantDock';
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -135,6 +136,13 @@ function RootLayout() {
   const { on } = useWebSocket();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Hide the assistant dock on the workflow editor page (/workflows/:id)
+  // The editor has its own AuthorChat sidebar. Exclude /workflows/new too.
+  const isEditorPage =
+    /^\/workflows\/[^/]+$/.test(location.pathname) &&
+    !location.pathname.endsWith('/new');
 
   // Show toast notifications when test runs complete on other workflow pages
   useTestRunCompletionToast();
@@ -199,7 +207,10 @@ function RootLayout() {
         </div>
       </header>
       <main className="flex-1 flex min-h-0 overflow-hidden bg-surface-secondary">
-        <Outlet />
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <Outlet />
+        </div>
+        {!isEditorPage && <AssistantDock />}
       </main>
       <Toaster position="bottom-right" richColors theme="system" />
     </div>
