@@ -20,6 +20,8 @@ export interface WorkflowCanvasHandle {
   selectAll: () => void;
   deselectAll: () => void;
   relayout: () => void;
+  highlightNode: (stageId: string, pulseMs?: number) => void;
+  panToNode: (stageId: string) => void;
 }
 import '@xyflow/react/dist/style.css';
 import { AgentStageNode } from './nodes/AgentStageNode';
@@ -369,7 +371,36 @@ function CanvasActions({
   onReady?: (actions: WorkflowCanvasHandle) => void;
   onRelayout: () => void;
 }) {
-  const { fitView, setNodes, setEdges } = useReactFlow();
+  const { fitView, setNodes, setEdges, getNode, setCenter } = useReactFlow();
+
+  const panToNode = useCallback((stageId: string) => {
+    const node = getNode(stageId);
+    if (!node) return;
+    const width = (node.measured?.width ?? node.width ?? 240);
+    const height = (node.measured?.height ?? node.height ?? 100);
+    setCenter(
+      node.position.x + width / 2,
+      node.position.y + height / 2,
+      { zoom: 1, duration: 400 },
+    );
+  }, [getNode, setCenter]);
+
+  const highlightNode = useCallback((stageId: string, pulseMs = 2500) => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === stageId ? { ...n, data: { ...n.data, highlighted: true } } : n,
+      ),
+    );
+    panToNode(stageId);
+    setTimeout(() => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === stageId ? { ...n, data: { ...n.data, highlighted: false } } : n,
+        ),
+      );
+    }, pulseMs);
+  }, [setNodes, panToNode]);
+
   useEffect(() => {
     if (!onReady) return;
     onReady({
@@ -380,8 +411,10 @@ function CanvasActions({
         setEdges((eds) => eds.map((e) => ({ ...e, selected: false })));
       },
       relayout: onRelayout,
+      highlightNode,
+      panToNode,
     });
-  }, [fitView, setNodes, setEdges, onReady, onRelayout]);
+  }, [fitView, setNodes, setEdges, onReady, onRelayout, highlightNode, panToNode]);
   return null;
 }
 

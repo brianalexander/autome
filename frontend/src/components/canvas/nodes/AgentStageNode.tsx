@@ -22,6 +22,7 @@ interface AgentNodeData {
   startedAt?: string;
   isInCycle?: boolean;
   cycleBehavior?: string;
+  highlighted?: boolean;
   onDelete?: (id: string) => void;
   onDuplicate?: (id: string) => void;
   onEdit?: (id: string) => void;
@@ -105,6 +106,7 @@ export const AgentStageNode = memo(function AgentStageNode({ data, selected, id 
       handleColor="var(--handle-color-agent)"
       handleGlowClass="handle-glow-blue"
       dimmed={status === 'skipped'}
+      highlighted={d.highlighted}
       headerRight={headerRight}
       body={body}
       footer={footer}

@@ -238,6 +238,87 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
 
     // ------------------------------------------------------------------
+    // open_instance
+    // ------------------------------------------------------------------
+    {
+      name: 'open_instance',
+      description: [
+        'Navigate the UI to the instance detail page for a specific workflow run.',
+        'Optionally pass stageId to hint at a specific stage (reserved for future deep linking).',
+        'Use this when the user asks to "show" or "open" a run.',
+      ].join('\n'),
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          instanceId: {
+            type: 'string',
+            description: 'The workflow instance ID to navigate to',
+          },
+          stageId: {
+            type: 'string',
+            description: 'Optional stage ID to append as a query parameter (?stageId=…)',
+          },
+        },
+        required: ['instanceId'],
+      },
+    },
+
+    // ------------------------------------------------------------------
+    // highlight_stage
+    // ------------------------------------------------------------------
+    {
+      name: 'highlight_stage',
+      description: [
+        'Highlight a specific stage node on the canvas with a pulse animation.',
+        'Use this after open_instance to draw the user\'s attention to a particular stage.',
+      ].join('\n'),
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          instanceId: {
+            type: 'string',
+            description: 'The workflow instance ID',
+          },
+          stageId: {
+            type: 'string',
+            description: 'The stage ID to highlight',
+          },
+          pulseMs: {
+            type: 'number',
+            description: 'Duration of the pulse animation in milliseconds (default: 2500)',
+          },
+        },
+        required: ['instanceId', 'stageId'],
+      },
+    },
+
+    // ------------------------------------------------------------------
+    // toast
+    // ------------------------------------------------------------------
+    {
+      name: 'toast',
+      description: [
+        'Show a notification toast in the UI.',
+        'Use this to surface a status message or confirmation to the user.',
+      ].join('\n'),
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          level: {
+            type: 'string',
+            enum: ['info', 'success', 'warn', 'error'],
+            description: 'Severity level of the toast',
+          },
+          text: {
+            type: 'string',
+            description: 'The message to display in the toast',
+          },
+        },
+        required: ['level', 'text'],
+      },
+    },
+
+    // ------------------------------------------------------------------
     // restart_stage_session
     // ------------------------------------------------------------------
     {
@@ -779,6 +860,89 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       return { content: [{ type: 'text', text: JSON.stringify({ ok: true, restarted: true, messageSent: message != null }, null, 2) }] };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // open_instance
+  // -------------------------------------------------------------------------
+  if (name === 'open_instance') {
+    try {
+      const instanceId = args?.instanceId as string;
+      if (!instanceId) {
+        return { content: [{ type: 'text', text: 'Error: "instanceId" is required' }], isError: true };
+      }
+
+      const stageId = args?.stageId as string | undefined;
+      const url = `/instances/${instanceId}${stageId ? `?stageId=${stageId}` : ''}`;
+
+      const result = await apiPost('/api/internal/ui-action', { action: 'navigate', to: url });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: errorText(result.status, result.body) }], isError: true };
+      }
+
+      return { content: [{ type: 'text', text: JSON.stringify({ navigated: true, url }, null, 2) }] };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // highlight_stage
+  // -------------------------------------------------------------------------
+  if (name === 'highlight_stage') {
+    try {
+      const instanceId = args?.instanceId as string;
+      const stageId = args?.stageId as string;
+      if (!instanceId || !stageId) {
+        return {
+          content: [{ type: 'text', text: 'Error: "instanceId" and "stageId" are required' }],
+          isError: true,
+        };
+      }
+
+      const pulseMs = (args?.pulseMs as number | undefined) ?? 2500;
+      const result = await apiPost('/api/internal/ui-action', {
+        action: 'highlight_element',
+        elementId: stageId,
+        instanceId,
+        pulseMs,
+      });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: errorText(result.status, result.body) }], isError: true };
+      }
+
+      return { content: [{ type: 'text', text: JSON.stringify({ highlighted: true }, null, 2) }] };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // toast
+  // -------------------------------------------------------------------------
+  if (name === 'toast') {
+    try {
+      const level = args?.level as string;
+      const text = args?.text as string;
+      if (!level || !text) {
+        return {
+          content: [{ type: 'text', text: 'Error: "level" and "text" are required' }],
+          isError: true,
+        };
+      }
+
+      const result = await apiPost('/api/internal/ui-action', { action: 'toast', level, text });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: errorText(result.status, result.body) }], isError: true };
+      }
+
+      return { content: [{ type: 'text', text: JSON.stringify({ shown: true }, null, 2) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };

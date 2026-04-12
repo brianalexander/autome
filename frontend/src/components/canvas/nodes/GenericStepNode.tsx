@@ -32,6 +32,7 @@ interface GenericNodeData {
   error?: string;
   duration?: string;
   startedAt?: string;
+  highlighted?: boolean;
   // Author-mode toolbar callbacks
   onDelete?: (id: string) => void;
   onDuplicate?: (id: string) => void;
@@ -96,6 +97,7 @@ export const GenericStepNode = memo(function GenericStepNode({ data, selected, i
       handleGlowClass={handleGlowClass}
       showTargetHandle={!isTrigger}
       dimmed={status === 'skipped'}
+      highlighted={d.highlighted}
       body={body}
       footer={footer}
       isAuthor={d.isAuthor}

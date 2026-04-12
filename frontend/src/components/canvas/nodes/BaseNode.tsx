@@ -24,6 +24,7 @@ export interface BaseNodeProps {
 
   // State
   dimmed?: boolean;         // opacity-50 for skipped
+  highlighted?: boolean;    // ring pulse when highlight_element action fires
 
   // Slots for custom content
   headerRight?: ReactNode;  // right side of header row (iteration count, timer, etc.)
@@ -56,6 +57,7 @@ export const BaseNode = memo(function BaseNode({
   showTargetHandle = true,
   showSourceHandle = true,
   dimmed,
+  highlighted,
   headerRight,
   headerExtra,
   body,
@@ -89,6 +91,7 @@ export const BaseNode = memo(function BaseNode({
           'hover:shadow-[var(--node-shadow-hover)]',
           selected ? 'shadow-[var(--node-shadow-selected)] border-blue-500/50' : '',
           dimmed ? 'opacity-50' : '',
+          highlighted ? 'ring-2 ring-blue-400 ring-offset-2 animate-pulse' : '',
         ].filter(Boolean).join(' ')}
         style={{ width }}
         data-testid={testId}

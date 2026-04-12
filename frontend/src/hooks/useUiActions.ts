@@ -6,8 +6,11 @@
  * When the Assistant agent comes online in Phase 4, this may be promoted to a
  * global controller.
  */
-import { useEffect } from 'react';
+import { useEffect, type RefObject } from 'react';
 import { toast } from 'sonner';
+import type { WorkflowCanvasHandle } from '../components/canvas/WorkflowCanvas';
+
+type NavigateFn = (opts: { to: string }) => void;
 
 export interface UiActionsOptions {
   /** The workflow ID of the currently open editor session. */
@@ -16,6 +19,10 @@ export interface UiActionsOptions {
   on: (event: string, handler: (data: unknown) => void) => () => void;
   /** Open the test run viewer for a specific instance. */
   openTestRunViewer: (instanceId: string, testWorkflowId: string) => void;
+  /** TanStack Router navigate function for the `navigate` action. */
+  navigate?: NavigateFn;
+  /** Ref to the imperative canvas handle for the `highlight_element` action. */
+  canvasHandle?: RefObject<WorkflowCanvasHandle | null>;
 }
 
 interface UiActionPayload {
@@ -30,7 +37,13 @@ interface UiActionPayload {
   text?: string;
 }
 
-export function useUiActions({ currentWorkflowId, on, openTestRunViewer }: UiActionsOptions): void {
+export function useUiActions({
+  currentWorkflowId,
+  on,
+  openTestRunViewer,
+  navigate,
+  canvasHandle,
+}: UiActionsOptions): void {
   useEffect(() => {
     const unsub = on('ui:action', (data: unknown) => {
       const payload = data as UiActionPayload;
@@ -48,17 +61,32 @@ export function useUiActions({ currentWorkflowId, on, openTestRunViewer }: UiAct
           break;
         }
         case 'navigate': {
-          // TODO: implement navigate action (frontend routing)
-          console.warn('[useUiActions] navigate action not yet implemented', payload);
+          if (!payload.to) {
+            console.warn('[useUiActions] navigate action missing `to`', payload);
+            return;
+          }
+          if (navigate) {
+            navigate({ to: payload.to });
+          } else {
+            console.warn('[useUiActions] navigate called but no navigate function provided', payload);
+          }
           break;
         }
         case 'highlight_element': {
-          // TODO: implement highlight_element action (CSS pulse by id)
-          console.warn('[useUiActions] highlight_element action not yet implemented', payload);
+          if (!payload.elementId) {
+            console.warn('[useUiActions] highlight_element missing elementId', payload);
+            return;
+          }
+          // Try canvas node first
+          if (canvasHandle?.current?.highlightNode) {
+            canvasHandle.current.highlightNode(payload.elementId, payload.pulseMs);
+          } else {
+            // Fallback: scroll to a DOM element with that id
+            document.getElementById(payload.elementId)?.scrollIntoView({ behavior: 'smooth' });
+          }
           break;
         }
         case 'toast': {
-          // TODO: implement full toast routing with level/text (basic impl below)
           const msg = payload.text ?? 'Notification';
           if (payload.level === 'error') toast.error(msg);
           else if (payload.level === 'warn') toast.warning(msg);
@@ -71,5 +99,5 @@ export function useUiActions({ currentWorkflowId, on, openTestRunViewer }: UiAct
       }
     });
     return unsub;
-  }, [on, currentWorkflowId, openTestRunViewer]);
+  }, [on, currentWorkflowId, openTestRunViewer, navigate, canvasHandle]);
 }

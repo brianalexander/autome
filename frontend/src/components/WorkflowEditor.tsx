@@ -300,8 +300,11 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     return unsub;
   }, [on, effectiveId, isNew, pushDefinition, setHasChanges]);
 
+  // --- Canvas ref ---
+  const canvasActionsRef = useRef<WorkflowCanvasHandle | null>(null);
+
   // Mount UI action dispatcher — handles agent-requested UI operations (show_test_run, etc.)
-  useUiActions({ currentWorkflowId: effectiveId, on, openTestRunViewer });
+  useUiActions({ currentWorkflowId: effectiveId, on, openTestRunViewer, navigate, canvasHandle: canvasActionsRef });
 
   // Listen for AI Author-initiated test runs — register the run but do NOT auto-open viewer.
   // The Test Run button will switch to "View Test Run" so the user can open it when ready.
@@ -320,9 +323,6 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     });
     return unsub;
   }, [on, effectiveId, registerActiveTestRun, openTestRunViewer]);
-
-  // --- Canvas ref ---
-  const canvasActionsRef = useRef<WorkflowCanvasHandle | null>(null);
 
   // --- Selection handlers ---
   const handleStageSelect = useCallback((stageId: string | null) => {

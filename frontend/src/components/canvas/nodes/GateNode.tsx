@@ -15,6 +15,7 @@ interface GateNodeData {
   duration?: string;
   onApprove?: () => void;
   onReject?: () => void;
+  highlighted?: boolean;
   onDelete?: (id: string) => void;
   onDuplicate?: (id: string) => void;
   onEdit?: (id: string) => void;
@@ -112,6 +113,7 @@ export const GateNode = memo(function GateNode({ data, selected, id }: NodeProps
       handleColor="var(--handle-color-gate)"
       handleGlowClass="handle-glow-pink"
       headerExtra={headerExtra}
+      highlighted={d.highlighted}
       body={body}
       footer={footer}
       isAuthor={d.isAuthor}
