@@ -21,6 +21,16 @@ export function WorkflowSettings({
   onExport,
   healthIndicator,
 }: WorkflowSettingsProps) {
+  const autoTestEnabled = !!(definition as unknown as { authoring?: { auto_test?: boolean } }).authoring?.auto_test;
+
+  function toggleAutoTest() {
+    const current = (definition as unknown as { authoring?: { auto_test?: boolean } }).authoring ?? {};
+    onDefinitionChange?.({
+      ...definition,
+      authoring: { ...current, auto_test: !autoTestEnabled },
+    } as WorkflowDefinition);
+  }
+
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Workflow status */}
@@ -49,6 +59,36 @@ export function WorkflowSettings({
           Default provider for all agent stages in this workflow. Individual stages can override
           this in their config panel.
         </p>
+      </div>
+
+      {/* AI Author settings */}
+      <div className="px-4 py-3 border-b border-[var(--color-border)]">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)] mb-2">
+          AI Author
+        </div>
+        <label className="flex items-center justify-between gap-3 cursor-pointer select-none">
+          <div>
+            <div className="text-sm text-[var(--color-text-primary)]">Autonomous testing</div>
+            <div className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">
+              AI Author will automatically run test instances after making changes.
+            </div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={autoTestEnabled}
+            onClick={onDefinitionChange ? toggleAutoTest : undefined}
+            disabled={!onDefinitionChange}
+            className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
+              autoTestEnabled ? 'bg-blue-600' : 'bg-[var(--color-surface-tertiary)]'
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                autoTestEnabled ? 'translate-x-4' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </label>
       </div>
 
       {/* Actions */}

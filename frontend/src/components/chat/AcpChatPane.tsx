@@ -5,12 +5,12 @@
  * This component is a thin orchestrator: state lives in useChatMessages
  * and useChatSession hooks, UI in extracted child components.
  */
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { useChatSession } from '../../hooks/useChatSession';
-import { formatModelName, formatSegmentsAsTranscript } from '../../lib/chatUtils';
+import { formatModelName, formatSegmentsAsTranscript, extractTextFromSegments } from '../../lib/chatUtils';
 import { StreamingMarkdown } from './StreamingMarkdown';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { SessionInfoChip } from './SessionInfoChip';
@@ -64,6 +64,8 @@ export interface AcpChatPaneProps {
     segments?: Array<{ type: 'text'; content: string } | { type: 'tool'; toolCallId: string }>;
     toolCalls?: Array<Record<string, unknown>>;
   }>;
+  /** Ephemeral system messages injected from outside (e.g., test-run completions, pending flushes) */
+  ephemeralSystemMessages?: Array<{ text: string; timestamp: string }>;
 }
 
 export function AcpChatPane({
@@ -85,6 +87,7 @@ export function AcpChatPane({
   onRestartSession,
   onClearChat,
   initialMessages,
+  ephemeralSystemMessages,
 }: AcpChatPaneProps) {
   // --- Core state hooks ---
   const chat = useChatMessages(initialMessages);
@@ -92,6 +95,20 @@ export function AcpChatPane({
     isStreaming: chat.isStreaming,
     sessionKey,
   });
+
+  // --- Merge ephemeral system messages by timestamp ---
+  const displayMessages = useMemo(() => {
+    if (!ephemeralSystemMessages?.length) return chat.messages;
+    const ephemeral = ephemeralSystemMessages.map((m) => ({
+      role: 'system' as const,
+      segments: [{ type: 'text' as const, content: m.text }],
+      timestamp: m.timestamp,
+    }));
+    // Merge and sort by timestamp
+    return [...chat.messages, ...ephemeral].sort((a, b) =>
+      a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0,
+    );
+  }, [chat.messages, ephemeralSystemMessages]);
 
   // --- Local UI state ---
   const [input, setInput] = useState('');
@@ -305,22 +322,21 @@ export function AcpChatPane({
   );
 
   // --- Streaming state helpers ---
-  const lastAssistantMsg = chat.messages.length > 0 ? chat.messages[chat.messages.length - 1] : null;
+  const lastAssistantMsg = displayMessages.length > 0 ? displayMessages[displayMessages.length - 1] : null;
   const hasStreamingContent =
     chat.isStreaming && (chat.streamingText || (lastAssistantMsg?.role === 'assistant' && lastAssistantMsg.segments.length > 0));
 
   // --- Header actions ---
   const handleCopyAll = useCallback(() => {
     const parts: string[] = [];
-    for (const msg of chat.messages) {
+    for (const msg of displayMessages) {
       if (msg.role === 'user') {
-        const text = msg.segments
-          .filter((s): s is { type: 'text'; content: string } => s.type === 'text' && !!s.content)
-          .map((s) => s.content)
-          .join('');
-        parts.push(`<user_prompt>\n${text}\n</user_prompt>`);
+        parts.push(`<user>\n${extractTextFromSegments(msg.segments)}\n</user>`);
+      } else if (msg.role === 'system') {
+        parts.push(`<system>\n${extractTextFromSegments(msg.segments)}\n</system>`);
       } else {
-        parts.push(formatSegmentsAsTranscript(msg.segments, chat.liveToolCalls));
+        const body = formatSegmentsAsTranscript(msg.segments, chat.liveToolCalls);
+        parts.push(`<assistant>\n${body}\n</assistant>`);
       }
     }
     navigator.clipboard.writeText(parts.join('\n\n')).then(() => {
@@ -329,7 +345,7 @@ export function AcpChatPane({
     }).catch((err) => {
       console.error('Failed to copy chat:', err);
     });
-  }, [chat.messages, chat.liveToolCalls]);
+  }, [displayMessages, chat.liveToolCalls]);
 
   const handleRestartSession = useCallback(async () => {
     if (!onRestartSession) return;
@@ -392,7 +408,7 @@ export function AcpChatPane({
         <div className="flex items-center gap-0.5 ml-auto bg-surface-secondary/40 rounded-md px-1 py-0.5">
           <button
             onClick={handleCopyAll}
-            disabled={chat.messages.length === 0}
+            disabled={displayMessages.length === 0}
             className="text-text-tertiary hover:text-text-secondary disabled:opacity-30 disabled:cursor-default flex-shrink-0 p-1 rounded hover:bg-surface-secondary"
             title="Copy chat"
           >
@@ -423,11 +439,11 @@ export function AcpChatPane({
 
       {/* Messages area */}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-2 py-4 space-y-4 min-h-0">
-        {chat.messages.length === 0 && !chat.isStreaming && !chat.streamingText && (
+        {displayMessages.length === 0 && !chat.isStreaming && !chat.streamingText && (
           <div className="text-text-tertiary text-sm text-center py-8">{emptyMessage}</div>
         )}
 
-        {chat.messages.map((msg, i) => (
+        {displayMessages.map((msg, i) => (
           <div key={`${msg.role}-${msg.timestamp}`}>
             {msg.role === 'system' ? (
               <div className="border border-amber-300 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3">
@@ -441,7 +457,7 @@ export function AcpChatPane({
               <TurnCard
                 msg={msg}
                 msgIndex={i}
-                totalMessages={chat.messages.length}
+                totalMessages={displayMessages.length}
                 isStreaming={chat.isStreaming}
                 streamingText={chat.streamingText}
                 liveToolCalls={chat.liveToolCalls}
@@ -453,7 +469,7 @@ export function AcpChatPane({
         ))}
 
         {/* Streaming text before first assistant message is created */}
-        {chat.isStreaming && chat.streamingText && chat.messages[chat.messages.length - 1]?.role !== 'assistant' && (
+        {chat.isStreaming && chat.streamingText && displayMessages[displayMessages.length - 1]?.role !== 'assistant' && (
           <div className="border-t border-b border-border-subtle bg-surface-secondary/30 -mx-2 px-2 py-3">
             <StreamingMarkdown content={chat.streamingText} isStreaming />
           </div>
@@ -635,9 +651,9 @@ export function AcpChatPane({
       </div>
 
       {/* Expanded modal */}
-      {expandedModal !== null && chat.messages[expandedModal] && (
+      {expandedModal !== null && displayMessages[expandedModal] && (
         <ExpandedMessageModal
-          msg={chat.messages[expandedModal]}
+          msg={displayMessages[expandedModal]}
           liveToolCalls={chat.liveToolCalls}
           onClose={() => setExpandedModal(null)}
         />

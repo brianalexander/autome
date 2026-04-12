@@ -36,6 +36,7 @@ import {
 } from '../lib/api';
 import { useDraftLifecycle } from '../hooks/useDraftLifecycle';
 import { useTestRun } from '../hooks/useTestRun';
+import { useUiActions } from '../hooks/useUiActions';
 
 // ---------------------------------------------------------------------------
 // Small co-located sub-components (not exported — only used by WorkflowEditor)
@@ -74,14 +75,29 @@ interface CanvasActionsProps {
   onReset: () => void;
   onDiscard: () => void;
   onTestRun: () => void;
+  /** Whether there is an AI-Author-initiated test run awaiting viewing. */
+  hasActiveTestRun?: boolean;
+  /** Open the active test run viewer. */
+  onViewActiveTestRun?: () => void;
+  /** Live status of the active test run (for status dot color). */
+  testStatus?: { status?: string } | null | undefined;
 }
 
 function CanvasActions({
   isNew, hasChanges,
   onReset, onDiscard, onTestRun,
+  hasActiveTestRun, onViewActiveTestRun, testStatus,
 }: CanvasActionsProps) {
   const btnBase = 'px-2.5 py-1.5 text-xs rounded-lg border shadow-sm backdrop-blur-sm transition-colors';
   const btnDefault = `${btnBase} bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]`;
+
+  // Determine Test Run button state
+  const testRunStatus = testStatus?.status;
+  const statusDotColor =
+    testRunStatus === 'failed' ? 'bg-red-500' :
+    testRunStatus === 'completed' ? 'bg-green-500' :
+    'bg-yellow-400 animate-pulse';
+
   return (
     <div className="absolute top-3 right-3 z-40 flex items-center gap-1.5">
       {isNew && (
@@ -94,7 +110,18 @@ function CanvasActions({
           Discard
         </button>
       )}
-      <button onClick={onTestRun} className={btnDefault}>Test Run</button>
+      {hasActiveTestRun ? (
+        /* Active AI-Author-initiated run: show "View Test Run" with status dot */
+        <button
+          onClick={onViewActiveTestRun}
+          className={`${btnDefault} flex items-center gap-1.5`}
+        >
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${statusDotColor}`} />
+          View Test Run
+        </button>
+      ) : (
+        <button onClick={onTestRun} className={btnDefault}>Test Run</button>
+      )}
     </div>
   );
 }
@@ -245,6 +272,10 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     handleTriggerDialogClose,
     handleTestRunClose,
     testRunInstanceId,
+    openTestRunViewer,
+    registerActiveTestRun,
+    hasRegisteredTestRun,
+    viewActiveTestRun,
   } = testRun;
 
   // --- WebSocket subscriptions ---
@@ -268,6 +299,27 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     });
     return unsub;
   }, [on, effectiveId, isNew, pushDefinition, setHasChanges]);
+
+  // Mount UI action dispatcher — handles agent-requested UI operations (show_test_run, etc.)
+  useUiActions({ currentWorkflowId: effectiveId, on, openTestRunViewer });
+
+  // Listen for AI Author-initiated test runs — register the run but do NOT auto-open viewer.
+  // The Test Run button will switch to "View Test Run" so the user can open it when ready.
+  useEffect(() => {
+    const unsub = on('author:test_run_started', (data: unknown) => {
+      const d = data as { workflowId?: string; instanceId?: string; testWorkflowId?: string };
+      if (d.workflowId !== effectiveId) return;
+      if (!d.instanceId || !d.testWorkflowId) return;
+      registerActiveTestRun(d.instanceId, d.testWorkflowId);
+      toast.info('AI Author started a test run', {
+        action: {
+          label: 'View',
+          onClick: () => openTestRunViewer(d.instanceId!, d.testWorkflowId!),
+        },
+      });
+    });
+    return unsub;
+  }, [on, effectiveId, registerActiveTestRun, openTestRunViewer]);
 
   // --- Canvas ref ---
   const canvasActionsRef = useRef<WorkflowCanvasHandle | null>(null);
@@ -475,31 +527,18 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   const selectedEdge = selectedEdgeId ? definition.edges.find((e) => e.id === selectedEdgeId) : null;
   const isSelectedEdgeCycle = selectedEdgeId ? backEdgeIds.has(selectedEdgeId) : false;
 
-  // Test run mode: show RuntimeViewer instead of the author canvas
-  if (isTestActive && testInstance) {
-    return (
-      <TestRunView
-        instanceId={testRunInstanceId!}
-        definition={definition}
-        instance={testInstance}
-        liveStatus={testRunLiveStatus}
-        onClose={handleTestRunClose}
-      />
-    );
-  }
-
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-      {/* Canvas + side panels */}
+      {/* Canvas + side panels — sidebar always mounted, canvas area swaps during test run */}
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* Icon rail */}
+        {/* Icon rail — always visible */}
         <IconSidebar
           activeTab={sidebarTab}
           onTabChange={setSidebarTab}
           badges={{ issues: issuesBadgeCount }}
         />
 
-        {/* Expandable left panel */}
+        {/* Expandable left panel — always mounted so AuthorChat stays alive during test runs */}
         {sidebarTab && (
           <SidebarPanel
             tab={sidebarTab}
@@ -517,80 +556,98 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
           />
         )}
 
-        {/* Workflow canvas */}
-        <div className="flex-1 overflow-hidden min-h-0 relative">
-          {/* Floating widget 1: workflow info — top-left of canvas */}
-          <WorkflowInfoBubble
-            name={definition.name}
-            description={definition.description || ''}
-            onNameChange={handleNameChange}
-            onDescriptionChange={handleDescriptionChange}
-            onBack={() => navigate({ to: '/' })}
-          />
-
-          {/* Floating widget 2: actions — top-right of canvas */}
-          <CanvasActions
-            isNew={isNew}
-            hasChanges={hasChanges}
-            onReset={() => setResetModalOpen(true)}
-            onDiscard={handleDiscardChanges}
-            onTestRun={handleTestRunClick}
-          />
-
-          <WorkflowCanvas
+        {/* Main area — swaps between workflow canvas and test run viewer */}
+        {isTestActive && testInstance ? (
+          /* Test run mode: RuntimeViewer fills the main area; right config panel is hidden */
+          <TestRunView
+            instanceId={testRunInstanceId!}
             definition={definition}
-            mode="author"
-            onDefinitionChange={handleDefinitionChange}
-            onStageClick={handleStageSelect}
-            onEdgeClick={handleEdgeSelect}
-            onUndo={undo}
-            onRedo={redo}
-            onSave={handleSave}
-            onShortcutsHelp={() => setShortcutsHelpOpen(true)}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            saveDisabled={isNew ? isNew_creating : (isSavePending || !hasChanges)}
-            saveLabel={isNew ? (isNew_creating ? 'Creating...' : 'Save') : (isSavePending ? 'Saving...' : 'Save')}
-            onCanvasReady={(actions) => { canvasActionsRef.current = actions; }}
+            instance={testInstance}
+            liveStatus={testRunLiveStatus}
+            onClose={handleTestRunClose}
           />
-        </div>
+        ) : (
+          /* Normal editor mode */
+          <>
+            {/* Workflow canvas */}
+            <div className="flex-1 overflow-hidden min-h-0 relative">
+              {/* Floating widget 1: workflow info — top-left of canvas */}
+              <WorkflowInfoBubble
+                name={definition.name}
+                description={definition.description || ''}
+                onNameChange={handleNameChange}
+                onDescriptionChange={handleDescriptionChange}
+                onBack={() => navigate({ to: '/' })}
+              />
 
-        {/* Config panel — stage or edge config depending on selection */}
-        {selectedStage && (
-          <ResizablePanel
-            side="right"
-            defaultWidth={384}
-            minWidth={280}
-            maxWidth={600}
-            className="border-l border-border min-h-0 overflow-hidden"
-          >
-            <ConfigPanel
-              stage={selectedStage}
-              definition={definition}
-              onSave={handleStageSave}
-              onDelete={handleStageDelete}
-              onClose={() => setSelectedStageId(null)}
-              onDefinitionChange={handleDefinitionChange}
-            />
-          </ResizablePanel>
-        )}
-        {selectedEdge && (
-          <ResizablePanel
-            side="right"
-            defaultWidth={384}
-            minWidth={280}
-            maxWidth={600}
-            className="border-l border-border min-h-0 overflow-hidden"
-          >
-            <EdgeConfigPanel
-              edge={selectedEdge}
-              definition={definition}
-              isCycleEdge={isSelectedEdgeCycle}
-              onSave={handleEdgeSave}
-              onDelete={handleEdgeDelete}
-              onClose={() => setSelectedEdgeId(null)}
-            />
-          </ResizablePanel>
+              {/* Floating widget 2: actions — top-right of canvas */}
+              <CanvasActions
+                isNew={isNew}
+                hasChanges={hasChanges}
+                onReset={() => setResetModalOpen(true)}
+                onDiscard={handleDiscardChanges}
+                onTestRun={handleTestRunClick}
+                hasActiveTestRun={hasRegisteredTestRun}
+                onViewActiveTestRun={viewActiveTestRun}
+                testStatus={testRunLiveStatus}
+              />
+
+              <WorkflowCanvas
+                definition={definition}
+                mode="author"
+                onDefinitionChange={handleDefinitionChange}
+                onStageClick={handleStageSelect}
+                onEdgeClick={handleEdgeSelect}
+                onUndo={undo}
+                onRedo={redo}
+                onSave={handleSave}
+                onShortcutsHelp={() => setShortcutsHelpOpen(true)}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                saveDisabled={isNew ? isNew_creating : (isSavePending || !hasChanges)}
+                saveLabel={isNew ? (isNew_creating ? 'Creating...' : 'Save') : (isSavePending ? 'Saving...' : 'Save')}
+                onCanvasReady={(actions) => { canvasActionsRef.current = actions; }}
+              />
+            </div>
+
+            {/* Config panel — stage or edge config depending on selection */}
+            {selectedStage && (
+              <ResizablePanel
+                side="right"
+                defaultWidth={384}
+                minWidth={280}
+                maxWidth={600}
+                className="border-l border-border min-h-0 overflow-hidden"
+              >
+                <ConfigPanel
+                  stage={selectedStage}
+                  definition={definition}
+                  onSave={handleStageSave}
+                  onDelete={handleStageDelete}
+                  onClose={() => setSelectedStageId(null)}
+                  onDefinitionChange={handleDefinitionChange}
+                />
+              </ResizablePanel>
+            )}
+            {selectedEdge && (
+              <ResizablePanel
+                side="right"
+                defaultWidth={384}
+                minWidth={280}
+                maxWidth={600}
+                className="border-l border-border min-h-0 overflow-hidden"
+              >
+                <EdgeConfigPanel
+                  edge={selectedEdge}
+                  definition={definition}
+                  isCycleEdge={isSelectedEdgeCycle}
+                  onSave={handleEdgeSave}
+                  onDelete={handleEdgeDelete}
+                  onClose={() => setSelectedEdgeId(null)}
+                />
+              </ResizablePanel>
+            )}
+          </>
         )}
       </div>
 

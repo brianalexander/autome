@@ -1,4 +1,5 @@
 import { createRootRoute, Outlet, Link, useNavigate } from '@tanstack/react-router';
+import { useTestRunCompletionToast } from '../hooks/useTestRunCompletionToast';
 import { Toaster, toast } from 'sonner';
 import { useTheme, type ThemeMode } from '../hooks/useTheme';
 import { Sun, Moon, Monitor, ChevronsUpDown, Bell } from 'lucide-react';
@@ -134,6 +135,9 @@ function RootLayout() {
   const { on } = useWebSocket();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  // Show toast notifications when test runs complete on other workflow pages
+  useTestRunCompletionToast();
 
   // Listen for gate_waiting events and show toast notifications
   useEffect(() => {

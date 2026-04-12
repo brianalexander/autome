@@ -5,8 +5,29 @@ import type { RouteDeps, SharedState } from './shared.js';
 import { validateCode } from '../validate-code.js';
 import { validateTemplate } from '../validate-template.js';
 import { errorMessage } from '../../utils/errors.js';
+import { broadcast } from '../websocket.js';
 import { registerRestateRoutes } from './internal-restate.js';
 import { registerAuthorRoutes } from './internal-author.js';
+
+// ---------------------------------------------------------------------------
+// Schema for POST /api/internal/ui-action
+// ---------------------------------------------------------------------------
+
+const UiActionBody = z.object({
+  workflowId: z.string().optional(),
+  action: z.enum(['show_test_run', 'navigate', 'highlight_element', 'toast']),
+  // show_test_run
+  instanceId: z.string().optional(),
+  testWorkflowId: z.string().optional(),
+  // navigate
+  to: z.string().optional(),
+  // highlight_element
+  elementId: z.string().optional(),
+  pulseMs: z.number().optional(),
+  // toast
+  level: z.enum(['info', 'warn', 'error']).optional(),
+  text: z.string().optional(),
+});
 
 const ValidateCodeBody = z.object({
   code: z.string(),
@@ -59,6 +80,24 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
       } catch (err) {
         console.error('[validate-template] Error:', err);
         return { diagnostics: [] };
+      }
+    },
+  );
+
+  // POST /api/internal/ui-action — Broadcast a UI action to connected frontend clients.
+  // The agent can use this to show the user something in the UI when explicitly asked.
+  typedApp.post(
+    '/api/internal/ui-action',
+    { schema: { body: UiActionBody } },
+    async (request, reply) => {
+      try {
+        const { workflowId, ...rest } = request.body;
+        const scope = workflowId ? { workflowId } : undefined;
+        broadcast('ui:action', { workflowId, ...rest }, scope);
+        return { ok: true };
+      } catch (err) {
+        console.error('[ui-action] Error:', err);
+        return reply.code(500).send({ error: errorMessage(err) });
       }
     },
   );

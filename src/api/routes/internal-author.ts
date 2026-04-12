@@ -1,17 +1,16 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { join } from 'path';
 import { broadcast } from '../websocket.js';
-import { config as appConfig } from '../../config.js';
 import { discoverAgents } from '../../agents/discovery.js';
 import type { RouteDeps, SharedState } from './shared.js';
 import { getDraft, saveDraft, registerDraftAlias, resolveDraftId } from './shared.js';
-import type { SessionConfig } from './agent-utils.js';
 import { wireAcpEvents, sendChatMessage } from './agent-utils.js';
+import { buildAuthorSessionConfig } from './author-session-config.js';
 import { errorMessage } from '../../utils/errors.js';
 import { nodeRegistry } from '../../nodes/registry.js';
 import type { WorkflowDefinition } from '../../schemas/pipeline.js';
+import { flushPendingAuthorMessages } from '../../author/message-injector.js';
 
 // Zod schemas
 
@@ -170,11 +169,19 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
     parts.push('</available_agents>');
 
     // Include OpenAPI spec on first message of the session
+    // Emit autonomous testing setting
+    const autoTestEnabled = !!(workflow as WorkflowDefinition)?.authoring?.auto_test;
+    parts.push(`Autonomous testing: ${autoTestEnabled ? 'enabled' : 'disabled'}`);
+
     if (!state.authorSpecSent.has(workflowId)) {
       const fullSpec = app.swagger();
       const draftSpec = {
         ...fullSpec,
-        paths: Object.fromEntries(Object.entries(fullSpec.paths || {}).filter(([p]) => p.startsWith('/api/draft/'))),
+        paths: Object.fromEntries(
+          Object.entries(fullSpec.paths || {}).filter(
+            ([p]) => p.startsWith('/api/draft/') && !p.includes('/test-run'),
+          ),
+        ),
       };
       parts.push('<openapi_spec>');
       parts.push(JSON.stringify(draftSpec, null, 2));
@@ -201,36 +208,8 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
     return parts.join('\n');
   }
 
-  function authorSessionConfig(workflowId: string): SessionConfig {
-    const orchestratorPort = appConfig.port;
-    return {
-      pool: state.authorPool,
-      instanceId: 'author',
-      stageId: workflowId,
-      iteration: 1,
-      agentId: 'workflow-author',
-      // Use project root as cwd so the SDK discovers .claude/agents/ for
-      // agent identity and sub-agent restrictions. Runtime agents use isolated
-      // workspaces (for imported bundles), but the author is part of the project.
-      workingDir: process.cwd(),
-      overrides: {
-        additional_mcp_servers: [
-          {
-            name: 'workflow_author',
-            command: 'node',
-            args: [join(process.cwd(), 'dist', 'mcp', 'workflow-author-server.js')],
-            env: {
-              ORCHESTRATOR_PORT: String(orchestratorPort),
-            },
-          },
-        ],
-      },
-      eventPrefix: 'author',
-      filterPayload: { workflowId },
-      scope: { workflowId },
-      cullKey: `author:${workflowId}`,
-    };
-  }
+  const authorSessionConfig = (workflowId: string) =>
+    buildAuthorSessionConfig(state.authorPool, workflowId);
 
   // POST /api/author/chat — Send a message to the author AI
   typedApp.post(
@@ -382,6 +361,24 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
       const { key } = request.params as { key: string };
       const session = db.getAcpSession(key);
       return { model: session?.model_name || null, status: session?.status || null };
+    },
+  );
+
+  // POST /api/author/pending-messages/:workflowId/flush — Flush pending author messages
+  typedApp.post(
+    '/api/author/pending-messages/:workflowId/flush',
+    {
+      schema: { params: z.object({ workflowId: z.string() }) },
+    },
+    async (request, reply) => {
+      try {
+        const { workflowId } = request.params;
+        const messages = flushPendingAuthorMessages({ db }, workflowId);
+        return { messages };
+      } catch (err) {
+        console.error('[author/pending-messages/flush] Error:', err);
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
     },
   );
 }

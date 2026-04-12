@@ -1,9 +1,11 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AcpChatPane } from '../chat/AcpChatPane';
 import { useSegments, useActiveProvider } from '../../hooks/queries';
 import { segmentsToMessages } from '../../lib/segmentsToMessages';
-import { authorChat } from '../../lib/api';
+import { authorChat, authorApi } from '../../lib/api';
+import type { PendingAuthorMessage } from '../../lib/api';
+import { useWebSocket } from '../../hooks/useWebSocket';
 
 interface AuthorChatProps {
   workflowId: string;
@@ -15,6 +17,7 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
   const [sessionState, setSessionState] = useState<'idle' | 'starting' | 'error'>('idle');
   const queryClient = useQueryClient();
   const { data: activeProvider } = useActiveProvider();
+  const { on } = useWebSocket();
 
   // Load persisted segments (author chat uses instance_id='author', stage_id=workflowId)
   const { data: segments } = useSegments('author', workflowId);
@@ -23,6 +26,44 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
     if (!segments?.length) return undefined;
     return segmentsToMessages(segments);
   }, [segments]);
+
+  // Ephemeral system messages: flushed pending messages + live WS system messages
+  const [ephemeralSystemMessages, setEphemeralSystemMessages] = useState<
+    Array<{ text: string; timestamp: string }>
+  >([]);
+
+  // Track whether we've flushed for this workflowId to avoid duplicate flushes
+  const flushedForRef = useRef<string | null>(null);
+
+  // Flush pending messages on mount / workflowId change
+  useEffect(() => {
+    if (flushedForRef.current === workflowId) return;
+    flushedForRef.current = workflowId;
+
+    authorApi.flushPendingMessages(workflowId).then(({ messages }) => {
+      if (messages.length > 0) {
+        setEphemeralSystemMessages((prev) => [
+          ...prev,
+          ...messages.map((m: PendingAuthorMessage) => ({ text: m.text, timestamp: m.created_at })),
+        ]);
+      }
+    }).catch((err) => {
+      console.warn('[AuthorChat] Failed to flush pending messages:', err);
+    });
+  }, [workflowId]);
+
+  // Subscribe to live author:system_message WS events for this workflow
+  useEffect(() => {
+    const unsub = on('author:system_message', (data: unknown) => {
+      const d = data as { workflowId?: string; text?: string; timestamp?: string };
+      if (d.workflowId !== workflowId || !d.text) return;
+      setEphemeralSystemMessages((prev) => [
+        ...prev,
+        { text: d.text!, timestamp: d.timestamp ?? new Date().toISOString() },
+      ]);
+    });
+    return unsub;
+  }, [on, workflowId]);
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -70,6 +111,8 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
     await authorChat.clearChat(workflowId);
     // Invalidate segments cache so UI reflects cleared state
     queryClient.invalidateQueries({ queryKey: ['segments', 'author', workflowId] });
+    // Clear ephemeral messages too
+    setEphemeralSystemMessages([]);
   }, [workflowId, queryClient]);
 
   return (
@@ -90,6 +133,7 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
       providerName={activeProvider?.displayName ?? undefined}
       sessionKey={`author:${workflowId}`}
       initialMessages={initialMessages}
+      ephemeralSystemMessages={ephemeralSystemMessages}
     />
   );
 }

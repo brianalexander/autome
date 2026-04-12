@@ -42,6 +42,31 @@ export interface UseTestRunResult {
   handleTestRunClose: () => void;
   /** The ID of the running test instance (or null). */
   testRunInstanceId: string | null;
+  /**
+   * Open the test run viewer for an already-running instance (e.g. launched by the AI Author).
+   * Does not start a new run — just switches the UI into test-run view mode.
+   */
+  openTestRunViewer: (instanceId: string, testWorkflowId: string) => void;
+  /**
+   * Register an AI-Author-initiated test run WITHOUT opening the viewer or pushing the URL hash.
+   * This makes the instance ID available so the Test Run button can show "View Test Run",
+   * but does not navigate the user.
+   */
+  registerActiveTestRun: (instanceId: string, testWorkflowId: string) => void;
+  /**
+   * Whether there is a registered test run (either user-initiated or AI-Author-initiated)
+   * that exists but the viewer is NOT currently open.
+   */
+  hasRegisteredTestRun: boolean;
+  /** The instance ID of the most recently registered test run (AI-Author path). */
+  registeredTestRunInstanceId: string | null;
+  /** The test workflow ID of the most recently registered test run (AI-Author path). */
+  registeredTestRunWorkflowId: string | null;
+  /**
+   * Open the test run viewer for the currently registered run (from registerActiveTestRun).
+   * Equivalent to calling openTestRunViewer with the registered IDs.
+   */
+  viewActiveTestRun: () => void;
 }
 
 export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseTestRunResult {
@@ -50,6 +75,9 @@ export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseT
   const [testRunStarting, setTestRunStarting] = useState(false);
   const [testRunValidation, setTestRunValidation] = useState<TestRunValidation | null>(null);
   const [testRunTriggerOpen, setTestRunTriggerOpen] = useState(false);
+  // AI-Author-initiated run: registered but viewer not yet open
+  const [registeredTestRunInstanceId, setRegisteredTestRunInstanceId] = useState<string | null>(null);
+  const [registeredTestRunWorkflowId, setRegisteredTestRunWorkflowId] = useState<string | null>(null);
 
   const deleteWorkflow = useDeleteWorkflow();
   const { data: nodeTypeList } = useNodeTypes();
@@ -116,6 +144,41 @@ export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseT
     setTestRunTriggerOpen(false);
   }, []);
 
+  /**
+   * Open the viewer for an already-running instance (e.g. launched by the AI Author via WS event).
+   * Mirrors the state mutations done by handleTriggerSubmit, minus the API call.
+   */
+  const openTestRunViewer = useCallback((instanceId: string, testWorkflowId: string) => {
+    setTestRunInstanceId(instanceId);
+    setTestRunWorkflowId(testWorkflowId);
+    setTestRunTriggerOpen(false);
+    // Clear registered state once viewer is actually opened
+    setRegisteredTestRunInstanceId(null);
+    setRegisteredTestRunWorkflowId(null);
+    window.history.pushState(null, '', window.location.pathname + TEST_RUN_HASH);
+  }, []);
+
+  /**
+   * Register an AI-Author-initiated test run without opening the viewer.
+   * Sets the instance ID so the Test Run button shows "View Test Run",
+   * but does NOT push the URL hash or switch into test-run view mode.
+   */
+  const registerActiveTestRun = useCallback((instanceId: string, testWorkflowId: string) => {
+    setRegisteredTestRunInstanceId(instanceId);
+    setRegisteredTestRunWorkflowId(testWorkflowId);
+  }, []);
+
+  /**
+   * Open the viewer for the currently registered AI-Author-initiated test run.
+   */
+  const viewActiveTestRun = useCallback(() => {
+    if (registeredTestRunInstanceId && registeredTestRunWorkflowId) {
+      openTestRunViewer(registeredTestRunInstanceId, registeredTestRunWorkflowId);
+    } else if (testRunInstanceId && testRunWorkflowId) {
+      // Already-open run — no-op (viewer should already be showing)
+    }
+  }, [registeredTestRunInstanceId, registeredTestRunWorkflowId, testRunInstanceId, testRunWorkflowId, openTestRunViewer]);
+
   const handleTestRunClose = useCallback(() => {
     if (testRunWorkflowId) {
       deleteWorkflow.mutate(testRunWorkflowId);
@@ -156,6 +219,10 @@ export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseT
   // Derive triggerSchema from definition for the TriggerDialog
   const isTestActive = !!(testRunInstanceId && testInstance);
 
+  // There is a registered (but not yet viewed) test run if we have a registered instance
+  // OR if the user-initiated run is active and the viewer is open (testRunInstanceId set)
+  const hasRegisteredTestRun = !!(registeredTestRunInstanceId);
+
   return {
     isTestActive,
     testInstance,
@@ -168,5 +235,11 @@ export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseT
     handleTriggerDialogClose,
     handleTestRunClose,
     testRunInstanceId,
+    openTestRunViewer,
+    registerActiveTestRun,
+    hasRegisteredTestRun,
+    registeredTestRunInstanceId,
+    registeredTestRunWorkflowId,
+    viewActiveTestRun,
   };
 }

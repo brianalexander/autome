@@ -296,3 +296,15 @@ export const settings = {
     }),
   delete: (key: string) => request<void>(`/settings/${key}`, { method: 'DELETE' }),
 };
+
+export interface PendingAuthorMessage {
+  id: number;
+  workflow_id: string;
+  text: string;
+  created_at: string;
+}
+
+export const authorApi = {
+  flushPendingMessages: (workflowId: string): Promise<{ messages: PendingAuthorMessage[] }> =>
+    request(`/author/pending-messages/${encodeURIComponent(workflowId)}/flush`, { method: 'POST' }),
+};
