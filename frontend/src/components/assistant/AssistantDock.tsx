@@ -1,14 +1,29 @@
+import { useState, useEffect } from 'react';
 import { MessageSquare, X } from 'lucide-react';
 import { AssistantChat } from './AssistantChat';
 import { ResizablePanel } from '../ui/ResizablePanel';
 
-interface AssistantDockProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
+export function AssistantDock() {
+  const [isOpen, setIsOpen] = useState(() =>
+    localStorage.getItem('assistant-dock-open') === 'true'
+  );
 
-export function AssistantDock({ isOpen, onClose }: AssistantDockProps) {
-  if (!isOpen) return null;
+  useEffect(() => {
+    localStorage.setItem('assistant-dock-open', String(isOpen));
+  }, [isOpen]);
+
+  if (!isOpen) {
+    return (
+      <button
+        onClick={() => setIsOpen(true)}
+        className="flex-shrink-0 self-stretch w-8 flex items-center justify-center border-r border-border bg-surface hover:bg-surface-secondary text-text-tertiary hover:text-text-primary transition-colors"
+        title="Open Assistant"
+        aria-label="Open Assistant"
+      >
+        <MessageSquare size={16} />
+      </button>
+    );
+  }
 
   return (
     <ResizablePanel
@@ -23,7 +38,7 @@ export function AssistantDock({ isOpen, onClose }: AssistantDockProps) {
         <MessageSquare size={14} className="text-text-tertiary flex-shrink-0" />
         <span className="text-sm font-medium text-text-primary flex-1">Assistant</span>
         <button
-          onClick={onClose}
+          onClick={() => setIsOpen(false)}
           className="text-text-tertiary hover:text-text-primary transition-colors p-1 rounded hover:bg-surface-secondary"
           title="Close Assistant"
           aria-label="Close Assistant"
