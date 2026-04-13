@@ -386,14 +386,14 @@ function errorText(status: number, body: unknown): string {
 const STALL_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 
 type StageContext = {
-  stageId: string;
   status: string;
-  started_at?: string | null;
+  runs?: Array<{ started_at?: string | null; status?: string }>;
 };
 
-function isSuspectedStalled(instance: { status: string; stageContexts?: StageContext[] }): boolean {
+function isSuspectedStalled(instance: { status: string; context?: { stages?: Record<string, StageContext> } }): boolean {
   if (instance.status !== 'running') return false;
-  const contexts: StageContext[] = instance.stageContexts ?? [];
+  const stages = instance.context?.stages ?? {};
+  const contexts = Object.values(stages);
   const runningStages = contexts.filter((s) => s.status === 'running');
   if (runningStages.length === 0) return false;
 
@@ -403,11 +403,13 @@ function isSuspectedStalled(instance: { status: string; stageContexts?: StageCon
   );
   if (hasWaiting) return false;
 
-  // Flag as stalled if every running stage has been running for >30 minutes
+  // Flag as stalled if every running stage has been running for >30 minutes.
+  // Use the started_at from the last run record, falling back to assuming stalled.
   const now = Date.now();
   return runningStages.every((s) => {
-    if (!s.started_at) return true; // no start time → assume stalled
-    return now - new Date(s.started_at).getTime() > STALL_THRESHOLD_MS;
+    const lastRun = s.runs && s.runs.length > 0 ? s.runs[s.runs.length - 1] : null;
+    if (!lastRun?.started_at) return true; // no start time → assume stalled
+    return now - new Date(lastRun.started_at).getTime() > STALL_THRESHOLD_MS;
   });
 }
 
@@ -460,7 +462,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         completed_at?: string | null;
         is_test?: boolean;
         failed_stage?: string | null;
-        stageContexts?: StageContext[];
+        context?: { stages?: Record<string, StageContext> };
       };
 
       const raw = result.body as { data?: InstanceRow[]; total?: number } | InstanceRow[];
@@ -648,17 +650,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         started_at?: string | null;
         completed_at?: string | null;
         status?: string;
+        error?: string | null;
       };
 
       type StageCtx = {
-        stageId: string;
         status?: string;
-        error?: string | null;
         runs?: RunRecord[];
       };
 
-      const instance = result.body as { stageContexts?: StageCtx[] };
-      const stageCtx = (instance.stageContexts ?? []).find((s) => s.stageId === stageId);
+      // The API returns context.stages as a Record<stageId, StageCtx>, not a stageContexts array.
+      const instance = result.body as { context?: { stages?: Record<string, StageCtx> } };
+      const stageCtx: StageCtx | undefined = instance.context?.stages?.[stageId];
 
       if (!stageCtx) {
         return {
@@ -676,7 +678,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: 'text',
             text: JSON.stringify(
               {
-                error: stageCtx.error ?? null,
+                // error lives on the last run record, not on the stage context itself
+                error: lastRun?.error ?? null,
                 stageStatus: stageCtx.status ?? null,
                 lastRun: lastRun
                   ? {

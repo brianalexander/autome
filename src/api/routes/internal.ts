@@ -26,7 +26,7 @@ const UiActionBody = z.object({
   elementId: z.string().optional(),
   pulseMs: z.number().optional(),
   // toast
-  level: z.enum(['info', 'warn', 'error']).optional(),
+  level: z.enum(['info', 'success', 'warn', 'error']).optional(),
   text: z.string().optional(),
 });
 
