@@ -212,6 +212,11 @@ export const instances = {
     request<{ cancelled: boolean }>(`/instances/${instanceId}/stages/${stageId}/cancel`, { method: 'POST' }),
   restartSession: (instanceId: string, stageId: string) =>
     request<{ ok: boolean }>(`/instances/${instanceId}/stages/${stageId}/restart-session`, { method: 'POST' }),
+  resume: (id: string, fromStageId?: string) =>
+    request<{ instanceId: string; resumeCount: number }>(`/instances/${id}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({ fromStageId }),
+    }),
   getDefinition: (instanceId: string) => request<WorkflowDefinition>(`/instances/${instanceId}/definition`),
 };
 

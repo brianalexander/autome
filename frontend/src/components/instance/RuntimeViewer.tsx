@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useApproveGate, useRejectGate, useCancelInstance } from '../../hooks/queries';
+import { useApproveGate, useRejectGate, useCancelInstance, useResumeInstance } from '../../hooks/queries';
 import { WorkflowCanvas } from '../canvas/WorkflowCanvas';
 import { AgentSessionViewer } from '../session/AgentSessionViewer';
 import { ResizablePanel } from '../ui/ResizablePanel';
@@ -67,6 +67,7 @@ export function RuntimeViewer({
   const approveGate = useApproveGate();
   const rejectGate = useRejectGate();
   const cancelInstance = useCancelInstance();
+  const resumeInstance = useResumeInstance();
 
   const [selectedStageId, setSelectedStageId] = useState<string | null>(initialStageId ?? null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -158,6 +159,15 @@ export function RuntimeViewer({
               className="px-2.5 py-1.5 text-xs rounded-lg border bg-[var(--color-surface)] border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 shadow-sm backdrop-blur-sm transition-colors disabled:opacity-50"
             >
               Stop
+            </button>
+          )}
+          {(effectiveStatus === 'failed' || effectiveStatus === 'cancelled') && (
+            <button
+              onClick={() => resumeInstance.mutate({ instanceId })}
+              disabled={resumeInstance.isPending}
+              className="px-2.5 py-1.5 text-xs rounded-lg border bg-[var(--color-surface)] border-green-300 dark:border-green-700/60 hover:bg-green-50 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400 shadow-sm backdrop-blur-sm transition-colors disabled:opacity-50"
+            >
+              {resumeInstance.isPending ? 'Resuming...' : 'Resume'}
             </button>
           )}
         </div>

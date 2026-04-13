@@ -254,6 +254,33 @@ export function useCancelStage() {
   });
 }
 
+export function useResumeInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ instanceId, fromStageId }: { instanceId: string; fromStageId?: string }) =>
+      instances.resume(instanceId, fromStageId),
+    onSuccess: (_, { instanceId }) => {
+      queryClient.invalidateQueries({ queryKey: ['instance', instanceId] });
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      toast.success('Instance resumed');
+    },
+    onError: (err: Error) => toast.error(`Failed to resume instance: ${err.message}`),
+  });
+}
+
+export function useRestartStageSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ instanceId, stageId }: { instanceId: string; stageId: string }) =>
+      instances.restartSession(instanceId, stageId),
+    onSuccess: (_, { instanceId }) => {
+      queryClient.invalidateQueries({ queryKey: ['instance', instanceId] });
+      toast.success('Session restarted');
+    },
+    onError: (err: Error) => toast.error(`Failed to restart session: ${err.message}`),
+  });
+}
+
 // Agent discovery queries
 export function useAgents() {
   return useQuery({

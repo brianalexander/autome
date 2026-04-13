@@ -5,10 +5,9 @@
  */
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Copy, Check } from 'lucide-react';
-import { useCancelStage, useAgent, useInjectMessage, useSegments, useStagePrompt } from '../../hooks/queries';
+import { useCancelStage, useAgent, useInjectMessage, useSegments, useStagePrompt, useRestartStageSession } from '../../hooks/queries';
 import { AcpChatPane } from '../chat/AcpChatPane';
 import { segmentsToMessages } from '../../lib/segmentsToMessages';
-import { instances } from '../../lib/api';
 import { formatDuration, formatElapsed } from '../../lib/format';
 import { StatusBadge } from '../ui/StatusBadge';
 import { SectionHeader } from '../ui/SectionHeader';
@@ -35,6 +34,7 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
   const [copied, setCopied] = useState(false);
   const cancelStage = useCancelStage();
   const injectMessage = useInjectMessage();
+  const restartStageSession = useRestartStageSession();
   const stageCfg = (stageDef?.config || {}) as Record<string, any>;
   const agentId = stageCfg.agentId || '';
   const { data: agentInfo } = useAgent(agentId);
@@ -80,8 +80,8 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
   }, [instanceId, stageId, cancelStage]);
 
   const handleRestartSession = useCallback(async () => {
-    await instances.restartSession(instanceId, stageId);
-  }, [instanceId, stageId]);
+    await restartStageSession.mutateAsync({ instanceId, stageId });
+  }, [instanceId, stageId, restartStageSession]);
 
   const handleCopyConfig = useCallback(() => {
     const data = { stageDef, agentSpec: agentInfo?.spec };
@@ -145,6 +145,18 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
               )}
             </div>
             <div className="flex items-center gap-2">
+              {isRunning && (
+                <button
+                  onClick={() => {
+                    if (!window.confirm('Restart the agent session? The current session will be terminated.')) return;
+                    restartStageSession.mutate({ instanceId, stageId });
+                  }}
+                  disabled={restartStageSession.isPending}
+                  className="px-2 py-0.5 text-[10px] rounded border border-amber-400/60 dark:border-amber-600/60 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors disabled:opacity-50"
+                >
+                  {restartStageSession.isPending ? 'Restarting...' : 'Restart Session'}
+                </button>
+              )}
               <button
                 onClick={handleCopyConfig}
                 className="text-text-tertiary hover:text-text-primary transition-colors p-1"
