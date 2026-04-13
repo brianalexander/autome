@@ -174,7 +174,7 @@ function SidebarPanel({
   onIssueStageClick, onIssueEdgeClick,
 }: SidebarPanelProps) {
   return (
-    <ResizablePanel side="left" defaultWidth={384} minWidth={280} maxWidth={600} className="absolute left-[48px] top-0 bottom-0 z-30 border-r border-border flex flex-col bg-surface min-h-0 overflow-hidden shadow-lg">
+    <ResizablePanel side="left" defaultWidth={384} minWidth={280} maxWidth={600} className="border-r border-border flex flex-col bg-surface min-h-0 overflow-hidden">
       <div className="flex flex-col h-full">
         <div className="flex-1 overflow-hidden min-h-0">
           {tab === 'author' && <AuthorChat workflowId={effectiveId} currentDefinition={definition} onWorkflowUpdated={onWorkflowUpdated} />}
@@ -545,7 +545,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-h-0">
       {/* Canvas + side panels — sidebar always mounted, canvas area swaps during test run */}
-      <div className="flex-1 flex overflow-hidden min-h-0 relative">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Icon rail — always visible */}
         <IconSidebar
           activeTab={sidebarTab}
@@ -553,8 +553,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
           badges={{ issues: issuesBadgeCount }}
         />
 
-        {/* Expandable left panel — overlays the canvas so it doesn't shift the viewport.
-            Positioned absolute relative to the flex container so the canvas keeps its full width. */}
+        {/* Expandable left panel — always mounted so AuthorChat stays alive during test runs */}
         {sidebarTab && (
           <SidebarPanel
             tab={sidebarTab}
