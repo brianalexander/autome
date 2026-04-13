@@ -164,11 +164,14 @@ interface SidebarPanelProps {
   onDefinitionChange: (definition: WorkflowDefinition) => void;
   onExport: (() => void) | undefined;
   healthIndicator: ReactNode | undefined;
+  onIssueStageClick?: (stageId: string) => void;
+  onIssueEdgeClick?: (edgeId: string) => void;
 }
 
 function SidebarPanel({
   tab, effectiveId, definition, isNew, versionHistory, restoringVersion,
   onWorkflowUpdated, onAddNode, onRestoreVersion, onDefinitionChange, onExport, healthIndicator,
+  onIssueStageClick, onIssueEdgeClick,
 }: SidebarPanelProps) {
   return (
     <ResizablePanel side="left" defaultWidth={384} minWidth={280} maxWidth={600} className="border-r border-border flex flex-col bg-surface min-h-0 overflow-hidden">
@@ -176,7 +179,7 @@ function SidebarPanel({
         <div className="flex-1 overflow-hidden min-h-0">
           {tab === 'author' && <AuthorChat workflowId={effectiveId} currentDefinition={definition} onWorkflowUpdated={onWorkflowUpdated} />}
           {tab === 'nodes' && <NodePalette onAddNode={onAddNode} />}
-          {tab === 'issues' && <ValidationPanel workflowId={effectiveId} />}
+          {tab === 'issues' && <ValidationPanel workflowId={effectiveId} onStageClick={onIssueStageClick} onEdgeClick={onIssueEdgeClick} />}
           {tab === 'versions' && (
             <VersionsPanel
               isNew={isNew}
@@ -565,6 +568,15 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
             onDefinitionChange={handleDefinitionChange}
             onExport={!isNew ? handleExport : undefined}
             healthIndicator={!isNew ? <WorkflowHealthIndicator workflowId={workflowId!} /> : undefined}
+            onIssueStageClick={(stageId) => {
+              setSelectedStageId(stageId);
+              setSelectedEdgeId(null);
+              canvasActionsRef.current?.highlightNode(stageId);
+            }}
+            onIssueEdgeClick={(edgeId) => {
+              setSelectedEdgeId(edgeId);
+              setSelectedStageId(null);
+            }}
           />
         )}
 

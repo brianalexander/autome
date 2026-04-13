@@ -3,7 +3,7 @@
  * for the current draft workflow.
  */
 import { useState } from 'react';
-import { CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronRight, ArrowRight } from 'lucide-react';
 import { useWorkflowValidation, useWorkflowHealth } from '../../hooks/queries';
 
 interface CodeDiagnostic {
@@ -24,6 +24,8 @@ interface WorkflowValidationResult {
 
 interface ValidationPanelProps {
   workflowId: string;
+  onStageClick?: (stageId: string) => void;
+  onEdgeClick?: (edgeId: string) => void;
 }
 
 function CollapsibleSection({
@@ -70,19 +72,22 @@ function IssueCard({
   message,
   severity,
   detail,
+  onClick,
 }: {
   message: string;
   severity: 'error' | 'warning';
   detail?: string;
+  onClick?: () => void;
 }) {
   const isError = severity === 'error';
   return (
     <div
-      className={`flex gap-2 items-start px-2.5 py-2 rounded-lg border ${
+      onClick={onClick}
+      className={`flex gap-2 items-start px-2.5 py-2 rounded-lg border transition-colors ${
         isError
           ? 'border-red-500/20 bg-red-500/5'
           : 'border-yellow-500/20 bg-yellow-500/5'
-      }`}
+      } ${onClick ? `cursor-pointer ${isError ? 'hover:bg-red-500/10' : 'hover:bg-yellow-500/10'}` : ''}`}
     >
       {isError ? (
         <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -97,11 +102,14 @@ function IssueCard({
           <div className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{detail}</div>
         )}
       </div>
+      {onClick && (
+        <ArrowRight className={`w-3 h-3 flex-shrink-0 mt-0.5 opacity-40 ${isError ? 'text-red-500' : 'text-yellow-500'}`} />
+      )}
     </div>
   );
 }
 
-export function ValidationPanel({ workflowId }: ValidationPanelProps) {
+export function ValidationPanel({ workflowId, onStageClick, onEdgeClick }: ValidationPanelProps) {
   const { data: validation, isLoading: validationLoading } = useWorkflowValidation(workflowId);
   const { data: health, isLoading: healthLoading } = useWorkflowHealth(workflowId);
 
@@ -205,10 +213,10 @@ export function ValidationPanel({ workflowId }: ValidationPanelProps) {
           <IssueCard key={`ge-${i}`} message={msg} severity="error" />
         ))}
         {stageErrors.map((item, i) => (
-          <IssueCard key={`se-${i}`} message={item.message} severity="error" detail={`Stage: ${item.stageId}${item.detail ? ` · ${item.detail}` : ''}`} />
+          <IssueCard key={`se-${i}`} message={item.message} severity="error" detail={`Stage: ${item.stageId}${item.detail ? ` · ${item.detail}` : ''}`} onClick={onStageClick ? () => onStageClick(item.stageId) : undefined} />
         ))}
         {edgeErrors.map((item, i) => (
-          <IssueCard key={`ee-${i}`} message={item.message} severity="error" detail={`Edge: ${item.edgeId}${item.detail ? ` · ${item.detail}` : ''}`} />
+          <IssueCard key={`ee-${i}`} message={item.message} severity="error" detail={`Edge: ${item.edgeId}${item.detail ? ` · ${item.detail}` : ''}`} onClick={onEdgeClick ? () => onEdgeClick(item.edgeId) : undefined} />
         ))}
         {healthErrors.map((w, i) => (
           <IssueCard key={`he-${i}`} message={w.message} severity="error" detail={w.agentId ? `Agent: ${w.agentId}` : undefined} />
@@ -221,10 +229,10 @@ export function ValidationPanel({ workflowId }: ValidationPanelProps) {
           <IssueCard key={`gw-${i}`} message={msg} severity="warning" />
         ))}
         {stageWarnings.map((item, i) => (
-          <IssueCard key={`sw-${i}`} message={item.message} severity="warning" detail={`Stage: ${item.stageId}${item.detail ? ` · ${item.detail}` : ''}`} />
+          <IssueCard key={`sw-${i}`} message={item.message} severity="warning" detail={`Stage: ${item.stageId}${item.detail ? ` · ${item.detail}` : ''}`} onClick={onStageClick ? () => onStageClick(item.stageId) : undefined} />
         ))}
         {edgeWarnings.map((item, i) => (
-          <IssueCard key={`ew-${i}`} message={item.message} severity="warning" detail={`Edge: ${item.edgeId}${item.detail ? ` · ${item.detail}` : ''}`} />
+          <IssueCard key={`ew-${i}`} message={item.message} severity="warning" detail={`Edge: ${item.edgeId}${item.detail ? ` · ${item.detail}` : ''}`} onClick={onEdgeClick ? () => onEdgeClick(item.edgeId) : undefined} />
         ))}
         {healthWarnings.map((w, i) => (
           <IssueCard key={`hw-${i}`} message={w.message} severity="warning" detail={w.agentId ? `Agent: ${w.agentId}` : undefined} />
