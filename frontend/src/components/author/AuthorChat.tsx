@@ -19,6 +19,9 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
   const { data: activeProvider } = useActiveProvider();
   const { on } = useWebSocket();
 
+  // Stable eventFilter ref — prevents WS subscription effect from re-running every render
+  const authorFilter = useMemo(() => ({ workflowId }), [workflowId]);
+
   // Load persisted segments (author chat uses instance_id='author', stage_id=workflowId)
   const { data: segments } = useSegments('author', workflowId);
 
@@ -118,7 +121,7 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
   return (
     <AcpChatPane
       eventPrefix="author"
-      eventFilter={{ workflowId }}
+      eventFilter={authorFilter}
       placeholder="Describe your workflow..."
       emptyMessage="Describe what workflow you want to build..."
       isActive

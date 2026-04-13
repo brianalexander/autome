@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AcpChatPane } from '../chat/AcpChatPane';
 import { useActiveProvider } from '../../hooks/queries';
@@ -8,6 +8,7 @@ import { assistantApi } from '../../lib/api';
 // The assistant uses a fixed global session
 const INSTANCE_ID = 'assistant';
 const STAGE_ID = 'global';
+const EMPTY_FILTER: Record<string, string> = {}; // Stable reference — prevents WS effect re-runs
 
 export function AssistantChat() {
   const queryClient = useQueryClient();
@@ -47,7 +48,7 @@ export function AssistantChat() {
   return (
     <AcpChatPane
       eventPrefix="assistant"
-      eventFilter={{}}  // No filter — single global session, all assistant:* events are ours
+      eventFilter={EMPTY_FILTER}  // Stable ref — no filter needed for single global session
       placeholder="Ask the assistant..."
       emptyMessage="Ask anything..."
       isActive
