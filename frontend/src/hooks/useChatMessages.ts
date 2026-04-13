@@ -75,15 +75,16 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   const turnFinalizedRef = useRef(false);
 
   // Re-seed if initialMessages changes after mount (e.g., react-query cache update).
-  // CRITICAL: skip re-seed while streaming — a background refetch returning stale DB
-  // data must not wipe the live messages + streaming text accumulated from WS events.
+  // CRITICAL: once the user has interacted (sent a message, received chunks, etc.),
+  // the live state is authoritative and must NEVER be overwritten by a DB fetch.
+  // The isStreaming guard alone isn't sufficient — the re-seed can fire in the same
+  // render cycle as finalizeTurn (isStreaming already false), wiping just-flushed text.
   const prevInitialRef = useRef(initialMessages);
-  const isStreamingRef = useRef(false);
-  isStreamingRef.current = isStreaming;
+  const hasLocalActivityRef = useRef(false);
   useEffect(() => {
     if (prevInitialRef.current === initialMessages) return;
     prevInitialRef.current = initialMessages;
-    if (isStreamingRef.current) return; // Don't wipe live state during active stream
+    if (hasLocalActivityRef.current) return; // Live state is authoritative — don't overwrite
     if (restoredMessages.length > 0) {
       setMessages(restoredMessages);
       setLiveToolCalls(restoredToolCalls);
@@ -169,6 +170,7 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
 
   // Add a user message and mark streaming as started.
   const addUserMessage = useCallback((text: string) => {
+    hasLocalActivityRef.current = true; // Live state is now authoritative
     setMessages((prev) => [
       ...prev,
       {
@@ -228,6 +230,7 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
 
   // Clear all messages (used for "clear chat" action).
   const clearMessages = useCallback(() => {
+    hasLocalActivityRef.current = false; // Allow re-seed after clear
     setMessages([]);
   }, []);
 
