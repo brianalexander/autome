@@ -391,7 +391,11 @@ function CanvasActions({
         n.id === stageId ? { ...n, data: { ...n.data, highlighted: true } } : n,
       ),
     );
-    panToNode(stageId);
+    // Delay pan so sidebar/config panels have time to mount and resize the
+    // viewport — otherwise the center is computed from the pre-panel width.
+    requestAnimationFrame(() => {
+      setTimeout(() => panToNode(stageId), 50);
+    });
     setTimeout(() => {
       setNodes((nds) =>
         nds.map((n) =>
