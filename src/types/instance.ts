@@ -48,8 +48,7 @@ export const StageContextSchema = z.object({
 export type StageContext = z.infer<typeof StageContextSchema>;
 
 // ---------------------------------------------------------------------------
-// WorkflowContext (consolidated — was duplicated in nodes/types.ts and restate/pipeline-workflow.ts)
-// Note: restate/pipeline-workflow.ts is the Restate service file (filename intentional)
+// WorkflowContext
 // ---------------------------------------------------------------------------
 
 export const WorkflowContextSchema = z.object({

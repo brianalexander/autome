@@ -794,7 +794,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         instanceId?: string;
         resumeCount?: number;
         fromStageIds?: string[];
-        restateWorkflowId?: string;
       };
 
       return {
@@ -806,7 +805,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 instanceId: data.instanceId ?? instanceId,
                 resumeCount: data.resumeCount ?? null,
                 fromStageIds: data.fromStageIds ?? null,
-                restateWorkflowId: data.restateWorkflowId ?? null,
               },
               null,
               2,

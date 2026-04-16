@@ -15,8 +15,7 @@ export interface PipelineStartOptions {
 
 /**
  * Main pipeline execution entry point.
- * Mirrors the `run` handler from src/restate/pipeline-workflow.ts but
- * uses ExecutionContext instead of restate.WorkflowContext.
+ * Executes the workflow graph using the in-process WorkflowRunner (ExecutionContext).
  */
 export async function runPipeline(
   execCtx: ExecutionContext,

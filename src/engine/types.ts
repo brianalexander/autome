@@ -1,5 +1,5 @@
 /**
- * ExecutionContext — the durable execution primitive that replaces restate.WorkflowContext.
+ * ExecutionContext — the in-process execution primitive for workflow stages.
  *
  * Provided by the WorkflowRunner to every stage executor. State mutations are
  * synced to the DB synchronously. Durable waits (gates, agent callbacks) use

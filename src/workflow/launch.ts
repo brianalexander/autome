@@ -29,11 +29,6 @@ export interface LaunchResult {
   runnerError?: string;
   /** Set when the trigger payload failed schema validation */
   validationError?: string;
-  /**
-   * @deprecated Use runnerError. Kept for backward compatibility with callers
-   * that check restateError.
-   */
-  restateError?: string;
 }
 
 /**
@@ -176,17 +171,12 @@ export async function launchWorkflow(
     { workflowId: definitionId },
   );
 
-  return { instance, runnerError, restateError: runnerError };
+  return { instance, runnerError };
 }
 
 export interface ResumeResult {
   resumeCount: number;
   runnerError?: string;
-  /**
-   * @deprecated Use runnerError. Kept for backward compatibility.
-   */
-  restateError?: string;
-  restateWorkflowId?: string;
 }
 
 /**
@@ -283,7 +273,7 @@ export async function launchWorkflowWithResume(
   }
 
   if (runnerError) {
-    return { runnerError, restateError: runnerError, resumeCount };
+    return { runnerError, resumeCount };
   }
 
   // Update the DB instance to reflect the new run
