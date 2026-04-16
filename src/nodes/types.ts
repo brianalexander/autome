@@ -4,7 +4,7 @@
  * Every node type (agent, gate, code-executor, cron-trigger, etc.) implements
  * NodeTypeSpec. The registry maps stage.type → spec at runtime.
  */
-import type * as restate from '@restatedev/restate-sdk';
+import type { ExecutionContext } from '../engine/types.js';
 import type { WorkflowDefinition, EdgeDefinition } from '../types/workflow.js';
 import type { WorkflowContext, NodeTypeInfo } from '../types/instance.js';
 
@@ -49,8 +49,8 @@ export interface NodeColor {
 // ---------------------------------------------------------------------------
 
 export interface StepExecutorContext {
-  /** Restate workflow context for durable operations (ctx.run, ctx.promise) */
-  ctx: restate.WorkflowContext;
+  /** Execution context for durable operations (ctx.waitFor, ctx.sleep) */
+  ctx: ExecutionContext;
   /** Stage ID within the workflow */
   stageId: string;
   /** Node-specific config from the stage definition */
@@ -70,8 +70,7 @@ export interface StepExecutorContext {
 export interface StepExecutor {
   type: 'step';
   /**
-   * Execute the node's logic. Must wrap side effects in ctx.run() for Restate
-   * deterministic replay. Returns the node's output, which flows to downstream edges.
+   * Execute the node's logic. Returns the node's output, which flows to downstream edges.
    */
   execute(execCtx: StepExecutorContext): Promise<{ output: unknown; logs?: string; stderr?: string }>;
 }

@@ -5,6 +5,7 @@ import type { AgentPool } from '../../acp/pool.js';
 import { broadcast } from '../websocket.js';
 import type { WorkflowDefinition } from '../../types/workflow.js';
 import type { AutomePlugin } from '../../plugin/types.js';
+import type { WorkflowRunner } from '../../engine/runner.js';
 
 // ---------------------------------------------------------------------------
 // Route dependency injection
@@ -14,6 +15,7 @@ export interface RouteDeps {
   db: OrchestratorDB;
   eventBus: EventBus;
   manualTrigger: ManualTriggerProvider;
+  runner: WorkflowRunner;
   authorPool?: AgentPool;
   acpPool?: AgentPool;
   assistantPool?: AgentPool;
@@ -26,6 +28,7 @@ export interface RouteDeps {
 // ---------------------------------------------------------------------------
 
 export interface SharedState {
+  runner: WorkflowRunner;
   authorPool: AgentPool;
   acpPool: AgentPool;
   assistantPool: AgentPool;

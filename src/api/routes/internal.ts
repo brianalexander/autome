@@ -6,7 +6,7 @@ import { validateCode } from '../validate-code.js';
 import { validateTemplate } from '../validate-template.js';
 import { errorMessage } from '../../utils/errors.js';
 import { broadcast } from '../websocket.js';
-import { registerRestateRoutes } from './internal-restate.js';
+import { registerSignalRoutes } from './internal-signals.js';
 import { registerAuthorRoutes } from './internal-author.js';
 import { registerAssistantRoutes } from './internal-assistant.js';
 
@@ -46,8 +46,8 @@ const ValidateTemplateBody = z.object({
 export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, state: SharedState): void {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
-  // Register Restate-facing callbacks (spawn-agent, kill-agent, workflow-signal, etc.)
-  registerRestateRoutes(app, deps, state);
+  // Register agent signal callbacks (spawn-agent, kill-agent, workflow-signal, etc.)
+  registerSignalRoutes(app, deps, state);
 
   // Register AI author session management (author chat, drafts, segments, etc.)
   registerAuthorRoutes(app, deps, state);

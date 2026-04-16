@@ -1,12 +1,15 @@
 /**
  * Crash recovery — runs on server startup before accepting connections.
  * Cleans up stale state from previous crashes/restarts.
+ *
+ * Note: workflow execution recovery (re-queuing non-terminal instances) is
+ * handled by WorkflowRunner.resumeAllFromDB(), called after this function.
+ * This module only deals with OS-level cleanup (orphan processes, lock files).
  */
 
 import { execSync } from 'child_process';
 import type { OrchestratorDB } from './db/database.js';
 import type { AcpProvider } from './acp/provider/types.js';
-import { cancelWorkflow } from './restate/client.js';
 
 /**
  * Kill a process and its entire subtree.
@@ -34,7 +37,7 @@ function killOrphanTree(pid: number): void {
 export async function runCrashRecovery(db: OrchestratorDB, provider: AcpProvider): Promise<void> {
   console.log('[recovery] Running crash recovery...');
 
-  // 1. Kill any orphaned processes from the previous run, then clear PIDs
+  // 1. Kill any orphaned ACP processes from the previous run, then clear PIDs
   const stalePids = db.getActiveSessionPids();
   if (stalePids.length > 0) {
     console.log(`[recovery] Killing ${stalePids.length} orphaned process(es): ${stalePids.join(', ')}`);
@@ -44,31 +47,7 @@ export async function runCrashRecovery(db: OrchestratorDB, provider: AcpProvider
   }
   db.clearAcpSessionPids();
 
-  // 2. Mark any in-progress instances as failed, with best-effort Restate cancellation
-  try {
-    let totalMarked = 0;
-    for (const status of ['running', 'waiting_gate', 'waiting_input']) {
-      const { data } = db.listInstances({ status, includeTest: true });
-      for (const inst of data) {
-        // Best-effort: cancel the Restate workflow before marking failed in DB.
-        // Restate may not be running during recovery, so we swallow errors here.
-        try {
-          await cancelWorkflow(inst.id);
-        } catch {
-          // Restate unavailable or workflow already gone — safe to ignore
-        }
-        db.updateInstance(inst.id, { status: 'failed' });
-      }
-      totalMarked += data.length;
-    }
-    if (totalMarked > 0) {
-      console.log(`[recovery] Marked ${totalMarked} in-progress instance(s) as failed`);
-    }
-  } catch (err) {
-    console.error('[recovery] Error marking instances:', err);
-  }
-
-  // 3. Delete orphaned test workflows (created by test-run, not cleaned up)
+  // 2. Delete orphaned test workflows (created by test-run, not cleaned up)
   try {
     const deleted = db.deleteTestWorkflows();
     if (deleted > 0) {
@@ -78,7 +57,7 @@ export async function runCrashRecovery(db: OrchestratorDB, provider: AcpProvider
     console.error('[recovery] Error cleaning test workflows:', err);
   }
 
-  // 4. Clean stale session lock files (provider-specific)
+  // 3. Clean stale session lock files (provider-specific)
   try {
     if (provider.cleanupSessionLocks) {
       await provider.cleanupSessionLocks();

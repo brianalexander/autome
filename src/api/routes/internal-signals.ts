@@ -2,12 +2,10 @@ import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { broadcast } from '../websocket.js';
-import * as restateClient from '../../restate/client.js';
 import type { RouteDeps, SharedState } from './shared.js';
 import { wireAcpEvents } from './agent-utils.js';
 import { errorMessage } from '../../utils/errors.js';
 import { config as appConfig } from '../../config.js';
-import type { WorkflowInstance } from '../../types/instance.js';
 import { createProvider } from '../../acp/provider/registry.js';
 import { notifyWorkflowFinished } from '../../workflow/test-run-listener.js';
 
@@ -43,20 +41,6 @@ const WorkflowSignalBody = z.object({
   prompt: z.string().optional(),
 });
 
-const ContextSyncBody = z.object({
-  instanceId: z.string(),
-  context: z.unknown(),
-  status: z.string().optional(),
-  currentStageIds: z.array(z.string()).optional(),
-});
-
-const WorkflowFinishedBody = z.object({
-  instanceId: z.string(),
-  status: z.string(),
-  context: z.unknown().optional(),
-  error: z.string().optional(),
-});
-
 const WorkflowStatusBody = z.object({
   instanceId: z.string(),
   stageId: z.string(),
@@ -77,7 +61,7 @@ function clearStageTimeout(stageTimeouts: Map<string, ReturnType<typeof setTimeo
   }
 }
 
-export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, state: SharedState): void {
+export function registerSignalRoutes(app: FastifyInstance, deps: RouteDeps, state: SharedState): void {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
   const { db } = deps;
 
@@ -96,15 +80,25 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
           case 'completed':
             // Cancel any pending timeout — stage completed normally
             clearStageTimeout(state.stageTimeouts, key);
-            await restateClient.signalStageComplete(instanceId, stageId, output);
+            // Resolve the runner's wait for this stage
+            state.runner.resolveWait(instanceId, `stage-complete-${stageId}`, output);
             broadcast('instance:stage_completed', { instanceId, stageId, output }, { instanceId });
             state.signalledStages.add(key);
+            // Also notify workflow-finished listeners for terminal signal
+            try {
+              // Check if this was the final stage completing the workflow
+              const instance = db.getInstance(instanceId);
+              if (instance?.status === 'completed') {
+                notifyWorkflowFinished(instanceId, 'completed');
+              }
+            } catch { /* non-fatal */ }
             return { ok: true, message: 'Stage completed successfully. Output has been recorded.' };
 
           case 'failed':
             // Cancel any pending timeout — stage already failed
             clearStageTimeout(state.stageTimeouts, key);
-            await restateClient.signalStageFailed(instanceId, stageId, errorMsg || 'Agent signalled failure');
+            // Reject the runner's wait for this stage
+            state.runner.rejectWait(instanceId, `stage-complete-${stageId}`, errorMsg || 'Agent signalled failure');
             broadcast('instance:stage_failed', { instanceId, stageId, error: errorMsg }, { instanceId });
             state.signalledStages.add(key);
             return { ok: true, message: 'Stage marked as failed.' };
@@ -166,15 +160,11 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
             console.log(`[gate-timeout] Timeout fired for ${key} — applying action: ${action}`);
             try {
               if (action === 'approve') {
-                await restateClient.approveGate(instanceId, stageId);
+                state.runner.resolveWait(instanceId, `gate-${stageId}`, undefined);
                 db.updateInstance(instanceId, { status: 'running' });
                 broadcast('instance:gate_approved', { instanceId, stageId, reason: 'timeout' }, { instanceId });
               } else {
-                await restateClient.rejectGate(
-                  instanceId,
-                  stageId,
-                  `Gate timed out after ${timeout_minutes} minute(s)`,
-                );
+                state.runner.rejectWait(instanceId, `gate-${stageId}`, `Gate timed out after ${timeout_minutes} minute(s)`);
                 db.updateInstance(instanceId, { status: 'running' });
                 broadcast(
                   'instance:gate_rejected',
@@ -198,86 +188,8 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
     },
   );
 
-  // POST /api/internal/workflow-context-sync
-  typedApp.post(
-    '/api/internal/workflow-context-sync',
-    {
-      schema: { body: ContextSyncBody },
-    },
-    async (request, reply) => {
-      try {
-        const { instanceId, context, status, currentStageIds } = request.body;
-
-        // Guard: if the instance was deleted (e.g. workflow deletion raced with a
-        // Restate callback), silently ignore rather than erroring — the workflow
-        // is already gone and there's nothing meaningful to update.
-        const existing = deps.db.getInstance(instanceId);
-        if (!existing) {
-          return reply.status(200).send({ ignored: true, reason: 'instance_deleted' });
-        }
-
-        deps.db.updateInstance(instanceId, {
-          context: context as WorkflowInstance['context'],
-          ...(status ? { status: status as WorkflowInstance['status'] } : {}),
-          ...(currentStageIds ? { current_stage_ids: currentStageIds } : {}),
-        });
-        broadcast('instance:updated', { instanceId }, { instanceId });
-        return { ok: true };
-      } catch (err) {
-        console.error('[workflow-context-sync] Error:', err);
-        return reply.code(500).send({ error: errorMessage(err) });
-      }
-    },
-  );
-
-  // POST /api/internal/workflow-finished
-  typedApp.post(
-    '/api/internal/workflow-finished',
-    {
-      schema: { body: WorkflowFinishedBody },
-    },
-    async (request, reply) => {
-      try {
-        const { instanceId, status, context, error: errorMsg } = request.body;
-        console.log(`[workflow-finished] Instance ${instanceId} -> ${status}${errorMsg ? ` error: ${errorMsg}` : ''}`);
-
-        // Guard: instance may have been deleted by a concurrent workflow deletion.
-        const existing = deps.db.getInstance(instanceId);
-        if (!existing) {
-          return reply.status(200).send({ ignored: true, reason: 'instance_deleted' });
-        }
-
-        deps.db.updateInstance(instanceId, {
-          status: status as WorkflowInstance['status'],
-          context: context as WorkflowInstance['context'],
-          ...(status === 'completed' || status === 'failed' ? { completed_at: new Date().toISOString() } : {}),
-        });
-
-        // Clean up signalledStages for this instance to prevent unbounded growth
-        for (const key of state.signalledStages) {
-          if (key.startsWith(`${instanceId}:`)) {
-            state.signalledStages.delete(key);
-          }
-        }
-
-        broadcast('instance:updated', { instanceId, status }, { instanceId });
-
-        // Notify test-run listener (non-blocking — errors must not fail the callback)
-        try {
-          notifyWorkflowFinished(instanceId, status);
-        } catch (err) {
-          console.error('[workflow-finished] notifyWorkflowFinished error (non-fatal):', err);
-        }
-
-        return { ok: true };
-      } catch (err) {
-        console.error('[workflow-finished] Error:', err);
-        return reply.code(500).send({ error: errorMessage(err) });
-      }
-    },
-  );
-
   // GET /api/internal/workflow-context/:instanceId/:stageId
+  // Direct DB read.
   typedApp.get(
     '/api/internal/workflow-context/:instanceId/:stageId',
     {
@@ -286,9 +198,12 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
     async (request, reply) => {
       try {
         const { instanceId, stageId } = request.params;
-        const status = await restateClient.getWorkflowStatus(instanceId);
-        const context = status.context;
-        if (!(stageId in context.stages)) {
+        const instance = db.getInstance(instanceId);
+        if (!instance) {
+          return reply.code(404).send({ error: `Instance "${instanceId}" not found` });
+        }
+        const context = instance.context;
+        if (!context || !(stageId in context.stages)) {
           return reply.code(404).send({ error: `Stage "${stageId}" not found in workflow context` });
         }
         return { trigger: context.trigger, stages: context.stages };
@@ -319,8 +234,7 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
           timeout_minutes,
         } = request.body;
 
-        // Guard: if the instance was deleted (workflow deletion raced with Restate
-        // scheduling this spawn), bail out cleanly instead of starting an orphan.
+        // Guard: if the instance was deleted, bail out cleanly
         const instanceExists = deps.db.getInstance(instanceId);
         if (!instanceExists) {
           console.warn(`[spawn-agent] Instance ${instanceId} not found — skipping spawn (likely deleted)`);
@@ -399,8 +313,6 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
         });
 
         // Persist ACP session to DB *before* sending the initial prompt.
-        // If the process crashes between spawn and prompt, we can still find
-        // and clean up the session — avoiding an orphaned agent process.
         const sessionKey = stageKey;
         const sid = state.acpPool.getSessionId(instanceId, stageId);
         if (sid) db.upsertAcpSession(sessionKey, sid, client.pid);
@@ -427,12 +339,12 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
             // Kill the ACP process
             await state.acpPool.terminate(instanceId, stageId).catch(() => {});
 
-            // Signal the Restate workflow that the stage failed
-            await restateClient
-              .signalStageFailed(instanceId, stageId, `Agent stage timed out after ${timeout_minutes} minute(s)`)
-              .catch((err: unknown) => {
-                console.error(`[agent-timeout] Failed to signal stage failure for ${stageKey}:`, errorMessage(err));
-              });
+            // Reject the runner's wait for this stage
+            state.runner.rejectWait(
+              instanceId,
+              `stage-complete-${stageId}`,
+              `Agent stage timed out after ${timeout_minutes} minute(s)`,
+            );
 
             broadcast(
               'instance:stage_failed',
@@ -471,8 +383,7 @@ export function registerRestateRoutes(app: FastifyInstance, deps: RouteDeps, sta
         const stageKey = `${instanceId}:${stageId}`;
         // Cancel any pending timeout for this stage
         clearStageTimeout(state.stageTimeouts, stageKey);
-        // Terminate regardless of whether the instance still exists — if the pool
-        // has an entry for this key we want to clean it up either way.
+        // Terminate regardless of whether the instance still exists
         await state.acpPool.terminate(instanceId, stageId);
         // Clean up tracking state
         state.signalledStages.delete(stageKey);

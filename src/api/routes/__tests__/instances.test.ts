@@ -56,7 +56,7 @@ describe('Instance routes', () => {
     const wf1Id = wf1Res.json().id;
     const wf2Id = wf2Res.json().id;
 
-    // Create instances directly via DB to avoid Restate dependency
+    // Create instances directly via DB
     db.createInstance({
       definition_id: wf1Id,
       definition_version: 1,

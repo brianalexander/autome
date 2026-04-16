@@ -54,7 +54,6 @@ export const instances = sqliteTable(
     trigger_event: text('trigger_event').notNull(),
     context: text('context').notNull(),
     current_stage_ids: text('current_stage_ids'),
-    restate_workflow_id: text('restate_workflow_id'),
     is_test: integer('is_test').notNull().default(0),
     initiated_by: text('initiated_by').notNull().default('user'),
     resume_count: integer('resume_count').notNull().default(0),

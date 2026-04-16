@@ -1,6 +1,6 @@
 /**
  * Node Type Registry — singleton that maps node type IDs to their specs.
- * Initialized at startup by both the main server and the Restate service process.
+ * Initialized once at startup by the server.
  */
 import { z } from 'zod';
 import type { NodeTypeSpec, NodeTypeInfo } from './types.js';
@@ -56,7 +56,7 @@ export const nodeRegistry = new NodeTypeRegistry();
 
 /**
  * Initialize the registry with all built-in node types.
- * Called at startup in both the main server and Restate service.
+ * Called once at server startup.
  */
 export async function initializeRegistry(): Promise<void> {
   const { allBuiltinSpecs } = await import('./builtin/index.js');

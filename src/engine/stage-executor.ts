@@ -1,9 +1,10 @@
-import * as restate from '@restatedev/restate-sdk';
 import type { WorkflowDefinition, StageDefinition } from '../types/workflow.js';
 import type { WorkflowContext } from '../types/instance.js';
 import { nodeRegistry } from '../nodes/registry.js';
-import type { StepExecutorContext, NodeTypeSpec, StageInput } from '../nodes/types.js';
+import type { NodeTypeSpec, StageInput } from '../nodes/types.js';
 import { config as appConfig } from '../config.js';
+import type { ExecutionContext } from './types.js';
+import { TerminalError, isTerminalError } from './types.js';
 import {
   evaluateEdges,
   recordFanInCompletion,
@@ -17,7 +18,7 @@ import { resolveTemplateValue } from '../engine/context-resolver.js';
 // ---------------------------------------------------------------------------
 
 export async function executeWithRetry(
-  ctx: restate.WorkflowContext,
+  execCtx: ExecutionContext,
   stageId: string,
   stage: StageDefinition,
   spec: NodeTypeSpec,
@@ -37,8 +38,8 @@ export async function executeWithRetry(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const execCtx: StepExecutorContext = {
-        ctx,
+      const result = await (spec.executor as import('../nodes/types.js').StepExecutor).execute({
+        ctx: execCtx,
         stageId,
         config,
         definition,
@@ -46,23 +47,22 @@ export async function executeWithRetry(
         input,
         orchestratorUrl,
         iteration,
-      };
-      const result = await (spec.executor as import('../nodes/types.js').StepExecutor).execute(execCtx);
-      return result;
+      });
+      return result as { output: unknown };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
 
       if (attempt < maxAttempts) {
         const delay = baseDelay * Math.pow(backoff, attempt - 1);
         console.warn(
-          `[workflow] Stage "${stageId}" attempt ${attempt}/${maxAttempts} failed: ${lastError.message}. Retrying in ${delay}ms...`,
+          `[engine] Stage "${stageId}" attempt ${attempt}/${maxAttempts} failed: ${lastError.message}. Retrying in ${delay}ms...`,
         );
-        await ctx.sleep(delay);
+        await execCtx.sleep(delay);
       }
     }
   }
 
-  throw new restate.TerminalError(lastError!.message);
+  throw new TerminalError(lastError!.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -70,25 +70,17 @@ export async function executeWithRetry(
 // ---------------------------------------------------------------------------
 
 export async function syncContextToDb(
-  ctx: restate.WorkflowContext,
-  label: string,
-  orchestratorUrl: string,
-  instanceId: string,
+  execCtx: ExecutionContext,
+  _label: string,
   context: WorkflowContext,
   extra?: Record<string, unknown>,
 ): Promise<void> {
-  await ctx.run(label, async () => {
-    const res = await fetch(`${orchestratorUrl}/api/internal/workflow-context-sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instanceId, context, ...extra }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Context sync failed (${res.status}): ${body}`);
-    }
-    return { synced: true };
-  });
+  // In the engine, setContext already syncs to DB synchronously.
+  // This function exists to match the signature surface of the Restate version.
+  execCtx.setContext(context);
+  if (extra?.currentStageIds) {
+    execCtx.setCurrentStageIds(extra.currentStageIds as string[]);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +93,7 @@ export async function syncContextToDb(
  * For fan-in nodes, records the skip and checks trigger_rule.
  */
 export async function propagateSkip(
-  ctx: restate.WorkflowContext,
+  execCtx: ExecutionContext,
   sourceStageId: string,
   definition: WorkflowDefinition,
   context: WorkflowContext,
@@ -120,35 +112,30 @@ export async function propagateSkip(
       // Fan-in node — record this skip and check trigger_rule
       const merged = recordFanInCompletion(targetId, sourceStageId, undefined, 'skipped', context, definition);
       if (merged === 'failed') {
-        // trigger_rule is all_success and an upstream failed — fail the fan-in target
-        throw new restate.TerminalError(
+        throw new TerminalError(
           `Stage "${targetId}" fan-in failed: upstream stage "${sourceStageId}" failed and trigger_rule is all_success`,
         );
       }
       if (merged) {
-        // Trigger rule satisfied despite skip — execute the stage with merged inputs
         const spec = targetStage ? nodeRegistry.get(targetStage.type) : null;
         if (targetStage && spec && spec.executor.type === 'step') {
-          await executeStepWithLifecycle(ctx, targetId, targetStage, definition, context, spec, {
+          await executeStepWithLifecycle(execCtx, targetId, targetStage, definition, context, spec, {
             mergedInputs: merged,
           });
         }
       }
-      // If not ready yet, other upstream completions will trigger it later
       continue;
     }
 
     // Single incoming edge (or queue mode) — propagate skip
     if (context.stages[targetId]?.status === 'pending') {
       context.stages[targetId].status = 'skipped';
-      ctx.set('context', context);
-      // Recursively propagate
-      await propagateSkip(ctx, targetId, definition, context);
+      execCtx.setContext(context);
+      await propagateSkip(execCtx, targetId, definition, context);
     }
   }
 
-  const orchestratorUrl = appConfig.orchestratorUrl;
-  await syncContextToDb(ctx, `sync-skip-${sourceStageId}`, orchestratorUrl, ctx.key, context);
+  await syncContextToDb(execCtx, `sync-skip-${sourceStageId}`, context);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +143,7 @@ export async function propagateSkip(
 // ---------------------------------------------------------------------------
 
 export async function executeStages(
-  ctx: restate.WorkflowContext,
+  execCtx: ExecutionContext,
   stageIds: string[],
   definition: WorkflowDefinition,
   context: WorkflowContext,
@@ -164,16 +151,16 @@ export async function executeStages(
 ): Promise<void> {
   if (stageIds.length === 0) return;
 
-  ctx.set('currentStageIds', stageIds);
+  execCtx.setCurrentStageIds(stageIds);
 
   // Execute stages in parallel — critical for fan-out patterns
   await Promise.all(
-    stageIds.map((stageId) => executeSingleStage(ctx, stageId, definition, context, inputs?.get(stageId))),
+    stageIds.map((stageId) => executeSingleStage(execCtx, stageId, definition, context, inputs?.get(stageId))),
   );
 }
 
 export async function executeSingleStage(
-  ctx: restate.WorkflowContext,
+  execCtx: ExecutionContext,
   stageId: string,
   definition: WorkflowDefinition,
   context: WorkflowContext,
@@ -181,12 +168,12 @@ export async function executeSingleStage(
 ): Promise<void> {
   const stage = definition.stages.find((s) => s.id === stageId);
   if (!stage) {
-    throw new restate.TerminalError(`Stage "${stageId}" not found in workflow definition`);
+    throw new TerminalError(`Stage "${stageId}" not found in workflow definition`);
   }
 
   const spec = nodeRegistry.get(stage.type);
   if (!spec) {
-    throw new restate.TerminalError(`Unknown node type "${stage.type}" for stage "${stageId}"`);
+    throw new TerminalError(`Unknown node type "${stage.type}" for stage "${stageId}"`);
   }
 
   if (spec.executor.type === 'trigger') {
@@ -202,8 +189,6 @@ export async function executeSingleStage(
     );
 
     if (incomingSuccessEdges.length > 1 && !input?.mergedInputs) {
-      // This is a fan-in target reached from one of its sources.
-      // Record this source's output and check if all sources are ready.
       const sourceStageId = input?.incomingEdge?.source;
       if (sourceStageId) {
         const merged = recordFanInCompletion(
@@ -214,54 +199,50 @@ export async function executeSingleStage(
           context,
           definition,
         );
-        ctx.set('context', context);
+        execCtx.setContext(context);
 
         if (merged === 'failed') {
-          // An upstream failed and all_success can never be satisfied — fail this stage
-          throw new restate.TerminalError(
+          throw new TerminalError(
             `Stage "${stageId}" fan-in failed: upstream stage "${sourceStageId}" failed and trigger_rule is all_success`,
           );
         }
 
         if (!merged) {
-          // Not all sources ready yet — this branch stops here, other sources will continue
           return;
         }
-        // All sources ready — proceed with merged input
         input = { ...input, mergedInputs: merged };
       }
     }
   } else {
     // --- Queue mode: serialize executions FIFO ---
     if (context.stages[stageId]?.status === 'running') {
-      // Stage is busy — enqueue this input for later processing
       if (!context.pendingInputs) context.pendingInputs = {};
       if (!context.pendingInputs[stageId]) context.pendingInputs[stageId] = [];
       context.pendingInputs[stageId].push({
         incomingEdge: input?.incomingEdge,
         sourceOutput: input?.sourceOutput,
       });
-      ctx.set('context', context);
-      return; // Will be picked up after current execution completes
+      execCtx.setContext(context);
+      return;
     }
   }
 
   // --- Dynamic map: execute stage once per array element ---
   if (stage.map_over) {
-    await executeMapStage(ctx, stageId, stage, definition, context, spec, input);
-    await drainQueuedInputs(ctx, stageId, stage, definition, context, inputMode);
+    await executeMapStage(execCtx, stageId, stage, definition, context, spec, input);
+    await drainQueuedInputs(execCtx, stageId, stage, definition, context, inputMode);
     return;
   }
 
-  await executeStepWithLifecycle(ctx, stageId, stage, definition, context, spec, input);
-  await drainQueuedInputs(ctx, stageId, stage, definition, context, inputMode);
+  await executeStepWithLifecycle(execCtx, stageId, stage, definition, context, spec, input);
+  await drainQueuedInputs(execCtx, stageId, stage, definition, context, inputMode);
 }
 
 /**
  * In queue mode, after a stage finishes, process any inputs that arrived while it was running.
  */
 async function drainQueuedInputs(
-  ctx: restate.WorkflowContext,
+  execCtx: ExecutionContext,
   stageId: string,
   stage: StageDefinition,
   definition: WorkflowDefinition,
@@ -272,7 +253,7 @@ async function drainQueuedInputs(
 
   while (context.pendingInputs?.[stageId]?.length) {
     const nextInput = context.pendingInputs[stageId].shift()!;
-    ctx.set('context', context);
+    execCtx.setContext(context);
 
     const spec = nodeRegistry.get(stage.type)!;
     const stageInput: StageInput = {
@@ -281,9 +262,9 @@ async function drainQueuedInputs(
     };
 
     if (stage.map_over) {
-      await executeMapStage(ctx, stageId, stage, definition, context, spec, stageInput);
+      await executeMapStage(execCtx, stageId, stage, definition, context, spec, stageInput);
     } else {
-      await executeStepWithLifecycle(ctx, stageId, stage, definition, context, spec, stageInput);
+      await executeStepWithLifecycle(execCtx, stageId, stage, definition, context, spec, stageInput);
     }
   }
 }
@@ -293,7 +274,7 @@ async function drainQueuedInputs(
 // ---------------------------------------------------------------------------
 
 async function executeMapStage(
-  ctx: restate.WorkflowContext,
+  execCtx: ExecutionContext,
   stageId: string,
   stage: StageDefinition,
   definition: WorkflowDefinition,
@@ -303,10 +284,9 @@ async function executeMapStage(
 ): Promise<void> {
   const orchestratorUrl = appConfig.orchestratorUrl;
 
-  // Resolve the map_over expression to an array
   const rawValue = resolveTemplateValue(stage.map_over!, context);
   if (!Array.isArray(rawValue)) {
-    throw new restate.TerminalError(
+    throw new TerminalError(
       `Stage "${stageId}" map_over expression did not resolve to an array: got ${typeof rawValue}`,
     );
   }
@@ -316,21 +296,18 @@ async function executeMapStage(
   if (items.length === 0) {
     context.stages[stageId].latest = [];
     context.stages[stageId].status = 'completed';
-    ctx.set('context', context);
-    await syncContextToDb(ctx, `sync-map-empty-${stageId}`, orchestratorUrl, ctx.key, context);
-    await routeDownstream(ctx, stageId, [], definition, context);
+    execCtx.setContext(context);
+    await routeDownstream(execCtx, stageId, [], definition, context);
     return;
   }
 
-  const concurrency = stage.concurrency ?? items.length; // Default: unlimited
+  const concurrency = stage.concurrency ?? items.length;
   const failureTolerance = stage.failure_tolerance ?? 0;
   const results: unknown[] = new Array(items.length).fill(null);
   let failureCount = 0;
 
-  // Resolve config once before the map loop
   const config: Record<string, unknown> = stage.config || {};
 
-  // Process items in batches of `concurrency`, each batch runs in parallel
   for (let batchStart = 0; batchStart < items.length; batchStart += concurrency) {
     const batchEnd = Math.min(batchStart + concurrency, items.length);
 
@@ -344,22 +321,25 @@ async function executeMapStage(
           sourceOutput: items[i],
         };
 
-        // Create a sub-context entry for this map iteration
         const mapStageKey = `${stageId}[${i}]`;
         if (!context.stages[mapStageKey]) {
           context.stages[mapStageKey] = { status: 'pending', run_count: 0, runs: [] };
         }
 
         try {
-          // Execute using the retry-aware executor directly (config resolved above)
-          const runStartedAt = await ctx.run(`timestamp-start-${mapStageKey}`, () => new Date().toISOString());
+          const runStartedAt = new Date().toISOString();
           context.stages[mapStageKey].status = 'running';
           context.stages[mapStageKey].run_count = 1;
-          context.stages[mapStageKey].runs.push({ iteration: 1, started_at: runStartedAt, input: items[i] as Record<string, unknown>, status: 'running' as const });
-          ctx.set('context', context);
+          context.stages[mapStageKey].runs.push({
+            iteration: 1,
+            started_at: runStartedAt,
+            input: items[i] as Record<string, unknown>,
+            status: 'running' as const,
+          });
+          execCtx.setContext(context);
 
           const result = await executeWithRetry(
-            ctx,
+            execCtx,
             stageId,
             stage,
             spec,
@@ -372,7 +352,7 @@ async function executeMapStage(
           );
           results[i] = result.output;
 
-          const completedAt = await ctx.run(`timestamp-done-${mapStageKey}`, () => new Date().toISOString());
+          const completedAt = new Date().toISOString();
           const run = context.stages[mapStageKey].runs[context.stages[mapStageKey].runs.length - 1];
           if (run) {
             run.status = 'completed';
@@ -388,7 +368,7 @@ async function executeMapStage(
         } catch (err) {
           failureCount++;
           const errorMsg = err instanceof Error ? err.message : String(err);
-          const failedAt = await ctx.run(`timestamp-fail-${mapStageKey}`, () => new Date().toISOString());
+          const failedAt = new Date().toISOString();
           const run = context.stages[mapStageKey].runs[context.stages[mapStageKey].runs.length - 1];
           if (run) {
             run.status = 'failed';
@@ -396,10 +376,10 @@ async function executeMapStage(
             run.error = errorMsg;
           }
           context.stages[mapStageKey].status = 'failed';
-          ctx.set('context', context);
+          execCtx.setContext(context);
 
           if (failureCount > failureTolerance) {
-            throw new restate.TerminalError(
+            throw new TerminalError(
               `Stage "${stageId}" map failed: ${failureCount} failures exceeded tolerance of ${failureTolerance}. Last error: ${errorMsg}`,
             );
           }
@@ -410,14 +390,11 @@ async function executeMapStage(
     await Promise.all(batchPromises);
   }
 
-  // Store collected results as the stage output
   context.stages[stageId].latest = results;
   context.stages[stageId].status = 'completed';
-  ctx.set('context', context);
-  await syncContextToDb(ctx, `sync-map-done-${stageId}`, orchestratorUrl, ctx.key, context);
+  execCtx.setContext(context);
 
-  // Route downstream
-  await routeDownstream(ctx, stageId, results, definition, context);
+  await routeDownstream(execCtx, stageId, results, definition, context);
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +407,7 @@ async function executeMapStage(
  * error edge routing, context syncing, output validation, and edge evaluation/routing.
  */
 export async function executeStepWithLifecycle(
-  ctx: restate.WorkflowContext,
+  execCtx: ExecutionContext,
   stageId: string,
   stage: StageDefinition,
   definition: WorkflowDefinition,
@@ -443,18 +420,14 @@ export async function executeStepWithLifecycle(
   const maxIterations = (config.max_iterations as number) ?? 5;
   let iteration = context.stages[stageId].run_count || 0;
 
-  // --- Cycle re-entry detection: stage has already run in this execution ---
-  // For multi-hop cycles (A→B→A), the routing goes through normal edge evaluation
-  // so the self-loop path doesn't apply. We detect re-entry here and inject
-  // priorSessionId if cycle_behavior is 'continue', so the agent can resume its session.
-  // Uses the resolved config so template-linked stages get the right cycle_behavior.
+  // Cycle re-entry detection
   if (context.stages[stageId].run_count > 0) {
     const cycleBehavior = (config.cycle_behavior as string) || 'fresh';
     if (cycleBehavior === 'continue') {
       input = {
         ...input,
         isCycleReentry: true,
-        priorSessionId: `${ctx.key}:${stageId}`,
+        priorSessionId: `${execCtx.instanceId}:${stageId}`,
       };
     } else {
       input = {
@@ -470,11 +443,11 @@ export async function executeStepWithLifecycle(
     iteration++;
 
     if (iteration > maxIterations) {
-      throw new restate.TerminalError(`Max iterations (${maxIterations}) exceeded for stage "${stageId}"`);
+      throw new TerminalError(`Max iterations (${maxIterations}) exceeded for stage "${stageId}"`);
     }
 
     // --- Start run ---
-    const runStartedAt = await ctx.run(`timestamp-start-${stageId}-${iteration}`, () => new Date().toISOString());
+    const runStartedAt = new Date().toISOString();
     context.stages[stageId].status = 'running';
     context.stages[stageId].run_count = iteration;
     context.stages[stageId].runs.push({
@@ -483,10 +456,10 @@ export async function executeStepWithLifecycle(
       input: (currentInput?.mergedInputs ?? currentInput?.sourceOutput) as Record<string, unknown> | undefined,
       status: 'running' as const,
     });
-    ctx.set('context', context);
-    ctx.set('status', 'running');
+    execCtx.setContext(context);
+    execCtx.setStatus('running');
 
-    await syncContextToDb(ctx, `sync-context-running-${stageId}-${iteration}`, orchestratorUrl, ctx.key, context, {
+    await syncContextToDb(execCtx, `sync-context-running-${stageId}-${iteration}`, context, {
       currentStageIds: [stageId],
     });
 
@@ -496,7 +469,7 @@ export async function executeStepWithLifecycle(
     let stageStderr: string | undefined;
     try {
       const result = await executeWithRetry(
-        ctx,
+        execCtx,
         stageId,
         stage,
         spec,
@@ -512,7 +485,7 @@ export async function executeStepWithLifecycle(
       stageStderr = (result as any).stderr as string | undefined;
     } catch (err) {
       // All retries exhausted — mark failed
-      const failedAt = await ctx.run(`timestamp-fail-${stageId}-${iteration}`, () => new Date().toISOString());
+      const failedAt = new Date().toISOString();
       const currentRunFail = context.stages[stageId].runs[context.stages[stageId].runs.length - 1];
       const errorMsg = err instanceof Error ? err.message : String(err);
       if (currentRunFail) {
@@ -521,9 +494,9 @@ export async function executeStepWithLifecycle(
         currentRunFail.error = errorMsg;
       }
       context.stages[stageId].status = 'failed';
-      ctx.set('context', context);
+      execCtx.setContext(context);
 
-      await syncContextToDb(ctx, `sync-context-fail-${stageId}-${iteration}`, orchestratorUrl, ctx.key, context);
+      await syncContextToDb(execCtx, `sync-context-fail-${stageId}-${iteration}`, context);
 
       // --- Error edge routing: check for on_error edges ---
       const errorEdgeTargets = evaluateEdges(
@@ -534,7 +507,6 @@ export async function executeStepWithLifecycle(
         'on_error',
       );
       if (errorEdgeTargets.length > 0) {
-        // Route to error handlers instead of throwing
         const errorOutput = { error: errorMsg, stageId, lastOutput: context.stages[stageId].latest };
         const errorInputs = new Map<string, StageInput>();
         const errorEdges = definition.edges.filter(
@@ -546,20 +518,18 @@ export async function executeStepWithLifecycle(
             errorInputs.set(targetId, { incomingEdge: edge, sourceOutput: errorOutput });
           }
         }
-        await executeStages(ctx, errorEdgeTargets, definition, context, errorInputs);
-
-        // Also propagate skip to on_success downstream (they won't fire since this stage failed)
-        await propagateSkip(ctx, stageId, definition, context);
+        await executeStages(execCtx, errorEdgeTargets, definition, context, errorInputs);
+        await propagateSkip(execCtx, stageId, definition, context);
         return;
       }
 
-      throw new restate.TerminalError(`Stage "${stageId}" failed: ${errorMsg}`);
+      throw new TerminalError(`Stage "${stageId}" failed: ${errorMsg}`);
     }
 
     // --- Complete run ---
     const outgoingEdges = definition.edges.filter((e) => e.source === stageId);
 
-    const completedAt = await ctx.run(`timestamp-done-${stageId}-${iteration}`, () => new Date().toISOString());
+    const completedAt = new Date().toISOString();
     const currentRun = context.stages[stageId].runs[context.stages[stageId].runs.length - 1];
     if (currentRun) {
       currentRun.status = 'completed';
@@ -570,18 +540,16 @@ export async function executeStepWithLifecycle(
     }
     context.stages[stageId].latest = output as Record<string, unknown> | unknown[];
     context.stages[stageId].status = 'completed';
-    ctx.set('context', context);
+    execCtx.setContext(context);
 
-    await syncContextToDb(ctx, `sync-context-done-${stageId}-${iteration}`, orchestratorUrl, ctx.key, context);
+    await syncContextToDb(execCtx, `sync-context-done-${stageId}-${iteration}`, context);
 
     // --- Edge evaluation and routing ---
     const nextStageIds = evaluateEdges(stageId, output, context, definition.edges, 'on_success');
 
-    // If no success edges matched but conditional edges exist, propagate skip
     const successEdges = outgoingEdges.filter((e) => (e.trigger || 'on_success') === 'on_success');
     if (nextStageIds.length === 0 && successEdges.length > 0 && successEdges.some((e) => e.condition)) {
-      // Some conditional edges exist but none matched — skip downstream
-      await propagateSkip(ctx, stageId, definition, context);
+      await propagateSkip(execCtx, stageId, definition, context);
       break;
     }
 
@@ -600,40 +568,33 @@ export async function executeStepWithLifecycle(
 
     // Check if any next stage is this same stage (cycle back)
     if (nextStageIds.includes(stageId)) {
-      // Read cycle_behavior from THIS stage's config (we're cycling back to ourselves)
       const cycleBehavior = (config.cycle_behavior as string) || 'fresh';
       currentInput = {
         ...nextInputs.get(stageId),
         isCycleReentry: true,
-        // For 'continue' mode, pass the session ID so spawn-agent can resume
-        ...(cycleBehavior === 'continue' ? { priorSessionId: `${ctx.key}:${stageId}` } : {}),
+        ...(cycleBehavior === 'continue' ? { priorSessionId: `${execCtx.instanceId}:${stageId}` } : {}),
       };
       const otherStages = nextStageIds.filter((id) => id !== stageId);
       if (otherStages.length > 0) {
-        await executeStages(ctx, otherStages, definition, context, nextInputs);
+        await executeStages(execCtx, otherStages, definition, context, nextInputs);
       }
       continue;
     }
 
-    // No cycle — execute next stages and break
     if (nextStageIds.length > 0) {
-      await executeStages(ctx, nextStageIds, definition, context, nextInputs);
+      await executeStages(execCtx, nextStageIds, definition, context, nextInputs);
     }
     break;
   }
 
   // After the cycle exits: clean up lingering ACP sessions for 'continue' mode.
-  // (If cycle_behavior is 'fresh', the session was killed after each iteration already.)
   const cycleBehavior = (config.cycle_behavior as string) || 'fresh';
   if (cycleBehavior === 'continue' && iteration > 1) {
-    await ctx.run(`cleanup-session-${stageId}`, async () => {
-      await fetch(`${appConfig.orchestratorUrl}/api/internal/kill-agent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instanceId: ctx.key, stageId }),
-      }).catch(() => {});
-      return { cleaned: true };
-    });
+    await fetch(`${appConfig.orchestratorUrl}/api/internal/kill-agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instanceId: execCtx.instanceId, stageId }),
+    }).catch(() => {});
   }
 }
 
@@ -642,7 +603,7 @@ export async function executeStepWithLifecycle(
 // ---------------------------------------------------------------------------
 
 export async function routeDownstream(
-  ctx: restate.WorkflowContext,
+  execCtx: ExecutionContext,
   stageId: string,
   output: unknown,
   definition: WorkflowDefinition,
@@ -651,10 +612,9 @@ export async function routeDownstream(
   const nextStageIds = evaluateEdges(stageId, output, context, definition.edges, 'on_success');
   const outgoingEdges = definition.edges.filter((e) => e.source === stageId);
 
-  // Skip propagation if no edges matched
   const successEdges = outgoingEdges.filter((e) => (e.trigger || 'on_success') === 'on_success');
   if (nextStageIds.length === 0 && successEdges.length > 0 && successEdges.some((e) => e.condition)) {
-    await propagateSkip(ctx, stageId, definition, context);
+    await propagateSkip(execCtx, stageId, definition, context);
     return;
   }
 
@@ -666,6 +626,6 @@ export async function routeDownstream(
         nextInputs.set(nextId, { incomingEdge: edge, sourceOutput: output });
       }
     }
-    await executeStages(ctx, nextStageIds, definition, context, nextInputs);
+    await executeStages(execCtx, nextStageIds, definition, context, nextInputs);
   }
 }

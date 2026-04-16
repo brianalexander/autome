@@ -1,6 +1,7 @@
 /**
- * Smoke tests for the ui_action MCP tool in workflow-author-server.
- * Verifies each action type is accepted and that the tool POSTs to /api/internal/ui-action.
+ * Smoke tests for UI-action MCP tools in workflow-author-server.
+ * Covers show_test_run, navigate, highlight_stage, and toast —
+ * each of which POSTs to /api/internal/ui-action.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -98,10 +99,8 @@ describe('workflow-author MCP — ui_action tool', () => {
 
   it('calls /api/internal/ui-action for show_test_run', async () => {
     const result = await client.callTool({
-      name: 'ui_action',
+      name: 'show_test_run',
       arguments: {
-        workflow_id: 'wf-test',
-        action: 'show_test_run',
         instanceId: 'inst-123',
         testWorkflowId: 'test-wf-123',
       },
@@ -111,7 +110,6 @@ describe('workflow-author MCP — ui_action tool', () => {
     expect(req).toBeDefined();
     expect(req!.method).toBe('POST');
     expect(req!.body).toMatchObject({
-      workflowId: 'wf-test',
       action: 'show_test_run',
       instanceId: 'inst-123',
       testWorkflowId: 'test-wf-123',
@@ -122,10 +120,8 @@ describe('workflow-author MCP — ui_action tool', () => {
 
   it('calls /api/internal/ui-action for navigate action', async () => {
     const result = await client.callTool({
-      name: 'ui_action',
+      name: 'navigate',
       arguments: {
-        workflow_id: 'wf-test',
-        action: 'navigate',
         to: '/workflows',
       },
     });
@@ -136,13 +132,11 @@ describe('workflow-author MCP — ui_action tool', () => {
     expect((result as { isError?: boolean }).isError).toBeFalsy();
   }, 15_000);
 
-  it('calls /api/internal/ui-action for highlight_element action', async () => {
+  it('calls /api/internal/ui-action for highlight_stage action', async () => {
     const result = await client.callTool({
-      name: 'ui_action',
+      name: 'highlight_stage',
       arguments: {
-        workflow_id: 'wf-test',
-        action: 'highlight_element',
-        elementId: 'stage-step1',
+        stageId: 'stage-step1',
         pulseMs: 2000,
       },
     });
@@ -155,10 +149,8 @@ describe('workflow-author MCP — ui_action tool', () => {
 
   it('calls /api/internal/ui-action for toast action', async () => {
     const result = await client.callTool({
-      name: 'ui_action',
+      name: 'toast',
       arguments: {
-        workflow_id: 'wf-test',
-        action: 'toast',
         level: 'info',
         text: 'Test complete!',
       },
@@ -170,16 +162,16 @@ describe('workflow-author MCP — ui_action tool', () => {
     expect((result as { isError?: boolean }).isError).toBeFalsy();
   }, 15_000);
 
-  it('returns error when workflow_id is missing', async () => {
+  it('returns error when instanceId is missing for show_test_run', async () => {
     const result = await client.callTool({
-      name: 'ui_action',
+      name: 'show_test_run',
       arguments: {
-        action: 'show_test_run',
-        instanceId: 'inst-123',
+        testWorkflowId: 'test-wf-123',
+        // instanceId intentionally omitted
       },
     }) as { isError?: boolean; content: Array<{ text: string }> };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('workflow_id');
+    expect(result.content[0].text).toContain('instanceId');
   }, 15_000);
 });

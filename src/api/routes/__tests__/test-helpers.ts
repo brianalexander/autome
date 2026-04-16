@@ -4,6 +4,7 @@ import { OrchestratorDB } from '../../../db/database.js';
 import { EventBus } from '../../../events/bus.js';
 import { ManualTriggerProvider } from '../../../events/providers/manual.js';
 import { AgentPool } from '../../../acp/pool.js';
+import { WorkflowRunner } from '../../../engine/runner.js';
 import { registerWorkflowRoutes } from '../workflows.js';
 import { registerInstanceRoutes } from '../instances.js';
 import type { WorkflowDefinition } from '../../../types/workflow.js';
@@ -18,16 +19,18 @@ export async function buildTestApp() {
 
   const acpPool = new AgentPool();
   const authorPool = new AgentPool();
+  const runner = new WorkflowRunner(db, eventBus);
 
   const app = Fastify({ logger: false });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  const deps = { db, eventBus, manualTrigger, acpPool, authorPool };
+  const deps = { db, eventBus, runner, manualTrigger, acpPool, authorPool };
 
   const authorDrafts = new Map<string, WorkflowDefinition>();
   const assistantPool = new AgentPool();
   const state: SharedState = {
+    runner,
     authorPool,
     acpPool,
     assistantPool,

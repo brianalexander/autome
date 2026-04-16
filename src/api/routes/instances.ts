@@ -3,7 +3,6 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { InitiatedBy } from '../../types/instance.js';
 import { broadcast } from '../websocket.js';
-import * as restateClient from '../../restate/client.js';
 import type { RouteDeps, SharedState } from './shared.js';
 import type { SessionConfig } from './agent-utils.js';
 import { sendChatMessage } from './agent-utils.js';
@@ -199,14 +198,8 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
         const instance = deps.db.getInstance(instanceId);
         if (!instance) return reply.code(404).send({ error: 'Instance not found' });
 
-        // 1. Get live status from Restate (has up-to-date stage info) and fall back to DB
-        let liveContext = instance.context;
-        try {
-          const liveStatus = await restateClient.getWorkflowStatus(instanceId);
-          if (liveStatus?.context) liveContext = liveStatus.context;
-        } catch {
-          /* use DB context */
-        }
+        // Use DB context (the runner writes state directly to DB so it's always authoritative)
+        const liveContext = instance.context;
 
         // Find all running stages from live context
         const runningStages = Object.entries(liveContext?.stages || {})
@@ -241,12 +234,10 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           }
         }
 
-        // 3. Abort the Restate workflow
-        try {
-          await restateClient.cancelWorkflow(instanceId);
-        } catch (restateErr) {
-          console.warn('[stop] Could not abort Restate workflow:', restateErr);
-        }
+        // 3. Cancel the workflow runner (aborts the in-memory execution)
+        await state.runner.cancel(instanceId).catch((err) => {
+          console.warn('[stop] Could not cancel runner workflow:', err);
+        });
 
         // 4. Update DB — merge live context and mark running stages as stopped
         const updatedContext = JSON.parse(JSON.stringify(liveContext));
@@ -322,11 +313,45 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
         if (fromStageId) {
           fromStageIds = [fromStageId];
         } else {
-          fromStageIds = Object.entries(instance.context?.stages ?? {})
+          const stages = instance.context?.stages ?? {};
+          // Primary: any failed stage (the classic failed-run resume case)
+          fromStageIds = Object.entries(stages)
             .filter(([, ctx]) => ctx.status === 'failed')
             .map(([id]) => id);
+
+          // Fallback: for cancelled instances with no failed stages (the user
+          // clicked Stop BETWEEN stages), resume from any still-running stage
+          // plus any pending stage whose upstream dependencies are all complete.
+          if (fromStageIds.length === 0 && instance.status === 'cancelled') {
+            const runningStageIds = Object.entries(stages)
+              .filter(([, ctx]) => ctx.status === 'running')
+              .map(([id]) => id);
+
+            const nextUpStageIds = Object.entries(stages)
+              .filter(([id, ctx]) => {
+                if (ctx.status !== 'pending') return false;
+                // Find upstream on_success edges in the definition
+                const upstream = definition.edges
+                  .filter((e) => e.target === id && (e.trigger || 'on_success') === 'on_success')
+                  .map((e) => e.source);
+                if (upstream.length === 0) return false; // trigger stages excluded
+                return upstream.every((srcId) => {
+                  const srcStatus = stages[srcId]?.status;
+                  return srcStatus === 'completed' || srcStatus === 'skipped';
+                });
+              })
+              .map(([id]) => id);
+
+            fromStageIds = Array.from(new Set([...runningStageIds, ...nextUpStageIds]));
+          }
+
           if (fromStageIds.length === 0) {
-            return reply.code(400).send({ error: 'No failed stages found to resume from.' });
+            return reply.code(400).send({
+              error:
+                instance.status === 'cancelled'
+                  ? 'No resumable stages found. The run may already be complete.'
+                  : 'No failed stages found to resume from.',
+            });
           }
         }
 
@@ -356,12 +381,12 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
         }
 
         // 8. Launch the resume
-        const result = await launchWorkflowWithResume(deps.db, instance, definition, fromStageIds);
+        const result = await launchWorkflowWithResume(deps.db, state.runner, instance, definition, fromStageIds);
 
-        // 9. If restateError, roll back to the original status and return 500
-        if (result.restateError) {
+        // 9. If runnerError, roll back to the original status and return 500
+        if (result.runnerError) {
           deps.db.updateInstance(instanceId, { status: instance.status });
-          return reply.code(500).send({ error: `Failed to start resumed workflow: ${result.restateError}` });
+          return reply.code(500).send({ error: `Failed to start resumed workflow: ${result.runnerError}` });
         }
 
         // 10. Return success
@@ -369,7 +394,6 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           instanceId,
           resumeCount: result.resumeCount,
           fromStageIds,
-          restateWorkflowId: result.restateWorkflowId,
         };
       } catch (err) {
         console.error('[resume] Error:', err);
@@ -378,7 +402,8 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
     },
   );
 
-  // GET /api/instances/:id/status — Get real-time status from Restate
+  // GET /api/instances/:id/status — Get real-time status from DB
+  // The runner writes status and context directly to DB so it's always authoritative.
   typedApp.get(
     '/api/instances/:id/status',
     {
@@ -387,11 +412,6 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
     async (request, reply) => {
       try {
         const { id } = request.params;
-        const status = await restateClient.getWorkflowStatus(id);
-        return status;
-      } catch (err) {
-        // Fall back to DB if Restate is not available
-        const { id } = request.params;
         const instance = deps.db.getInstance(id);
         if (!instance) return reply.code(404).send({ error: 'Instance not found' });
         return {
@@ -399,6 +419,9 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           context: instance.context,
           currentStageIds: instance.current_stage_ids,
         };
+      } catch (err) {
+        console.error('GET /api/instances/:id/status error:', err);
+        return reply.code(500).send({ error: 'Internal server error' });
       }
     },
   );
@@ -420,7 +443,9 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           clearTimeout(existingTimeout);
           state.stageTimeouts.delete(gateKey);
         }
-        await restateClient.approveGate(id, stageId, data);
+        // resolveWait updates the DB gate row and fires the in-memory resolver.
+        // The gate executor expects `{approved: boolean, data?: unknown}`.
+        state.runner.resolveWait(id, `gate-${stageId}`, { approved: true, data });
         db.updateInstance(id, { status: 'running' });
         broadcast(
           'instance:gate_approved',
@@ -454,8 +479,11 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           clearTimeout(existingTimeout);
           state.stageTimeouts.delete(gateKey);
         }
-        await restateClient.rejectGate(id, stageId, body.reason);
-        db.updateInstance(id, { status: 'failed' });
+        // Resolve with {approved: false} so the gate executor's own TerminalError
+        // logic can produce a clean "Gate was rejected" failure, rather than a
+        // raw runner rejection that surfaces as an unrelated promise error.
+        state.runner.resolveWait(id, `gate-${stageId}`, { approved: false, data: body.reason });
+        // The gate executor will throw TerminalError → runner marks instance failed.
         broadcast(
           'instance:gate_rejected',
           {

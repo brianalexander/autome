@@ -1339,7 +1339,7 @@ Prerequisites:
 ```bash
 # Clone and install
 git clone <repo>
-cd agent-pipeline-orchestrator
+cd autome
 npm install
 
 # Set environment

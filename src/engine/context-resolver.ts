@@ -1,5 +1,5 @@
 import nunjucks from 'nunjucks';
-import type { WorkflowContext } from '../restate/pipeline-workflow.js';
+import type { WorkflowContext } from '../types/instance.js';
 import type { StageDefinition, EdgeDefinition, WorkflowDefinition } from '../types/workflow.js';
 
 // Configure nunjucks: no filesystem templates, autoescape off (we're building prompts, not HTML)

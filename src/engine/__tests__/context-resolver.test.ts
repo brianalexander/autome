@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildAgentPrompt } from '../context-resolver.js';
-import type { WorkflowContext } from '../../restate/pipeline-workflow.js';
+import type { WorkflowContext } from '../../types/instance.js';
 import type { StageDefinition, EdgeDefinition, WorkflowDefinition } from '../../types/workflow.js';
 
 // --- Shared fixture ---
