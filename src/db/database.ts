@@ -414,7 +414,6 @@ export class OrchestratorDB {
       trigger_event: JSON.stringify(instance.trigger_event),
       context: JSON.stringify(instance.context),
       current_stage_ids: JSON.stringify(instance.current_stage_ids),
-      restate_workflow_id: instance.restate_workflow_id ?? null,
       is_test: instance.is_test ? 1 : 0,
       initiated_by: instance.initiated_by ?? 'user',
       resume_count: instance.resume_count ?? 0,
@@ -468,7 +467,6 @@ export class OrchestratorDB {
       trigger_event: schema.instances.trigger_event,
       context: schema.instances.context,
       current_stage_ids: schema.instances.current_stage_ids,
-      restate_workflow_id: schema.instances.restate_workflow_id,
       is_test: schema.instances.is_test,
       initiated_by: schema.instances.initiated_by,
       resume_count: schema.instances.resume_count,
@@ -505,7 +503,6 @@ export class OrchestratorDB {
           trigger_event: JSON.stringify(updated.trigger_event),
           context: JSON.stringify(updated.context),
           current_stage_ids: JSON.stringify(updated.current_stage_ids),
-          restate_workflow_id: updated.restate_workflow_id ?? null,
           updated_at: sql`datetime('now')`,
           completed_at: updated.completed_at ?? null,
           resume_count: updated.resume_count ?? 0,
@@ -544,7 +541,6 @@ export class OrchestratorDB {
       | 'trigger_event'
       | 'context'
       | 'current_stage_ids'
-      | 'restate_workflow_id'
       | 'is_test'
       | 'initiated_by'
       | 'resume_count'
@@ -561,7 +557,6 @@ export class OrchestratorDB {
       trigger_event: JSON.parse(row.trigger_event),
       context: JSON.parse(row.context),
       current_stage_ids: row.current_stage_ids ? JSON.parse(row.current_stage_ids) : [],
-      restate_workflow_id: row.restate_workflow_id ?? undefined,
       is_test: !!row.is_test,
       initiated_by: (row.initiated_by ?? 'user') as WorkflowInstance['initiated_by'],
       resume_count: row.resume_count ?? 0,

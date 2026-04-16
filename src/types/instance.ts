@@ -97,7 +97,6 @@ export const WorkflowInstanceSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   completed_at: z.string().optional(),
-  restate_workflow_id: z.string().optional(),
   is_test: z.boolean().optional(),
   /** Who initiated this workflow run */
   initiated_by: z.enum(['user', 'author', 'webhook', 'cron']).default('user'),

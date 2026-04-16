@@ -189,7 +189,7 @@ export function registerSignalRoutes(app: FastifyInstance, deps: RouteDeps, stat
   );
 
   // GET /api/internal/workflow-context/:instanceId/:stageId
-  // Direct DB read — no longer proxies to Restate.
+  // Direct DB read.
   typedApp.get(
     '/api/internal/workflow-context/:instanceId/:stageId',
     {

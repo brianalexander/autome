@@ -123,7 +123,6 @@ export async function launchWorkflow(
     trigger_event: event as unknown as Record<string, unknown>,
     context,
     current_stage_ids: [],
-    restate_workflow_id: undefined,
   });
 
   let runnerError: string | undefined;

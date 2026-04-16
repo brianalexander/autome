@@ -187,8 +187,7 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
           return reply.code(404).send({ error: 'Workflow not found' });
         }
 
-        // Cancel any running instances before deleting to avoid orphaned agent
-        // processes and 404s on in-flight context-sync calls from Restate.
+        // Cancel any running instances before deleting to avoid orphaned agent processes.
         const { data: instances } = deps.db.listInstances({ definitionId: id });
         const runningInstances = instances.filter((i) =>
           ['running', 'waiting_gate', 'waiting_input'].includes(i.status),
@@ -222,11 +221,6 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
             console.warn(`[delete-workflow] Could not update instance ${instanceId}:`, dbErr);
           }
         }
-
-        // NOTE: Previously there was a 1s sleep here to "give Restate a moment".
-        // That was a race condition, not a fix — context-sync calls that arrive
-        // after deletion are already guarded by the `instance_deleted` check in
-        // the workflow-context-sync handler. The sleep has been removed.
 
         db.deleteWorkflow(id);
 
