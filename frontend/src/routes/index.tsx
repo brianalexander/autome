@@ -66,23 +66,8 @@ function WorkflowsPage() {
   }
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto">
-      <div className="flex justify-end mb-6 gap-2">
-        <button
-          onClick={() => setImportOpen(true)}
-          className="px-4 py-2 text-sm border border-border hover:bg-interactive text-text-secondary hover:text-text-primary rounded-lg transition-colors"
-        >
-          Import
-        </button>
-        <button
-          onClick={() => navigate({ to: '/workflows/new' })}
-          className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 transition-colors"
-        >
-          + New Workflow
-        </button>
-      </div>
-
-      {(
+    <div className="flex-1 overflow-y-auto relative">
+      <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {workflowList.data.map((workflow) => {
             const triggerStages = workflow.stages.filter((s) => isTriggerType(s.type));
@@ -180,7 +165,23 @@ function WorkflowsPage() {
             );
           })}
         </div>
-      )}
+      </div>
+
+      {/* Floating action buttons */}
+      <div className="absolute bottom-6 right-6 flex items-center gap-2">
+        <button
+          onClick={() => setImportOpen(true)}
+          className="px-4 py-2 text-sm border border-border bg-surface shadow-lg hover:bg-interactive text-text-secondary hover:text-text-primary rounded-lg transition-colors"
+        >
+          Import
+        </button>
+        <button
+          onClick={() => navigate({ to: '/workflows/new' })}
+          className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white shadow-lg rounded-lg disabled:opacity-50 transition-colors"
+        >
+          + New Workflow
+        </button>
+      </div>
 
       <TriggerDialog
         workflowName={triggerTarget?.name || ''}

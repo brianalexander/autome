@@ -69,7 +69,7 @@ export function GenericSidebar({
                     onClick={() => setReadmeExpanded((v) => !v)}
                     className="w-full flex items-center justify-between px-3 py-2 text-[10px] text-text-tertiary uppercase tracking-wider font-medium hover:text-text-secondary transition-colors"
                   >
-                    README
+                    Description
                     <ChevronDown className={`w-3 h-3 transition-transform ${readmeExpanded ? '' : '-rotate-90'}`} />
                   </button>
                   {readmeExpanded && (

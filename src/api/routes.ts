@@ -12,7 +12,7 @@ import { registerAgentRoutes } from './routes/agents.js';
 import { registerWebhookRoutes } from './routes/webhooks.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerTestRunRoutes } from './routes/test-runs.js';
-
+import { registerTemplateRoutes } from './routes/templates.js';
 // Re-export RouteDeps so existing imports from './routes.js' still work
 export type { RouteDeps } from './routes/shared.js';
 
@@ -54,6 +54,16 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   registerWebhookRoutes(app, deps, state);
   registerSettingsRoutes(app, deps);
   registerTestRunRoutes(app, deps);
+  registerTemplateRoutes(app, deps);
+
+  // Register plugin routes (plugins receive app, deps, and the fully-initialised state)
+  if (deps.plugins?.length) {
+    for (const plugin of deps.plugins) {
+      if (plugin.registerRoutes) {
+        await plugin.registerRoutes(app, deps, state);
+      }
+    }
+  }
 
   // Health endpoint
   const typedApp = app.withTypeProvider<ZodTypeProvider>();

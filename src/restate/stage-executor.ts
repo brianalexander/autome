@@ -246,27 +246,6 @@ export async function executeSingleStage(
     }
   }
 
-  // --- Cycle re-entry detection: stage has already run in this execution ---
-  // For multi-hop cycles (A→B→A), the routing goes through normal edge evaluation
-  // so the self-loop path doesn't apply. We detect re-entry here and inject
-  // priorSessionId if cycle_behavior is 'continue', so the agent can resume its session.
-  if (context.stages[stageId].run_count > 0) {
-    const stageConfig = stage.config || {};
-    const cycleBehavior = (stageConfig.cycle_behavior as string) || 'fresh';
-    if (cycleBehavior === 'continue') {
-      input = {
-        ...input,
-        isCycleReentry: true,
-        priorSessionId: `${ctx.key}:${stageId}`,
-      };
-    } else {
-      input = {
-        ...input,
-        isCycleReentry: true,
-      };
-    }
-  }
-
   // --- Dynamic map: execute stage once per array element ---
   if (stage.map_over) {
     await executeMapStage(ctx, stageId, stage, definition, context, spec, input);
@@ -348,6 +327,9 @@ async function executeMapStage(
   const results: unknown[] = new Array(items.length).fill(null);
   let failureCount = 0;
 
+  // Resolve config once before the map loop
+  const config: Record<string, unknown> = stage.config || {};
+
   // Process items in batches of `concurrency`, each batch runs in parallel
   for (let batchStart = 0; batchStart < items.length; batchStart += concurrency) {
     const batchEnd = Math.min(batchStart + concurrency, items.length);
@@ -369,8 +351,7 @@ async function executeMapStage(
         }
 
         try {
-          // Execute using the retry-aware executor directly
-          const config: Record<string, unknown> = stage.config || {};
+          // Execute using the retry-aware executor directly (config resolved above)
           const runStartedAt = await ctx.run(`timestamp-start-${mapStageKey}`, () => new Date().toISOString());
           context.stages[mapStageKey].status = 'running';
           context.stages[mapStageKey].run_count = 1;
@@ -461,6 +442,28 @@ export async function executeStepWithLifecycle(
   const config: Record<string, unknown> = stage.config || {};
   const maxIterations = (config.max_iterations as number) ?? 5;
   let iteration = context.stages[stageId].run_count || 0;
+
+  // --- Cycle re-entry detection: stage has already run in this execution ---
+  // For multi-hop cycles (A→B→A), the routing goes through normal edge evaluation
+  // so the self-loop path doesn't apply. We detect re-entry here and inject
+  // priorSessionId if cycle_behavior is 'continue', so the agent can resume its session.
+  // Uses the resolved config so template-linked stages get the right cycle_behavior.
+  if (context.stages[stageId].run_count > 0) {
+    const cycleBehavior = (config.cycle_behavior as string) || 'fresh';
+    if (cycleBehavior === 'continue') {
+      input = {
+        ...input,
+        isCycleReentry: true,
+        priorSessionId: `${ctx.key}:${stageId}`,
+      };
+    } else {
+      input = {
+        ...input,
+        isCycleReentry: true,
+      };
+    }
+  }
+
   let currentInput = input;
 
   while (true) {

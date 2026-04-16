@@ -12,6 +12,73 @@ import type { CustomProviderConfig } from '../types/events.js';
 import * as schema from './schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// ---------------------------------------------------------------------------
+// Node template types
+// ---------------------------------------------------------------------------
+
+export interface NodeTemplateRow {
+  id: string;
+  name: string;
+  description: string | null;
+  node_type: string;
+  icon: string | null;
+  category: string | null;
+  config: Record<string, unknown>;
+  exposed: string[];
+  locked: string[];
+  version: number;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateNodeTemplate {
+  id?: string;
+  name: string;
+  description?: string;
+  nodeType: string;
+  icon?: string;
+  category?: string;
+  config: Record<string, unknown>;
+  exposed?: string[];
+  locked?: string[];
+  source?: string;
+}
+
+interface RawNodeTemplateRow {
+  id: string;
+  name: string;
+  description: string | null;
+  node_type: string;
+  icon: string | null;
+  category: string | null;
+  config: string;
+  exposed: string | null;
+  locked: string | null;
+  version: number;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function parseNodeTemplateRow(row: RawNodeTemplateRow): NodeTemplateRow {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    node_type: row.node_type,
+    icon: row.icon,
+    category: row.category,
+    config: JSON.parse(row.config) as Record<string, unknown>,
+    exposed: JSON.parse(row.exposed ?? '[]') as string[],
+    locked: JSON.parse(row.locked ?? '[]') as string[],
+    version: row.version,
+    source: row.source,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
 const MIGRATIONS_DIR = join(__dirname, 'migrations');
 
 export class OrchestratorDB {
@@ -1196,6 +1263,97 @@ export class OrchestratorDB {
       kind: r.kind as 'system' | 'user',
       created_at: r.created_at,
     }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Node templates
+  // ---------------------------------------------------------------------------
+
+  getNodeTemplate(id: string): NodeTemplateRow | undefined {
+    const row = this.sqlite
+      .prepare<[string], RawNodeTemplateRow>(
+        'SELECT id, name, description, node_type, icon, category, config, exposed, locked, version, source, created_at, updated_at FROM node_templates WHERE id = ?',
+      )
+      .get(id);
+    return row ? parseNodeTemplateRow(row) : undefined;
+  }
+
+  listNodeTemplates(filter?: { nodeType?: string; source?: string }): NodeTemplateRow[] {
+    const conditions: string[] = [];
+    const params: string[] = [];
+    if (filter?.nodeType) {
+      conditions.push('node_type = ?');
+      params.push(filter.nodeType);
+    }
+    if (filter?.source) {
+      conditions.push('source = ?');
+      params.push(filter.source);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const rows = this.sqlite
+      .prepare<string[], RawNodeTemplateRow>(
+        `SELECT id, name, description, node_type, icon, category, config, exposed, locked, version, source, created_at, updated_at FROM node_templates ${where} ORDER BY name`,
+      )
+      .all(...params);
+    return rows.map(parseNodeTemplateRow);
+  }
+
+  createNodeTemplate(template: CreateNodeTemplate): NodeTemplateRow {
+    const id = template.id ?? uuidv4();
+    const now = new Date().toISOString();
+    this.sqlite
+      .prepare(
+        `INSERT INTO node_templates (id, name, description, node_type, icon, category, config, exposed, locked, version, source, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        template.name,
+        template.description ?? null,
+        template.nodeType,
+        template.icon ?? null,
+        template.category ?? null,
+        JSON.stringify(template.config),
+        JSON.stringify(template.exposed ?? []),
+        JSON.stringify(template.locked ?? []),
+        template.source ?? 'local',
+        now,
+        now,
+      );
+    return this.getNodeTemplate(id)!;
+  }
+
+  updateNodeTemplate(id: string, updates: Partial<CreateNodeTemplate>): NodeTemplateRow | undefined {
+    const existing = this.getNodeTemplate(id);
+    if (!existing) return undefined;
+    const now = new Date().toISOString();
+    this.sqlite
+      .prepare(
+        `UPDATE node_templates SET
+           name = ?, description = ?, node_type = ?, icon = ?, category = ?,
+           config = ?, exposed = ?, locked = ?, source = ?,
+           updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        updates.name ?? existing.name,
+        updates.description !== undefined ? (updates.description ?? null) : existing.description,
+        updates.nodeType ?? existing.node_type,
+        updates.icon !== undefined ? (updates.icon ?? null) : existing.icon,
+        updates.category !== undefined ? (updates.category ?? null) : existing.category,
+        updates.config !== undefined ? JSON.stringify(updates.config) : JSON.stringify(existing.config),
+        updates.exposed !== undefined ? JSON.stringify(updates.exposed) : JSON.stringify(existing.exposed),
+        updates.locked !== undefined ? JSON.stringify(updates.locked) : JSON.stringify(existing.locked),
+        updates.source ?? existing.source,
+        now,
+        id,
+      );
+    return this.getNodeTemplate(id);
+  }
+
+  deleteNodeTemplate(id: string): boolean {
+    const result = this.sqlite.prepare('DELETE FROM node_templates WHERE id = ?').run(id);
+    return result.changes > 0;
   }
 
   // ---------------------------------------------------------------------------

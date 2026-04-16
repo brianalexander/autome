@@ -53,7 +53,7 @@ export const AgentStageNode = memo(function AgentStageNode({ data, selected, id 
   const headerRight = (
     <>
       {d.hasReadme && (
-        <span title="Has README">
+        <span title="Has description">
           <FileText className="w-3 h-3 text-[var(--color-text-tertiary)] flex-shrink-0" />
         </span>
       )}

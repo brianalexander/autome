@@ -4,6 +4,7 @@ import type { ManualTriggerProvider } from '../../events/providers/manual.js';
 import type { AgentPool } from '../../acp/pool.js';
 import { broadcast } from '../websocket.js';
 import type { WorkflowDefinition } from '../../types/workflow.js';
+import type { AutomePlugin } from '../../plugin/types.js';
 
 // ---------------------------------------------------------------------------
 // Route dependency injection
@@ -16,6 +17,8 @@ export interface RouteDeps {
   authorPool?: AgentPool;
   acpPool?: AgentPool;
   assistantPool?: AgentPool;
+  /** Loaded plugins — consumed by registerRoutes to attach plugin routes */
+  plugins?: AutomePlugin[];
 }
 
 // ---------------------------------------------------------------------------

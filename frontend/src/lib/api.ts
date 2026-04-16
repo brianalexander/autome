@@ -315,6 +315,68 @@ export const authorApi = {
 };
 
 // Assistant chat API
+// Node templates
+export interface NodeTemplateRecord {
+  id: string;
+  name: string;
+  description: string | null;
+  node_type: string;
+  icon: string | null;
+  category: string | null;
+  config: Record<string, unknown>;
+  exposed: string[];
+  locked: string[];
+  version: number;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const templates = {
+  list: (params?: { nodeType?: string; source?: string }) => {
+    const qs = params
+      ? '?' +
+        new URLSearchParams(
+          Object.fromEntries(
+            Object.entries(params)
+              .filter(([, v]) => v != null)
+              .map(([k, v]) => [k, String(v)]),
+          ),
+        ).toString()
+      : '';
+    return request<NodeTemplateRecord[]>(`/templates${qs}`);
+  },
+  get: (id: string) => request<NodeTemplateRecord>(`/templates/${id}`),
+  create: (data: {
+    name: string;
+    description?: string;
+    nodeType: string;
+    icon?: string;
+    category?: string;
+    config: Record<string, unknown>;
+    exposed?: string[];
+    locked?: string[];
+  }) => request<NodeTemplateRecord>('/templates', { method: 'POST', body: JSON.stringify(data) }),
+  update: (
+    id: string,
+    data: Partial<{
+      name: string;
+      description?: string;
+      nodeType: string;
+      icon?: string;
+      category?: string;
+      config: Record<string, unknown>;
+      exposed?: string[];
+      locked?: string[];
+    }>,
+  ) => request<NodeTemplateRecord>(`/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) => request<void>(`/templates/${id}`, { method: 'DELETE' }),
+  duplicate: (id: string) => request<NodeTemplateRecord>(`/templates/${id}/duplicate`, { method: 'POST' }),
+  import: (items: unknown) =>
+    request<NodeTemplateRecord[]>('/templates/import', { method: 'POST', body: JSON.stringify(items) }),
+  export: (id: string) => request<Record<string, unknown>>(`/templates/${id}/export`),
+};
+
 export const assistantApi = {
   sendMessage: (message: string) =>
     request<{ ok: boolean }>('/assistant/chat', {

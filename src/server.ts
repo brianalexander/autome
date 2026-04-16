@@ -19,6 +19,8 @@ import { launchWorkflow } from './workflow/launch.js';
 import { cleanupOrphanTests } from './workflow/test-run-janitor.js';
 import { startTestRunListener } from './workflow/test-run-listener.js';
 import { initializeRegistry, nodeRegistry } from './nodes/registry.js';
+import { loadPlugins } from './plugin/loader.js';
+import { applyPluginNodeTypes, shutdownPlugins, syncPluginTemplates, trackLoadedPlugin } from './plugin/apply.js';
 import {
   initTriggerLifecycle,
   activateWorkflowTriggers,
@@ -83,6 +85,10 @@ async function start() {
 
   // Initialize node type registry before accepting connections
   await initializeRegistry();
+
+  // Discover plugins early so node types are available before any other setup
+  const plugins = await loadPlugins();
+  await applyPluginNodeTypes(plugins, nodeRegistry);
 
   // Discover and register custom ACP providers from ./providers/ and ~/.autome/providers/
   await initializeProviders();
@@ -160,8 +166,11 @@ async function start() {
   // Register WebSocket plugin
   await app.register(websocketPlugin);
 
-  // Register routes with all dependencies
-  await app.register(registerRoutes, { db, eventBus, manualTrigger, authorPool, acpPool, assistantPool });
+  // Register routes with all dependencies (plugins get routes registered inside)
+  await app.register(registerRoutes, { db, eventBus, manualTrigger, authorPool, acpPool, assistantPool, plugins });
+
+  // Sync plugin-defined templates into the DB (idempotent: create or update by source)
+  await syncPluginTemplates(plugins, db);
 
   // Graceful shutdown hook
   app.addHook('onClose', async () => {
@@ -169,6 +178,7 @@ async function start() {
     deactivateAllTriggers();
     stopTestRunListener?.();
     if (janitorInterval) clearInterval(janitorInterval);
+    await shutdownPlugins().catch((err) => console.warn('[plugins] Shutdown error:', err));
     await eventBus.stopAll().catch(() => {});
     await authorPool?.terminateAll().catch(() => {});
     await acpPool?.terminateAll().catch(() => {});
@@ -195,6 +205,19 @@ async function start() {
   await app.listen({ port: PORT, host: '0.0.0.0' });
   console.log(`Server running on port ${PORT}`);
   console.log(`WebSocket available at ws://localhost:${PORT}/ws`);
+
+  // Call plugin onReady hooks after the server is fully listening, and track
+  // each plugin so its onClose hook fires during graceful shutdown.
+  for (const plugin of plugins) {
+    if (plugin.onReady) {
+      try {
+        await plugin.onReady({ nodeRegistry, eventBus });
+      } catch (err) {
+        console.warn(`[plugins] onReady error for "${plugin.name}":`, err);
+      }
+    }
+    trackLoadedPlugin(plugin);
+  }
 }
 
 start().catch((err) => {

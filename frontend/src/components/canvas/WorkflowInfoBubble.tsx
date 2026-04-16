@@ -38,7 +38,7 @@ export function WorkflowInfoBubble({
   }, [readmeOpen]);
 
   const previewText = stripMarkdown(description || '');
-  const placeholderText = description ? '' : 'Add a README...';
+  const placeholderText = description ? '' : 'Add a description...';
 
   return (
     <>
@@ -80,7 +80,7 @@ export function WorkflowInfoBubble({
             type="button"
             onClick={() => setReadmeOpen(true)}
             className="block w-full text-left mt-0.5 text-xs text-[var(--color-text-tertiary)] truncate cursor-pointer hover:text-[var(--color-text-secondary)] transition-colors"
-            title={previewText || 'Click to add a README'}
+            title={previewText || 'Click to add a description'}
           >
             {previewText || placeholderText}
           </button>
@@ -92,7 +92,7 @@ export function WorkflowInfoBubble({
         value={description || ''}
         onChange={onDescriptionChange}
         modalOnly
-        title="Workflow README"
+        title="Workflow Description"
         expanded={readmeOpen}
         onClose={() => setReadmeOpen(false)}
       />

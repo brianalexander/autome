@@ -33,6 +33,7 @@ import {
   type WorkflowDefinition,
   type StageDefinition,
   type EdgeDefinition,
+  type NodeTemplateRecord,
 } from '../lib/api';
 import { useDraftLifecycle } from '../hooks/useDraftLifecycle';
 import { useTestRun } from '../hooks/useTestRun';
@@ -160,6 +161,7 @@ interface SidebarPanelProps {
   restoringVersion: number | null;
   onWorkflowUpdated: () => void;
   onAddNode: (type: string) => void;
+  onAddTemplate: (template: NodeTemplateRecord) => void;
   onRestoreVersion: (version: number) => void;
   onDefinitionChange: (definition: WorkflowDefinition) => void;
   onExport: (() => void) | undefined;
@@ -170,7 +172,7 @@ interface SidebarPanelProps {
 
 function SidebarPanel({
   tab, effectiveId, definition, isNew, versionHistory, restoringVersion,
-  onWorkflowUpdated, onAddNode, onRestoreVersion, onDefinitionChange, onExport, healthIndicator,
+  onWorkflowUpdated, onAddNode, onAddTemplate, onRestoreVersion, onDefinitionChange, onExport, healthIndicator,
   onIssueStageClick, onIssueEdgeClick,
 }: SidebarPanelProps) {
   return (
@@ -178,7 +180,7 @@ function SidebarPanel({
       <div className="flex flex-col h-full">
         <div className="flex-1 overflow-hidden min-h-0">
           {tab === 'author' && <AuthorChat workflowId={effectiveId} currentDefinition={definition} onWorkflowUpdated={onWorkflowUpdated} />}
-          {tab === 'nodes' && <NodePalette onAddNode={onAddNode} />}
+          {tab === 'nodes' && <NodePalette onAddNode={onAddNode} onAddTemplate={onAddTemplate} />}
           {tab === 'issues' && <ValidationPanel workflowId={effectiveId} onStageClick={onIssueStageClick} onEdgeClick={onIssueEdgeClick} />}
           {tab === 'versions' && (
             <VersionsPanel
@@ -422,6 +424,35 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     [currentDefinition, handleDefinitionChange, nodeTypeList],
   );
 
+  // Add a node from a template — just copy the config, no linkage
+  const handleAddTemplateFromPalette = useCallback(
+    (template: NodeTemplateRecord) => {
+      if (!currentDefinition) return;
+      const existingIds = currentDefinition.stages.map((s) => s.id);
+      const id = generateStageId(template.node_type, existingIds, template.name);
+      const lowestY =
+        currentDefinition.stages.length > 0
+          ? Math.max(...currentDefinition.stages.map((s) => (s.position?.y ?? 0))) + 150
+          : 100;
+      const position = { x: 200, y: lowestY };
+      // When adding from template, just copy the config — no linkage
+      const newStage: StageDefinition = {
+        id,
+        type: template.node_type,
+        label: template.name,
+        position,
+        config: template.config,
+        // Copy template description as stage readme if present
+        ...(template.description ? { readme: template.description } : {}),
+      };
+      handleDefinitionChange({
+        ...currentDefinition,
+        stages: [...currentDefinition.stages, newStage],
+      });
+    },
+    [currentDefinition, handleDefinitionChange],
+  );
+
   // Restore a previous version
   const handleRestoreVersion = useCallback(
     async (version: number) => {
@@ -564,6 +595,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
             restoringVersion={restoringVersion}
             onWorkflowUpdated={handleWorkflowUpdated}
             onAddNode={handleAddNodeFromPalette}
+            onAddTemplate={handleAddTemplateFromPalette}
             onRestoreVersion={handleRestoreVersion}
             onDefinitionChange={handleDefinitionChange}
             onExport={!isNew ? handleExport : undefined}

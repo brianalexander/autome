@@ -203,6 +203,12 @@ function RootLayout() {
             >
               Approvals
             </Link>
+            <Link
+              to="/templates"
+              className="text-text-secondary hover:text-text-primary [&.active]:text-text-primary [&.active]:font-medium transition-colors"
+            >
+              Templates
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-2">

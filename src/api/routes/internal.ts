@@ -105,4 +105,5 @@ export function registerInternalRoutes(app: FastifyInstance, deps: RouteDeps, st
       }
     },
   );
+
 }

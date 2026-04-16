@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { workflows, instances, agents, nodeTypes, acpProviders, settings, approvals } from '../lib/api';
+import { workflows, instances, agents, nodeTypes, acpProviders, settings, approvals, templates } from '../lib/api';
 import type { PaginatedResponse } from '../lib/api';
 import type { WorkflowDefinition } from '../lib/api';
 import { useUIStore } from '../stores/uiStore';
@@ -333,6 +333,15 @@ export function useSetSystemProvider() {
       toast.success('Default provider updated');
     },
     onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+// Template queries
+export function useTemplates(params?: { nodeType?: string; source?: string }) {
+  return useQuery({
+    queryKey: ['templates', params],
+    queryFn: () => templates.list(params),
+    staleTime: 30000,
   });
 }
 

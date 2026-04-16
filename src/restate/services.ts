@@ -1,9 +1,15 @@
 import * as restate from '@restatedev/restate-sdk';
-import { initializeRegistry } from '../nodes/registry.js';
+import { initializeRegistry, nodeRegistry } from '../nodes/registry.js';
 import { pipelineWorkflow } from './pipeline-workflow.js';
+import { loadPlugins } from '../plugin/loader.js';
+import { applyPluginNodeTypes } from '../plugin/apply.js';
 
 // Initialize node registry before binding the workflow endpoint
 await initializeRegistry();
+
+// Load plugins and register their node types into the registry
+const plugins = await loadPlugins();
+await applyPluginNodeTypes(plugins, nodeRegistry);
 
 const endpoint = restate.endpoint();
 endpoint.bind(pipelineWorkflow);

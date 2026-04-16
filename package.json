@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/server.ts",
+    "./plugin": "./src/plugin/index.ts"
+  },
   "workspaces": [
     "frontend"
   ],

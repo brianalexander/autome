@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { NodeTypeSpec, NodeTypeInfo } from './types.js';
 import { jsonSchemaToZod } from './schema-to-zod.js';
 
-class NodeTypeRegistry {
+export class NodeTypeRegistry {
   private specs = new Map<string, NodeTypeSpec>();
   private configSchemas = new Map<string, z.ZodType>();
 
