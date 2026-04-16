@@ -62,6 +62,78 @@ interface RawNodeTemplateRow {
   updated_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Gate types
+// ---------------------------------------------------------------------------
+
+export interface GateRow {
+  instance_id: string;
+  stage_id: string;
+  kind: 'gate' | 'stage-complete';
+  status: 'waiting' | 'resolved' | 'rejected';
+  payload: unknown | null;  // parsed JSON
+  created_at: string;
+  resolved_at: string | null;
+}
+
+interface RawGateRow {
+  instance_id: string;
+  stage_id: string;
+  kind: string;
+  status: string;
+  payload: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+function parseGateRow(row: RawGateRow): GateRow {
+  return {
+    instance_id: row.instance_id,
+    stage_id: row.stage_id,
+    kind: row.kind as GateRow['kind'],
+    status: row.status as GateRow['status'],
+    payload: row.payload !== null ? JSON.parse(row.payload) : null,
+    created_at: row.created_at,
+    resolved_at: row.resolved_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled timer types
+// ---------------------------------------------------------------------------
+
+export interface ScheduledTimerRow {
+  id: string;
+  instance_id: string;
+  stage_id: string;
+  kind: string;
+  fire_at: string;
+  payload: unknown | null;
+  created_at: string;
+}
+
+interface RawScheduledTimerRow {
+  id: string;
+  instance_id: string;
+  stage_id: string;
+  kind: string;
+  fire_at: string;
+  payload: string | null;
+  created_at: string;
+}
+
+function parseScheduledTimerRow(row: RawScheduledTimerRow): ScheduledTimerRow {
+  return {
+    id: row.id,
+    instance_id: row.instance_id,
+    stage_id: row.stage_id,
+    kind: row.kind,
+    fire_at: row.fire_at,
+    payload: row.payload !== null ? JSON.parse(row.payload) : null,
+    created_at: row.created_at,
+  };
+}
+
 function parseNodeTemplateRow(row: RawNodeTemplateRow): NodeTemplateRow {
   return {
     id: row.id,
@@ -1354,6 +1426,129 @@ export class OrchestratorDB {
   deleteNodeTemplate(id: string): boolean {
     const result = this.sqlite.prepare('DELETE FROM node_templates WHERE id = ?').run(id);
     return result.changes > 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gates (durable wait state for engine)
+  // ---------------------------------------------------------------------------
+
+  getGate(instanceId: string, stageId: string, kind: 'gate' | 'stage-complete'): GateRow | null {
+    const row = this.sqlite
+      .prepare<[string, string, string], RawGateRow>(
+        'SELECT instance_id, stage_id, kind, status, payload, created_at, resolved_at FROM gates WHERE instance_id = ? AND stage_id = ? AND kind = ?',
+      )
+      .get(instanceId, stageId, kind);
+    return row ? parseGateRow(row) : null;
+  }
+
+  upsertWaitingGate(instanceId: string, stageId: string, kind: 'gate' | 'stage-complete'): void {
+    this.sqlite
+      .prepare(
+        `INSERT INTO gates (instance_id, stage_id, kind, status)
+         VALUES (?, ?, ?, 'waiting')
+         ON CONFLICT (instance_id, stage_id, kind) DO UPDATE SET
+           status = CASE WHEN status = 'waiting' THEN 'waiting' ELSE status END`,
+      )
+      .run(instanceId, stageId, kind);
+  }
+
+  resolveGate(instanceId: string, stageId: string, kind: 'gate' | 'stage-complete', payload: unknown): void {
+    this.sqlite
+      .prepare(
+        `INSERT INTO gates (instance_id, stage_id, kind, status, payload, resolved_at)
+         VALUES (?, ?, ?, 'resolved', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+         ON CONFLICT (instance_id, stage_id, kind) DO UPDATE SET
+           status = 'resolved',
+           payload = excluded.payload,
+           resolved_at = excluded.resolved_at`,
+      )
+      .run(instanceId, stageId, kind, JSON.stringify(payload));
+  }
+
+  rejectGate(instanceId: string, stageId: string, kind: 'gate' | 'stage-complete', reason: unknown): void {
+    this.sqlite
+      .prepare(
+        `INSERT INTO gates (instance_id, stage_id, kind, status, payload, resolved_at)
+         VALUES (?, ?, ?, 'rejected', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+         ON CONFLICT (instance_id, stage_id, kind) DO UPDATE SET
+           status = 'rejected',
+           payload = excluded.payload,
+           resolved_at = excluded.resolved_at`,
+      )
+      .run(instanceId, stageId, kind, JSON.stringify(reason));
+  }
+
+  listWaitingGatesForInstance(instanceId: string): GateRow[] {
+    const rows = this.sqlite
+      .prepare<[string], RawGateRow>(
+        `SELECT instance_id, stage_id, kind, status, payload, created_at, resolved_at
+         FROM gates WHERE instance_id = ? AND status = 'waiting'`,
+      )
+      .all(instanceId);
+    return rows.map(parseGateRow);
+  }
+
+  clearGatesForInstance(instanceId: string): void {
+    this.sqlite.prepare('DELETE FROM gates WHERE instance_id = ?').run(instanceId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scheduled timers (durable timers for engine)
+  // ---------------------------------------------------------------------------
+
+  createScheduledTimer(params: {
+    id?: string;
+    instanceId: string;
+    stageId: string;
+    kind: string;
+    fireAt: string;
+    payload?: unknown;
+  }): ScheduledTimerRow {
+    const id = params.id ?? uuidv4();
+    this.sqlite
+      .prepare(
+        `INSERT INTO scheduled_timers (id, instance_id, stage_id, kind, fire_at, payload)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        params.instanceId,
+        params.stageId,
+        params.kind,
+        params.fireAt,
+        params.payload !== undefined ? JSON.stringify(params.payload) : null,
+      );
+    return this.getScheduledTimer(id)!;
+  }
+
+  getScheduledTimer(id: string): ScheduledTimerRow | null {
+    const row = this.sqlite
+      .prepare<[string], RawScheduledTimerRow>(
+        'SELECT id, instance_id, stage_id, kind, fire_at, payload, created_at FROM scheduled_timers WHERE id = ?',
+      )
+      .get(id);
+    return row ? parseScheduledTimerRow(row) : null;
+  }
+
+  deleteScheduledTimer(id: string): void {
+    this.sqlite.prepare('DELETE FROM scheduled_timers WHERE id = ?').run(id);
+  }
+
+  /** Returns all timers with fire_at <= now, ordered by fire_at ascending. */
+  listPendingTimers(): ScheduledTimerRow[] {
+    const rows = this.sqlite
+      .prepare<[], RawScheduledTimerRow>(
+        `SELECT id, instance_id, stage_id, kind, fire_at, payload, created_at
+         FROM scheduled_timers
+         WHERE fire_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         ORDER BY fire_at ASC`,
+      )
+      .all();
+    return rows.map(parseScheduledTimerRow);
+  }
+
+  clearTimersForInstance(instanceId: string): void {
+    this.sqlite.prepare('DELETE FROM scheduled_timers WHERE instance_id = ?').run(instanceId);
   }
 
   // ---------------------------------------------------------------------------
