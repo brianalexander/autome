@@ -9,6 +9,7 @@ import { OrchestratorDB } from '../../../db/database.js';
 import { EventBus } from '../../../events/bus.js';
 import { ManualTriggerProvider } from '../../../events/providers/manual.js';
 import { AgentPool } from '../../../acp/pool.js';
+import { WorkflowRunner } from '../../../engine/runner.js';
 import { registerInternalRoutes } from '../internal.js';
 import type { WorkflowDefinition } from '../../../types/workflow.js';
 import type { SharedState } from '../shared.js';
@@ -26,8 +27,8 @@ vi.mock('../../websocket.js', () => ({
 vi.mock('../internal-author.js', () => ({
   registerAuthorRoutes: vi.fn(),
 }));
-vi.mock('../internal-restate.js', () => ({
-  registerRestateRoutes: vi.fn(),
+vi.mock('../internal-signals.js', () => ({
+  registerSignalRoutes: vi.fn(),
 }));
 
 async function buildApp(): Promise<FastifyInstance> {
@@ -37,15 +38,17 @@ async function buildApp(): Promise<FastifyInstance> {
   eventBus.registerProvider(manualTrigger);
   const acpPool = new AgentPool();
   const authorPool = new AgentPool();
+  const runner = new WorkflowRunner(db, eventBus);
 
   const app = Fastify({ logger: false });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  const deps = { db, eventBus, manualTrigger, acpPool, authorPool };
+  const deps = { db, eventBus, runner, manualTrigger, acpPool, authorPool };
   const authorDrafts = new Map<string, WorkflowDefinition>();
   const assistantPool = new AgentPool();
   const state: SharedState = {
+    runner,
     authorPool,
     acpPool,
     assistantPool,

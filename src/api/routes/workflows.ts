@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { createReadStream } from 'fs';
 import { writeFile, unlink, mkdir } from 'fs/promises';
 import { join } from 'path';
-import * as restateClient from '../../restate/client.js';
 import { launchWorkflow } from '../../workflow/launch.js';
 import { WorkflowDefinitionSchema } from '../../schemas/pipeline.js';
 import type { RouteDeps, SharedState } from './shared.js';
@@ -208,12 +207,10 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
             }
           }
 
-          // Abort the Restate workflow (best-effort)
-          try {
-            await restateClient.cancelWorkflow(instanceId);
-          } catch (restateErr) {
-            console.warn(`[delete-workflow] Could not cancel Restate workflow ${instanceId}:`, restateErr);
-          }
+          // Cancel the runner (aborts in-memory execution — best-effort)
+          await state.runner.cancel(instanceId).catch((err) => {
+            console.warn(`[delete-workflow] Could not cancel runner workflow ${instanceId}:`, err);
+          });
 
           // Mark the instance as cancelled in the DB
           try {
@@ -261,8 +258,9 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
         const event = deps.manualTrigger.trigger((body.payload || {}) as Record<string, unknown>);
 
         const allStageIds = workflow.stages.map((s) => s.id);
-        const { instance, restateError, validationError } = await launchWorkflow(
+        const { instance, runnerError, validationError } = await launchWorkflow(
           deps.db,
+          state.runner,
           workflow,
           event,
           allStageIds,
@@ -271,8 +269,8 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
         if (validationError) {
           return reply.code(422).send({ error: 'Payload validation failed', details: validationError });
         }
-        if (restateError) {
-          console.error('[trigger] Restate error:', restateError);
+        if (runnerError) {
+          console.error('[trigger] Runner error:', runnerError);
         }
 
         return reply.code(201).send(instance);

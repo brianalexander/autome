@@ -12,6 +12,7 @@ import { websocketPlugin } from './api/websocket.js';
 import { EventBus } from './events/bus.js';
 import { ManualTriggerProvider } from './events/providers/manual.js';
 import { AgentPool } from './acp/pool.js';
+import { WorkflowRunner } from './engine/runner.js';
 import { createProvider, initializeProviders } from './acp/provider/registry.js';
 import { setDefaultProvider } from './agents/discovery.js';
 import { runCrashRecovery } from './recovery.js';
@@ -35,6 +36,7 @@ const PORT = config.port;
 // All are assigned inside start() so errors are covered by start().catch().
 let db: OrchestratorDB;
 let eventBus: EventBus;
+let runner: WorkflowRunner;
 let manualTrigger: ManualTriggerProvider;
 let authorPool: AgentPool;
 let acpPool: AgentPool;
@@ -58,6 +60,9 @@ async function start() {
   manualTrigger = new ManualTriggerProvider();
   eventBus.registerProvider(manualTrigger);
 
+  // Initialize workflow runner
+  runner = new WorkflowRunner(db, eventBus);
+
   // Initialize trigger lifecycle manager with the event bus
   initTriggerLifecycle(eventBus);
 
@@ -70,13 +75,13 @@ async function start() {
       const nonTriggerStageIds = workflow.stages
         .filter((s) => !nodeRegistry.isTriggerType(s.type))
         .map((s) => s.id);
-      const { restateError, validationError } = await launchWorkflow(db, workflow, event, nonTriggerStageIds, workflow.id, { initiatedBy: 'cron' });
+      const { runnerError, validationError } = await launchWorkflow(db, runner, workflow, event, nonTriggerStageIds, workflow.id, { initiatedBy: 'cron' });
       if (validationError) {
         console.error(`[event-bus] Payload validation failed for ${workflow.id}: ${validationError}`);
         return;
       }
-      if (restateError) {
-        console.error('[event-bus] Failed to start Restate workflow:', restateError);
+      if (runnerError) {
+        console.error('[event-bus] Failed to start workflow:', runnerError);
       }
     } catch (err) {
       console.error('[event-bus] Error spawning instance:', err);
@@ -167,7 +172,7 @@ async function start() {
   await app.register(websocketPlugin);
 
   // Register routes with all dependencies (plugins get routes registered inside)
-  await app.register(registerRoutes, { db, eventBus, manualTrigger, authorPool, acpPool, assistantPool, plugins });
+  await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins });
 
   // Sync plugin-defined templates into the DB (idempotent: create or update by source)
   await syncPluginTemplates(plugins, db);
@@ -178,6 +183,7 @@ async function start() {
     deactivateAllTriggers();
     stopTestRunListener?.();
     if (janitorInterval) clearInterval(janitorInterval);
+    await runner?.shutdown().catch((err) => console.warn('[runner] Shutdown error:', err));
     await shutdownPlugins().catch((err) => console.warn('[plugins] Shutdown error:', err));
     await eventBus.stopAll().catch(() => {});
     await authorPool?.terminateAll().catch(() => {});
@@ -188,6 +194,11 @@ async function start() {
 
   // Start event bus
   eventBus.startAll().catch((err) => console.error('[event-bus] Start error:', err));
+
+  // Resume any non-terminal workflow instances that survived the previous restart
+  await runner.resumeAllFromDB().catch((err) =>
+    console.error('[runner] resumeAllFromDB error:', err),
+  );
 
   // Restore active workflow subscriptions and trigger executors from database
   const { data: workflows } = db.listWorkflows();

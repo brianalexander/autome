@@ -23,7 +23,7 @@
     "restate:services": "tsx src/restate/services.ts",
     "restate:register": "npx @restatedev/restate deployments register http://localhost:9080",
     "seed": "tsx scripts/seed.ts",
-    "dev:all": "concurrently -n api,web,rst -c blue,green,yellow \"npm run dev\" \"npm run dev --prefix frontend\" \"npm run restate:services\"",
+    "dev:all": "concurrently -n api,web -c blue,green \"npm run dev\" \"npm run dev --prefix frontend\"",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",

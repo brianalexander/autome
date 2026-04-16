@@ -2,10 +2,8 @@ import type { OrchestratorDB } from '../db/database.js';
 import type { WorkflowDefinition } from '../schemas/pipeline.js';
 import type { Event } from '../types/events.js';
 import type { InitiatedBy, WorkflowInstance, WorkflowContext } from '../types/instance.js';
-import { startWorkflow as restateStart, startWorkflowResume } from '../restate/client.js';
-import { findEntryStages } from '../restate/pipeline-workflow.js';
+import type { WorkflowRunner } from '../engine/runner.js';
 import { broadcast } from '../api/websocket.js';
-import { errorMessage } from '../utils/errors.js';
 import { nodeRegistry } from '../nodes/registry.js';
 import { jsonSchemaToZod } from '../nodes/schema-to-zod.js';
 
@@ -27,17 +25,23 @@ interface LaunchOptions {
 
 export interface LaunchResult {
   instance?: ReturnType<OrchestratorDB['createInstance']>;
-  /** Set when Restate failed to start the workflow */
-  restateError?: string;
+  /** Set when the runner failed to start the workflow */
+  runnerError?: string;
   /** Set when the trigger payload failed schema validation */
   validationError?: string;
+  /**
+   * @deprecated Use runnerError. Kept for backward compatibility with callers
+   * that check restateError.
+   */
+  restateError?: string;
 }
 
 /**
- * Create a workflow instance record, start it in Restate, handle Restate
+ * Create a workflow instance record, start it via WorkflowRunner, handle
  * errors, and broadcast the `instance:created` event.
  *
  * @param db          The orchestrator database
+ * @param runner      The WorkflowRunner instance
  * @param workflow    The workflow definition to launch
  * @param event       The trigger event that caused the launch
  * @param stageIds    The stage IDs to include in the instance context
@@ -48,6 +52,7 @@ export interface LaunchResult {
  */
 export async function launchWorkflow(
   db: OrchestratorDB,
+  runner: WorkflowRunner,
   workflow: WorkflowDefinition,
   event: Event,
   stageIds: string[],
@@ -126,18 +131,21 @@ export async function launchWorkflow(
     restate_workflow_id: undefined,
   });
 
-  let restateError: string | undefined;
+  let runnerError: string | undefined;
 
   try {
-    await restateStart(instance.id, workflow, event);
-    db.updateInstance(instance.id, { restate_workflow_id: instance.id });
+    await runner.start(instance.id, workflow, event);
   } catch (err) {
-    restateError = errorMessage(err);
+    runnerError = err instanceof Error ? err.message : String(err);
 
     if (markEntryStagesOnError) {
-      const entryStageIds = findEntryStages(workflow);
-      const updatedContext = { ...instance.context };
+      // Find entry stage IDs: non-trigger stages with no incoming edges
+      const targetIds = new Set(workflow.edges.map(e => e.target));
+      const entryStageIds = workflow.stages
+        .filter(s => !nodeRegistry.isTriggerType(s.type) && !targetIds.has(s.id))
+        .map(s => s.id);
 
+      const updatedContext = { ...instance.context };
       for (const stageId of entryStageIds) {
         if (updatedContext.stages[stageId]) {
           updatedContext.stages[stageId].status = 'failed';
@@ -147,12 +155,11 @@ export async function launchWorkflow(
               started_at: new Date().toISOString(),
               completed_at: new Date().toISOString(),
               status: 'failed',
-              error: `Failed to start workflow: ${restateError}`,
+              error: `Failed to start workflow: ${runnerError}`,
             },
           ];
         }
       }
-
       db.updateInstance(instance.id, { status: 'failed', context: updatedContext });
     } else {
       db.updateInstance(instance.id, { status: 'failed' });
@@ -169,24 +176,25 @@ export async function launchWorkflow(
     { workflowId: definitionId },
   );
 
-  return { instance, restateError };
+  return { instance, runnerError, restateError: runnerError };
 }
 
 export interface ResumeResult {
-  restateError?: string;
   resumeCount: number;
-  restateWorkflowId: string;
+  runnerError?: string;
+  /**
+   * @deprecated Use runnerError. Kept for backward compatibility.
+   */
+  restateError?: string;
+  restateWorkflowId?: string;
 }
 
 /**
  * Resume a failed or cancelled workflow instance from the given entry stages.
- *
- * Mints a new Restate workflow key (`{id}-r{n}`) so that Restate's exactly-once
- * guarantee is not violated, but keeps the same DB instance_id so the UI sees
- * the run as a continuation of the same instance.
  */
 export async function launchWorkflowWithResume(
   db: OrchestratorDB,
+  runner: WorkflowRunner,
   instance: WorkflowInstance,
   definition: WorkflowDefinition,
   fromStageIds: string[],
@@ -196,12 +204,6 @@ export async function launchWorkflowWithResume(
   const seedContext: WorkflowContext = JSON.parse(JSON.stringify(instance.context));
 
   // BFS from fromStageIds to find all downstream stages that must be reset.
-  // We track visited nodes separately from stagesToReset so that we traverse
-  // THROUGH completed stages (to discover further downstream nodes that may
-  // need resetting) without adding those completed stages to the reset set.
-  // Completed stages already have valid output and must not be clobbered —
-  // this is critical for diamond/fan-in topologies where one arm may have
-  // already finished successfully.
   const stagesToReset = new Set<string>();
   const visited = new Set<string>(fromStageIds);
   const queue = [...fromStageIds];
@@ -217,8 +219,7 @@ export async function launchWorkflowWithResume(
       if (edge.source === current && !visited.has(edge.target)) {
         visited.add(edge.target);
         queue.push(edge.target);
-        // Only reset stages that are not already completed — completed stages
-        // have valid output and should be preserved in diamond/fan-in graphs.
+        // Only reset stages that are not already completed
         if (seedContext.stages[edge.target]?.status !== 'completed') {
           stagesToReset.add(edge.target);
         }
@@ -227,7 +228,6 @@ export async function launchWorkflowWithResume(
   }
 
   // Determine which edges touch reset stages (source OR target is being reset)
-  // so we can clear edgeTraversals for them.
   const edgesToClear = new Set<string>();
   for (const edge of definition.edges) {
     if (stagesToReset.has(edge.source) || stagesToReset.has(edge.target)) {
@@ -268,29 +268,26 @@ export async function launchWorkflowWithResume(
   }
 
   const resumeCount = (instance.resume_count ?? 0) + 1;
-  const restateKey = `${instance.id}-r${resumeCount}`;
 
-  let restateError: string | undefined;
+  let runnerError: string | undefined;
   try {
-    await startWorkflowResume(
-      restateKey,
+    await runner.startResume(
+      instance.id,
       definition,
       instance.trigger_event as unknown as Event,
       seedContext,
       fromStageIds,
     );
   } catch (err) {
-    restateError = errorMessage(err);
+    runnerError = err instanceof Error ? err.message : String(err);
   }
 
-  if (restateError) {
-    return { restateError, resumeCount, restateWorkflowId: restateKey };
+  if (runnerError) {
+    return { runnerError, restateError: runnerError, resumeCount };
   }
 
   // Update the DB instance to reflect the new run
-  // completed_at: undefined → updateInstance's ?? null coercion clears the column
   db.updateInstance(instance.id, {
-    restate_workflow_id: restateKey,
     resume_count: resumeCount,
     status: 'running',
     context: seedContext,
@@ -303,5 +300,5 @@ export async function launchWorkflowWithResume(
     { instanceId: instance.id },
   );
 
-  return { resumeCount, restateWorkflowId: restateKey };
+  return { resumeCount };
 }

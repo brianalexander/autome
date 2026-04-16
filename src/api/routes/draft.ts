@@ -640,6 +640,7 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
 
         const { instance, validationError } = await launchWorkflow(
           deps.db,
+          state.runner,
           testDef,
           event,
           nonTriggerStageIds,

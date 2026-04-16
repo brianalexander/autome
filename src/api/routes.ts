@@ -32,6 +32,7 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   loadDraftAliases(deps.db.listDraftAliases());
 
   const state: SharedState = {
+    runner: deps.runner,
     authorPool,
     acpPool,
     assistantPool,

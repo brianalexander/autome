@@ -79,13 +79,14 @@ export function registerWebhookRoutes(app: FastifyInstance, deps: RouteDeps, sta
           },
         };
 
-        // Create instance and start Restate workflow
+        // Create instance and start workflow via runner
         const nonTriggerStageIds = workflow.stages
           .filter((s) => !nodeRegistry.isTriggerType(s.type))
           .map((s) => s.id);
 
-        const { instance, restateError, validationError } = await launchWorkflow(
+        const { instance, runnerError, validationError } = await launchWorkflow(
           deps.db,
+          state.runner,
           workflow,
           event,
           nonTriggerStageIds,
@@ -95,8 +96,8 @@ export function registerWebhookRoutes(app: FastifyInstance, deps: RouteDeps, sta
         if (validationError) {
           return reply.code(422).send({ error: 'Payload validation failed', details: validationError });
         }
-        if (restateError) {
-          console.error('[webhook] Restate error:', restateError);
+        if (runnerError) {
+          console.error('[webhook] Runner error:', runnerError);
         }
 
         // Return run info to the caller (instance is defined — we returned early on validationError)
