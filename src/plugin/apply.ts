@@ -8,7 +8,7 @@ const CURRENT_API_VERSION = 1;
 // Track loaded plugins for shutdown hooks
 const loadedPlugins: AutomePlugin[] = [];
 
-/** Apply only node-type registrations (for the Restate service process which has no Fastify) */
+/** Apply only node-type registrations. Called at boot before Fastify routes are wired. */
 export async function applyPluginNodeTypes(plugins: AutomePlugin[], nodeRegistry: NodeTypeRegistry): Promise<void> {
   for (const plugin of plugins) {
     if (plugin.apiVersion && plugin.apiVersion > CURRENT_API_VERSION) continue;
