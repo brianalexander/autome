@@ -2,7 +2,6 @@
  * Agent node — spawns an ACP agent session, sends a prompt, waits for
  * the agent to call workflow_signal with completion output.
  */
-import * as restate from '@restatedev/restate-sdk';
 import { buildAgentPrompt } from '../../engine/context-resolver.js';
 import type { NodeTypeSpec, StepExecutor, StepExecutorContext, StageOutput } from '../types.js';
 import type { AgentOverrides } from '../../types/workflow.js';
@@ -36,34 +35,30 @@ const executor: StepExecutor = {
       (config.overrides as AgentOverrides | undefined)?.acpProvider || definition.acpProvider || undefined;
 
     // Spawn the agent via the orchestrator
-    await ctx.run(`spawn-agent-${stageId}-iter-${iteration}`, async () => {
-      const response = await fetch(`${orchestratorUrl}/api/internal/spawn-agent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instanceId: ctx.key,
-          stageId,
-          iteration,
-          agentId: config.agentId || '',
-          prompt,
-          context: workflowContext,
-          overrides: config.overrides ?? undefined,
-          definitionId: definition.id,
-          ...(stageAcpProvider ? { acpProvider: stageAcpProvider } : {}),
-          ...(config.timeout_minutes != null ? { timeout_minutes: config.timeout_minutes } : {}),
-        }),
-      });
-
-      if (!response.ok) {
-        const error = (await response.json().catch(() => ({ error: 'Unknown error' }))) as { error?: string };
-        throw new Error(`Failed to spawn agent: ${error.error || response.statusText}`);
-      }
-
-      return response.json();
+    const spawnResponse = await fetch(`${orchestratorUrl}/api/internal/spawn-agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        instanceId: ctx.instanceId,
+        stageId,
+        iteration,
+        agentId: config.agentId || '',
+        prompt,
+        context: workflowContext,
+        overrides: config.overrides ?? undefined,
+        definitionId: definition.id,
+        ...(stageAcpProvider ? { acpProvider: stageAcpProvider } : {}),
+        ...(config.timeout_minutes != null ? { timeout_minutes: config.timeout_minutes } : {}),
+      }),
     });
 
+    if (!spawnResponse.ok) {
+      const error = (await spawnResponse.json().catch(() => ({ error: 'Unknown error' }))) as { error?: string };
+      throw new Error(`Failed to spawn agent: ${error.error || spawnResponse.statusText}`);
+    }
+
     // Wait for the agent to call workflow_signal with completed/failed
-    const output = await ctx.promise<StageOutput>(`stage-complete-${stageId}`).get();
+    const output = await ctx.waitFor<StageOutput>(`stage-complete-${stageId}`);
 
     // Kill the ACP process — but NOT if cycle_behavior is 'continue' and this stage is in a cycle.
     // For 'continue' mode, the session stays alive for re-entry; it will be cleaned up
@@ -71,14 +66,11 @@ const executor: StepExecutor = {
     const cycleBehavior = (config.cycle_behavior as string) || 'fresh';
     const inCycle = stageIsInCycle(stageId, definition.edges);
     if (cycleBehavior !== 'continue' || !inCycle) {
-      await ctx.run(`kill-agent-${stageId}-iter-${iteration}`, async () => {
-        await fetch(`${orchestratorUrl}/api/internal/kill-agent`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ instanceId: ctx.key, stageId }),
-        }).catch(() => {});
-        return { killed: true };
-      });
+      await fetch(`${orchestratorUrl}/api/internal/kill-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceId: ctx.instanceId, stageId }),
+      }).catch(() => {});
     }
 
     return { output };

@@ -1,3 +1,4 @@
+// @ts-nocheck — dead code path, will be deleted in Stage D
 import * as restate from '@restatedev/restate-sdk';
 import type { WorkflowDefinition } from '../types/workflow.js';
 import type { Event } from '../types/events.js';

@@ -38,10 +38,7 @@ export async function executeWithRetry(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      // Stage B will replace this cast with the real EngineStepExecutorContext.
-      // For now, the executor is called with `as any` since existing node types
-      // still expect restate.WorkflowContext in StepExecutorContext.
-      const result = await (spec.executor as any).execute({
+      const result = await (spec.executor as import('../nodes/types.js').StepExecutor).execute({
         ctx: execCtx,
         stageId,
         config,

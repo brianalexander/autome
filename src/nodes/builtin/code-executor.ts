@@ -34,7 +34,7 @@ function extractOutput(stdout: string): unknown {
 const executor: StepExecutor = {
   type: 'step',
   async execute(execCtx: StepExecutorContext): Promise<{ output: unknown }> {
-    const { ctx, stageId, config, definition, iteration } = execCtx;
+    const { stageId, config, definition, iteration } = execCtx;
     const code = (config.code as string) || 'export default ({ input }) => input;';
     const timeoutMs = ((config.timeout_seconds as number) || 30) * 1000;
     const dependencies = (config.dependencies as Record<string, string>) || {};
@@ -42,7 +42,7 @@ const executor: StepExecutor = {
     const workflowId = definition.id;
     const version = definition.version ?? 1;
 
-    const output = await ctx.run(`code-exec-${stageId}-${iteration}`, async () => {
+    const output = await (async () => {
       // 1. Ensure workspace with dependencies
       const workspace = await ensureWorkspace(workflowId, version, dependencies);
 
