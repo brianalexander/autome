@@ -93,7 +93,7 @@ const executor: StepExecutor = {
         // 6. Cleanup temp file
         await cleanupCodeFile(codePath);
       }
-    });
+    })();
 
     return { output };
   },
