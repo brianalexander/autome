@@ -409,8 +409,9 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           clearTimeout(existingTimeout);
           state.stageTimeouts.delete(gateKey);
         }
-        // resolveWait updates the DB gate row and fires the in-memory resolver
-        state.runner.resolveWait(id, `gate-${stageId}`, data);
+        // resolveWait updates the DB gate row and fires the in-memory resolver.
+        // The gate executor expects `{approved: boolean, data?: unknown}`.
+        state.runner.resolveWait(id, `gate-${stageId}`, { approved: true, data });
         db.updateInstance(id, { status: 'running' });
         broadcast(
           'instance:gate_approved',
@@ -444,9 +445,11 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           clearTimeout(existingTimeout);
           state.stageTimeouts.delete(gateKey);
         }
-        // rejectWait updates the DB gate row and fires the in-memory resolver
-        state.runner.rejectWait(id, `gate-${stageId}`, body.reason ?? 'Gate rejected');
-        db.updateInstance(id, { status: 'failed' });
+        // Resolve with {approved: false} so the gate executor's own TerminalError
+        // logic can produce a clean "Gate was rejected" failure, rather than a
+        // raw runner rejection that surfaces as an unrelated promise error.
+        state.runner.resolveWait(id, `gate-${stageId}`, { approved: false, data: body.reason });
+        // The gate executor will throw TerminalError → runner marks instance failed.
         broadcast(
           'instance:gate_rejected',
           {
