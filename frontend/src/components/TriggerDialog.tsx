@@ -129,6 +129,25 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
     }
   }, [input]);
 
+  // Build description hints from schema
+  const fieldHints = useMemo(() => {
+    if (!hasSchema || !outputSchema) return null;
+    const props = outputSchema.properties as Record<string, SchemaProperty>;
+    const required = (outputSchema.required || []) as string[];
+    const hints: { key: string; type: string; desc?: string; req: boolean }[] = [];
+    for (const [key, prop] of Object.entries(props)) {
+      hints.push({
+        key,
+        type: prop.type || 'string',
+        desc: prop.description,
+        req: required.includes(key),
+      });
+    }
+    return hints.length > 0 ? hints : null;
+  }, [hasSchema, outputSchema]);
+
+  // All hooks must run before this early return — React requires a stable hook
+  // count across renders. Don't add hooks below this line.
   if (!isOpen) return null;
 
   const handleSubmit = () => {
@@ -174,23 +193,6 @@ export function TriggerDialog({ workflowName, isOpen, onClose, onTrigger, isPend
       setTimeout(() => ta.setSelectionRange(start + 2, start + 2), 0);
     }
   };
-
-  // Build description hints from schema
-  const fieldHints = useMemo(() => {
-    if (!hasSchema || !outputSchema) return null;
-    const props = outputSchema.properties as Record<string, SchemaProperty>;
-    const required = (outputSchema.required || []) as string[];
-    const hints: { key: string; type: string; desc?: string; req: boolean }[] = [];
-    for (const [key, prop] of Object.entries(props)) {
-      hints.push({
-        key,
-        type: prop.type || 'string',
-        desc: prop.description,
-        req: required.includes(key),
-      });
-    }
-    return hints.length > 0 ? hints : null;
-  }, [hasSchema, outputSchema]);
 
   const statusIndicator =
     jsonStatus === 'valid'
