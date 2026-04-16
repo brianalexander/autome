@@ -313,11 +313,45 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
         if (fromStageId) {
           fromStageIds = [fromStageId];
         } else {
-          fromStageIds = Object.entries(instance.context?.stages ?? {})
+          const stages = instance.context?.stages ?? {};
+          // Primary: any failed stage (the classic failed-run resume case)
+          fromStageIds = Object.entries(stages)
             .filter(([, ctx]) => ctx.status === 'failed')
             .map(([id]) => id);
+
+          // Fallback: for cancelled instances with no failed stages (the user
+          // clicked Stop BETWEEN stages), resume from any still-running stage
+          // plus any pending stage whose upstream dependencies are all complete.
+          if (fromStageIds.length === 0 && instance.status === 'cancelled') {
+            const runningStageIds = Object.entries(stages)
+              .filter(([, ctx]) => ctx.status === 'running')
+              .map(([id]) => id);
+
+            const nextUpStageIds = Object.entries(stages)
+              .filter(([id, ctx]) => {
+                if (ctx.status !== 'pending') return false;
+                // Find upstream on_success edges in the definition
+                const upstream = definition.edges
+                  .filter((e) => e.target === id && (e.trigger || 'on_success') === 'on_success')
+                  .map((e) => e.source);
+                if (upstream.length === 0) return false; // trigger stages excluded
+                return upstream.every((srcId) => {
+                  const srcStatus = stages[srcId]?.status;
+                  return srcStatus === 'completed' || srcStatus === 'skipped';
+                });
+              })
+              .map(([id]) => id);
+
+            fromStageIds = Array.from(new Set([...runningStageIds, ...nextUpStageIds]));
+          }
+
           if (fromStageIds.length === 0) {
-            return reply.code(400).send({ error: 'No failed stages found to resume from.' });
+            return reply.code(400).send({
+              error:
+                instance.status === 'cancelled'
+                  ? 'No resumable stages found. The run may already be complete.'
+                  : 'No failed stages found to resume from.',
+            });
           }
         }
 

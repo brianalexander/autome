@@ -120,13 +120,29 @@ export class WorkflowRunner {
       this.db.updateInstance(instanceId, { status: 'cancelled', completed_at: new Date().toISOString() });
       return;
     }
+    console.log(`[runner.cancel] ${instanceId}: aborting, ${handle.waitResolvers.size} waiters pending`);
     handle.abortController.abort();
     // Reject all waiting resolvers
-    for (const [, resolver] of handle.waitResolvers) {
+    for (const [key, resolver] of handle.waitResolvers) {
+      console.log(`[runner.cancel] ${instanceId}: rejecting waiter "${key}"`);
       resolver.reject(new Error('Cancelled'));
     }
-    // Let the execution promise settle
-    await handle.executionPromise.catch(() => {});
+    // Wait for the execution promise to settle, but don't hang forever if it gets stuck.
+    // If it doesn't settle in 5 seconds, force DB update + remove from active map.
+    const timeoutMs = 5000;
+    const settled = await Promise.race([
+      handle.executionPromise.then(() => true, () => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
+    ]);
+    if (!settled) {
+      console.warn(
+        `[runner.cancel] ${instanceId}: executionPromise did not settle within ${timeoutMs}ms — forcing cancellation`,
+      );
+      this.db.updateInstance(instanceId, { status: 'cancelled', completed_at: new Date().toISOString() });
+      this.active.delete(instanceId);
+    } else {
+      console.log(`[runner.cancel] ${instanceId}: execution settled`);
+    }
   }
 
   /** Resolves a durable wait for the given instance+key. Returns true if a waiter was found. */
