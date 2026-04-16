@@ -16,7 +16,7 @@ A **plugin** is a single object that registers custom node types, templates, API
 ## The Plugin Interface
 
 ```typescript
-import { definePlugin } from 'autome2/plugin';
+import { definePlugin } from 'autome/plugin';
 
 export default definePlugin({
   // Required
@@ -43,7 +43,7 @@ export default definePlugin({
 
 ## Where Plugins Come From
 
-On boot, autome2 looks for plugins in this order:
+On boot, autome looks for plugins in this order:
 
 1. **`AUTOME_PLUGINS` env var** (highest priority) — path to a single plugin file
 2. **`autome.plugins.ts`** or **`autome.plugins.js`** in `process.cwd()`
@@ -71,7 +71,7 @@ A node type is the blueprint for a stage. Users drag a node type onto the canvas
 ### Anatomy of a Node Type
 
 ```typescript
-import type { NodeTypeSpec, StepExecutor } from 'autome2/plugin';
+import type { NodeTypeSpec, StepExecutor } from 'autome/plugin';
 
 const jiraExecutor: StepExecutor = {
   type: 'step',
@@ -157,7 +157,7 @@ An external HTTP call to `/api/instances/:id/gates/:stageId/approve` resolves th
 Trigger nodes start workflows. They implement `TriggerExecutor`:
 
 ```typescript
-import type { TriggerExecutor } from 'autome2/plugin';
+import type { TriggerExecutor } from 'autome/plugin';
 
 const webhookListener: TriggerExecutor = {
   type: 'trigger',
@@ -174,7 +174,7 @@ Set `category: 'trigger'` on the `NodeTypeSpec` and use `triggerMode: 'prompt' |
 
 ### Config Schemas
 
-The `configSchema` is a JSON Schema object. Autome2 auto-generates forms from it. Supported extensions:
+The `configSchema` is a JSON Schema object. Autome auto-generates forms from it. Supported extensions:
 
 - `"format": "code"` — renders a code editor instead of a text input
 - `"format": "json"` — renders a JSON editor
@@ -199,7 +199,7 @@ These render in the edge config panel.
 A template is a **named, preconfigured snapshot** of an existing node type. Templates are not new node types — they're starting points users can drop onto canvases.
 
 ```typescript
-import type { NodeTemplate } from 'autome2/plugin';
+import type { NodeTemplate } from 'autome/plugin';
 
 const jiraCreateTicketTemplate: NodeTemplate = {
   id: 'acme-jira-create-ticket',
@@ -243,7 +243,7 @@ export default definePlugin({
 
 ### How Plugin Templates Sync
 
-On every boot, autome2 syncs plugin templates into the DB:
+On every boot, autome syncs plugin templates into the DB:
 
 - New plugin template → `INSERT` into `node_templates` with `source = 'plugin:<your-plugin-name>'`
 - Existing template from the same plugin with **unchanged content** → no-op
@@ -263,7 +263,7 @@ Users can also save templates directly from the UI (Bookmark icon on a configure
 Plugins can register additional Fastify routes:
 
 ```typescript
-import type { AutomePlugin } from 'autome2/plugin';
+import type { AutomePlugin } from 'autome/plugin';
 
 export default definePlugin({
   name: 'acme-admin',
@@ -341,7 +341,7 @@ The simplest — just put an `autome.plugins.ts` file at the root of your projec
 
 ```
 my-company/
-├── package.json          # depends on autome2
+├── package.json          # depends on autome
 ├── autome.plugins.ts     # your plugins
 ├── src/
 │   └── nodes/
@@ -350,7 +350,7 @@ my-company/
     └── orchestrator.db   # runtime state
 ```
 
-Run autome2 directly: `npx autome2` (see [Bootstrapping Guide](./bootstrapping.md)).
+Run autome directly: `npx autome` (see [Bootstrapping Guide](./bootstrapping.md)).
 
 ### Option 2: npm Package
 
@@ -363,14 +363,14 @@ Ship your plugin as a reusable npm package:
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "peerDependencies": {
-    "autome2": "^0.1.0"
+    "autome": "^0.1.0"
   }
 }
 ```
 
 ```typescript
 // src/index.ts — your plugin package
-import { definePlugin } from 'autome2/plugin';
+import { definePlugin } from 'autome/plugin';
 // ... your node types and templates
 
 export default definePlugin({ name: '@acme/plugin', /* ... */ });
@@ -381,7 +381,7 @@ Consumers install and register:
 ```typescript
 // consumer's autome.plugins.ts
 import acmePlugin from '@acme/autome-plugin';
-import { definePlugin } from 'autome2/plugin';
+import { definePlugin } from 'autome/plugin';
 
 export default [
   acmePlugin,
@@ -403,7 +403,7 @@ Drop plugin files in `~/.autome/plugins/`. Useful for machine-wide tooling not t
 
 ## Type Reference
 
-All types are exported from `autome2/plugin`:
+All types are exported from `autome/plugin`:
 
 ```typescript
 import {
@@ -429,7 +429,7 @@ import {
   // Route-level access
   RouteDeps,
   SharedState,
-} from 'autome2/plugin';
+} from 'autome/plugin';
 ```
 
 ### `AutomePlugin` contract
@@ -449,7 +449,7 @@ interface AutomePlugin {
 
 ### Stability
 
-The `autome2/plugin` barrel export is the **stable public API surface**. Internal refactors of autome2 will not break these types. Anything imported from deeper paths (e.g. `autome2/src/db/database.js`) is not guaranteed stable.
+The `autome/plugin` barrel export is the **stable public API surface**. Internal refactors of autome will not break these types. Anything imported from deeper paths (e.g. `autome/src/db/database.js`) is not guaranteed stable.
 
 If a breaking change to the plugin API is needed, the `apiVersion` field lets the core reject incompatible plugins gracefully.
 
@@ -481,4 +481,4 @@ Add an `on_error` outgoing edge from a stage to route failures to a cleanup stag
 
 ---
 
-Next: see [Bootstrapping Guide](./bootstrapping.md) for how to install autome2 as a dependency and wire it up in your own app.
+Next: see [Bootstrapping Guide](./bootstrapping.md) for how to install autome as a dependency and wire it up in your own app.

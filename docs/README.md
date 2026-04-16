@@ -1,10 +1,10 @@
-# Autome2 Documentation
+# Autome Documentation
 
-Autome2 is an AI Agent Workflow Orchestrator. Users design workflows as graphs of typed stages (agents, HTTP requests, gates, code, etc.), trigger them, and watch them run to completion with full durable execution.
+Autome is an AI Agent Workflow Orchestrator. Users design workflows as graphs of typed stages (agents, HTTP requests, gates, code, etc.), trigger them, and watch them run to completion with full durable execution.
 
-## Extending Autome2
+## Extending Autome
 
-Autome2 ships as a framework that **downstream applications embed and extend**. You install it as a dependency, add your own plugins and templates, and ship your own branded workflow platform.
+Autome ships as a framework that **downstream applications embed and extend**. You install it as a dependency, add your own plugins and templates, and ship your own branded workflow platform.
 
 The two main extension points:
 
@@ -21,7 +21,7 @@ Both plugins and templates can be:
 ## Documentation
 
 - **[Plugin Authoring Guide](./plugin-authoring.md)** — write custom node types, register routes, bundle templates
-- **[Bootstrapping Guide](./bootstrapping.md)** — install autome2 as a dependency and run your own branded instance
+- **[Bootstrapping Guide](./bootstrapping.md)** — install autome as a dependency and run your own branded instance
 
 ## Quick Reference
 
@@ -29,7 +29,7 @@ Both plugins and templates can be:
 
 ```typescript
 // autome.plugins.ts in your project root
-import { definePlugin } from 'autome2/plugin';
+import { definePlugin } from 'autome/plugin';
 
 export default definePlugin({
   name: 'my-company',
@@ -57,7 +57,7 @@ export default definePlugin({
 
 ## Architecture
 
-Autome2's extensibility is built on a small number of stable interfaces:
+Autome's extensibility is built on a small number of stable interfaces:
 
 - **`NodeTypeSpec`** — describes a node type: metadata (name, icon, color), config schema, executor
 - **`StepExecutor`** / **`TriggerExecutor`** — the runtime behavior
@@ -65,4 +65,4 @@ Autome2's extensibility is built on a small number of stable interfaces:
 - **`AutomePlugin`** — the plugin shape, produced by `definePlugin()`
 - **`NodeTemplate`** — a preconfigured node snapshot
 
-All are exported from `autome2/plugin`. See [Plugin Authoring](./plugin-authoring.md) for full reference.
+All are exported from `autome/plugin`. See [Plugin Authoring](./plugin-authoring.md) for full reference.

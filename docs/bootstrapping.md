@@ -1,6 +1,6 @@
 # Bootstrapping Guide
 
-This guide walks through installing autome2 as a dependency and running your own branded instance with your plugins and templates bundled in.
+This guide walks through installing autome as a dependency and running your own branded instance with your plugins and templates bundled in.
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
@@ -15,7 +15,7 @@ This guide walks through installing autome2 as a dependency and running your own
 
 ## Overview
 
-Autome2 is designed to be embedded. You install it, drop an `autome.plugins.ts` file next to it, and run the server. Your plugins get registered at boot and the rest behaves identically to a stock autome2.
+Autome is designed to be embedded. You install it, drop an `autome.plugins.ts` file next to it, and run the server. Your plugins get registered at boot and the rest behaves identically to a stock autome.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -24,11 +24,11 @@ Autome2 is designed to be embedded. You install it, drop an `autome.plugins.ts` 
 │  ├── src/nodes/*.ts      ← custom node code │
 │  ├── data/               ← runtime state    │
 │  └── node_modules/                          │
-│      └── autome2/        ← the core         │
+│      └── autome/        ← the core         │
 └─────────────────────────────────────────────┘
 ```
 
-The core (autome2) provides the server, workflow engine, UI, API, and DB layer. Your project provides extensions.
+The core (autome) provides the server, workflow engine, UI, API, and DB layer. Your project provides extensions.
 
 ---
 
@@ -40,7 +40,7 @@ The core (autome2) provides the server, workflow engine, UI, API, and DB layer. 
 mkdir my-autome
 cd my-autome
 npm init -y
-npm install autome2
+npm install autome
 npm install -D typescript tsx @types/node
 ```
 
@@ -67,7 +67,7 @@ npm install -D typescript tsx @types/node
 
 ```typescript
 // autome.plugins.ts
-import { definePlugin } from 'autome2/plugin';
+import { definePlugin } from 'autome/plugin';
 
 export default definePlugin({
   name: 'my-autome',
@@ -97,9 +97,9 @@ export default definePlugin({
 ```json
 {
   "scripts": {
-    "start": "tsx node_modules/autome2/src/server.ts",
-    "dev": "tsx watch node_modules/autome2/src/server.ts",
-    "dev:all": "concurrently -n api,web \"npm run dev\" \"npm --prefix node_modules/autome2/frontend run dev\""
+    "start": "tsx node_modules/autome/src/server.ts",
+    "dev": "tsx watch node_modules/autome/src/server.ts",
+    "dev:all": "concurrently -n api,web \"npm run dev\" \"npm --prefix node_modules/autome/frontend run dev\""
   }
 }
 ```
@@ -116,7 +116,7 @@ Open http://localhost:5173. Your custom template appears in the Templates page a
 
 ## Project Layout
 
-A typical embedded autome2 project:
+A typical embedded autome project:
 
 ```
 my-autome/
@@ -145,7 +145,7 @@ Keep the entry file small and delegate to modules:
 
 ```typescript
 // autome.plugins.ts
-import { definePlugin } from 'autome2/plugin';
+import { definePlugin } from 'autome/plugin';
 import { jiraCreateTicketSpec } from './src/nodes/jira.js';
 import { slackNotifySpec } from './src/nodes/slack.js';
 import { registerAdminRoutes } from './src/routes/admin.js';
@@ -168,7 +168,7 @@ export default definePlugin({
 
 ## Configuration
 
-Autome2 reads config from environment variables. Create a `.env` file or pass them directly.
+Autome reads config from environment variables. Create a `.env` file or pass them directly.
 
 ### Core settings
 
@@ -193,7 +193,7 @@ Plugins from both sources are merged (project plugins first).
 
 ### ACP provider settings
 
-Autome2 supports multiple LLM backends via ACP providers. Configure via env vars OR via the Settings page in the UI (the UI settings take precedence):
+Autome supports multiple LLM backends via ACP providers. Configure via env vars OR via the Settings page in the UI (the UI settings take precedence):
 
 | Variable | Purpose |
 |---|---|
@@ -217,13 +217,13 @@ Starts the API server on port 3001 and the frontend dev server on 5173. Hot relo
 
 ```bash
 # Build the frontend static assets
-npm --prefix node_modules/autome2/frontend run build
+npm --prefix node_modules/autome/frontend run build
 
 # Start the API in production mode
 NODE_ENV=production npm start
 ```
 
-The frontend assets end up in `node_modules/autome2/frontend/dist/`. Serve them with any static host (Nginx, Caddy, Cloudflare Pages, etc.) and point them at the API.
+The frontend assets end up in `node_modules/autome/frontend/dist/`. Serve them with any static host (Nginx, Caddy, Cloudflare Pages, etc.) and point them at the API.
 
 ### Single-process production (simpler)
 
@@ -231,10 +231,10 @@ If you don't need separate deployment:
 
 ```bash
 # Build once
-npm --prefix node_modules/autome2/frontend run build
+npm --prefix node_modules/autome/frontend run build
 
 # Run — the API can serve the frontend static files if desired
-NODE_ENV=production tsx node_modules/autome2/src/server.ts
+NODE_ENV=production tsx node_modules/autome/src/server.ts
 ```
 
 ---
@@ -249,14 +249,14 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm --prefix node_modules/autome2/frontend run build
+RUN npm --prefix node_modules/autome/frontend run build
 
 FROM node:20-alpine
 WORKDIR /app
 COPY --from=build /app .
 ENV NODE_ENV=production
 EXPOSE 3001
-CMD ["npx", "tsx", "node_modules/autome2/src/server.ts"]
+CMD ["npx", "tsx", "node_modules/autome/src/server.ts"]
 ```
 
 ### State persistence
@@ -273,19 +273,19 @@ Mount this as a persistent volume in production. Backups are just `sqlite3 orche
 
 ## Upgrades
 
-### Updating autome2
+### Updating autome
 
 ```bash
-npm update autome2
+npm update autome
 ```
 
-Autome2 follows semver. Breaking changes bump the major version. Your plugins survive minor and patch updates because they depend only on the `autome2/plugin` barrel.
+Autome follows semver. Breaking changes bump the major version. Your plugins survive minor and patch updates because they depend only on the `autome/plugin` barrel.
 
 If a breaking plugin API change lands, bump the `apiVersion` field on your plugin to match.
 
 ### Database migrations
 
-Autome2 runs migrations automatically on boot. New columns and tables are added in place; existing data is preserved. You don't need to manage the migration process yourself.
+Autome runs migrations automatically on boot. New columns and tables are added in place; existing data is preserved. You don't need to manage the migration process yourself.
 
 If you need to roll back, keep a backup of `data/orchestrator.db` before upgrading.
 
@@ -294,7 +294,7 @@ If you need to roll back, keep a backup of `data/orchestrator.db` before upgradi
 Template changes propagate automatically:
 
 - Plugin ships `templates: [{ id: 'acme-jira', name: 'New Name', ... }]`
-- Next boot, autome2 detects the change and updates the DB row
+- Next boot, autome detects the change and updates the DB row
 - Users see the new name on the Templates page
 
 Your users' local (non-plugin) templates are never overwritten.
@@ -322,12 +322,12 @@ Check the boot logs for:
 
 If the load message is missing:
 - Confirm `autome.plugins.ts` exists in `process.cwd()`
-- Check `tsx` is installed and can resolve `autome2/plugin`
+- Check `tsx` is installed and can resolve `autome/plugin`
 - Make sure you `export default` (not named export)
 
-### `Cannot find module 'autome2/plugin'`
+### `Cannot find module 'autome/plugin'`
 
-The `exports` field in `package.json` requires Node 16+ resolution. If you're using older tooling, import from `autome2/dist/plugin/index.js` directly. But the recommended setup uses `tsx` which handles this natively.
+The `exports` field in `package.json` requires Node 16+ resolution. If you're using older tooling, import from `autome/dist/plugin/index.js` directly. But the recommended setup uses `tsx` which handles this natively.
 
 ### Templates not showing
 
