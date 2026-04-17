@@ -151,7 +151,20 @@ function parseNodeTemplateRow(row: RawNodeTemplateRow): NodeTemplateRow {
     updated_at: row.updated_at,
   };
 }
-const MIGRATIONS_DIR = join(__dirname, 'migrations');
+// Resolve migrations dir: works from both src/ (tsx dev) and dist/ (compiled).
+// When compiled, __dirname is dist/db/ which has no migrations/ subfolder.
+// Walk up to the package root and check src/db/migrations first.
+function findMigrationsDir(): string {
+  // Direct sibling (works in dev: src/db/migrations)
+  const direct = join(__dirname, 'migrations');
+  if (existsSync(direct)) return direct;
+  // Package root: __dirname is dist/db → go up 2 levels → src/db/migrations
+  const fromDist = join(__dirname, '..', '..', 'src', 'db', 'migrations');
+  if (existsSync(fromDist)) return fromDist;
+  // Fallback
+  return direct;
+}
+const MIGRATIONS_DIR = findMigrationsDir();
 
 export class OrchestratorDB {
   private sqlite: Database.Database;
