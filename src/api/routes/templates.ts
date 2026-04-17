@@ -42,13 +42,13 @@ const UpdateTemplateBody = z.object({
 const ImportTemplateItem = z.object({
   id: z.string().optional(),
   name: z.string(),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
   nodeType: z.string(),
-  icon: z.string().optional(),
-  category: z.string().optional(),
+  icon: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
   config: z.record(z.string(), z.unknown()),
-  exposed: z.array(z.string()).optional(),
-  locked: z.array(z.string()).optional(),
+  exposed: z.array(z.string()).nullable().optional(),
+  locked: z.array(z.string()).nullable().optional(),
   source: z.string().optional(),
 });
 
@@ -175,36 +175,27 @@ export function registerTemplateRoutes(app: FastifyInstance, deps: RouteDeps): v
     async (request, reply) => {
       try {
         const items = Array.isArray(request.body) ? request.body : [request.body];
+        // Coerce nulls to undefined (the Zod schema accepts null for nullable fields)
         const results = items.map((item) => {
-          const id = item.id;
-          if (id) {
-            const existing = db.getNodeTemplate(id);
-            if (existing) {
-              return db.updateNodeTemplate(id, {
-                name: item.name,
-                description: item.description,
-                nodeType: item.nodeType,
-                icon: item.icon,
-                category: item.category,
-                config: item.config,
-                exposed: item.exposed,
-                locked: item.locked,
-                source: item.source ?? 'imported',
-              });
-            }
-          }
-          return db.createNodeTemplate({
+          const clean = {
             id: item.id,
             name: item.name,
-            description: item.description,
+            description: item.description ?? undefined,
             nodeType: item.nodeType,
-            icon: item.icon,
-            category: item.category,
+            icon: item.icon ?? undefined,
+            category: item.category ?? undefined,
             config: item.config,
-            exposed: item.exposed,
-            locked: item.locked,
+            exposed: item.exposed ?? undefined,
+            locked: item.locked ?? undefined,
             source: item.source ?? 'imported',
-          });
+          };
+          if (clean.id) {
+            const existing = db.getNodeTemplate(clean.id);
+            if (existing) {
+              return db.updateNodeTemplate(clean.id, clean);
+            }
+          }
+          return db.createNodeTemplate(clean);
         });
         return reply.code(201).send(results);
       } catch (err) {
@@ -222,16 +213,17 @@ export function registerTemplateRoutes(app: FastifyInstance, deps: RouteDeps): v
         const { id } = request.params;
         const template = db.getNodeTemplate(id);
         if (!template) return reply.code(404).send({ error: 'Template not found' });
-        const exported = {
+        // Strip null/empty values for a clean portable JSON
+        const exported: Record<string, unknown> = {
           name: template.name,
           nodeType: template.node_type,
-          description: template.description,
-          icon: template.icon,
-          category: template.category,
           config: template.config,
-          exposed: template.exposed,
-          locked: template.locked,
         };
+        if (template.description) exported.description = template.description;
+        if (template.icon) exported.icon = template.icon;
+        if (template.category) exported.category = template.category;
+        if (template.exposed?.length) exported.exposed = template.exposed;
+        if (template.locked?.length) exported.locked = template.locked;
         return exported;
       } catch (err) {
         return reply.code(500).send({ error: errorMessage(err) });
