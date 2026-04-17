@@ -55,8 +55,10 @@ const executor: StepExecutor = {
       const codePath = await writeCodeFile(workspace.runsDir, fileId, code, inputPayload);
 
       try {
-        // 4. Execute in child process
-        const nodeArgs: string[] = [];
+        // 4. Execute in child process with tsx for TypeScript support
+        const nodeArgs: string[] = [
+          '--import', 'tsx/esm',
+        ];
         if (config.sandbox !== false) {
           // Enable Node.js permission model (stable in Node 24+).
           // Grants read access to workspace root (contains node_modules/ and runs/)

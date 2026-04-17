@@ -118,8 +118,8 @@ export async function ensureWorkspace(
  * Returns the path to the runner file (the entry point).
  *
  * Layout:
- *   runs/{fileId}_code.mjs   — user's code (verbatim, normal ES module)
- *   runs/{fileId}_run.mjs    — wrapper that imports code and calls default export
+ *   runs/{fileId}_code.ts    — user's code (verbatim TypeScript module)
+ *   runs/{fileId}_run.ts     — wrapper that imports code and calls default export
  */
 export async function writeCodeFile(
   runsDir: string,
@@ -127,15 +127,15 @@ export async function writeCodeFile(
   userCode: string,
   inputData: Record<string, unknown>,
 ): Promise<string> {
-  const codePath = join(runsDir, `${fileId}_code.mjs`);
-  const runPath = join(runsDir, `${fileId}_run.mjs`);
+  const codePath = join(runsDir, `${fileId}_code.ts`);
+  const runPath = join(runsDir, `${fileId}_run.ts`);
 
-  // Write user code verbatim as a module
+  // Write user code verbatim as a TypeScript module
   await writeFile(codePath, userCode, 'utf-8');
 
   // Write runner that imports and calls the default export
   const runner = `
-import handler from './${fileId}_code.mjs';
+import handler from './${fileId}_code.ts';
 
 const __input = ${JSON.stringify(inputData)};
 
@@ -160,8 +160,7 @@ try {
  */
 export async function cleanupCodeFile(runnerPath: string): Promise<void> {
   try {
-    // Runner is {id}_run.mjs, code is {id}_code.mjs
-    const codePath = runnerPath.replace(/_run\.mjs$/, '_code.mjs');
+    const codePath = runnerPath.replace(/_run\.ts$/, '_code.ts');
     await unlink(runnerPath);
     await unlink(codePath);
   } catch {
