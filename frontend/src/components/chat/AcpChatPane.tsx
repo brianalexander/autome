@@ -136,7 +136,24 @@ export function AcpChatPane({
     [eventFilter],
   );
 
+  // --- Stable refs for callbacks that change on every render ---
+  // These prevent the WS subscription effect from tearing down and
+  // re-subscribing on every render, which causes short agent responses
+  // to be lost when the `done` event arrives during the teardown gap.
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+  const onToolResultRef = useRef(onToolResult);
+  onToolResultRef.current = onToolResult;
+  const chatRef = useRef(chat);
+  chatRef.current = chat;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
   // --- WebSocket subscriptions ---
+  // IMPORTANT: All callback/state access inside event handlers goes through refs
+  // so this effect only depends on [on, eventPrefix, matchesFilter, isActive].
+  // This prevents the subscription from tearing down on every render, which was
+  // causing short agent responses to be lost (done event arrived during teardown gap).
   useEffect(() => {
     if (!isActive) return;
 
@@ -144,9 +161,8 @@ export function AcpChatPane({
       on(`${eventPrefix}:chunk`, (data: unknown) => {
         if (!matchesFilter(data)) return;
         const d = data as Record<string, unknown>;
-        chat.appendChunk((d.text as string) || '');
-        // Reset stall detector on every chunk arrival (not on render cycle)
-        session.resetStallTimer();
+        chatRef.current.appendChunk((d.text as string) || '');
+        sessionRef.current.resetStallTimer();
       }),
 
       on(`${eventPrefix}:tool_call`, (data: unknown) => {
@@ -154,9 +170,9 @@ export function AcpChatPane({
         const d = data as Record<string, unknown>;
         const tcId = d.toolCallId as string;
         const parentToolUseId = d.parentToolUseId as string | undefined;
-        const existingTc = chat.liveToolCalls.get(tcId);
-        chat.appendToolSegment(tcId);
-        chat.updateToolCall(tcId, {
+        const existingTc = chatRef.current.liveToolCalls.get(tcId);
+        chatRef.current.appendToolSegment(tcId);
+        chatRef.current.updateToolCall(tcId, {
           id: tcId,
           title: (d.title as string) || null,
           kind: (d.kind as string) || null,
@@ -166,10 +182,7 @@ export function AcpChatPane({
             : null,
           raw_output: null,
           parentToolUseId: parentToolUseId || null,
-          // Only set created_at on the first event for this tcId; preserve it for
-          // stream-continuation events so the creation timestamp stays accurate.
           ...(existingTc ? {} : { created_at: new Date().toISOString() }),
-          // Always set updated_at — tool_call events are live "tool is running" signals.
           updated_at: new Date().toISOString(),
         } as ToolCallRecord);
       }),
@@ -178,9 +191,9 @@ export function AcpChatPane({
         if (!matchesFilter(data)) return;
         const d = data as Record<string, unknown>;
         const tcId = d.toolCallId as string;
-        const existing = chat.liveToolCalls.get(tcId);
+        const existing = chatRef.current.liveToolCalls.get(tcId);
         const parentToolUseId = (d.parentToolUseId as string | undefined) ?? (existing as (ToolCallRecord & { parentToolUseId?: string }) | undefined)?.parentToolUseId;
-        chat.updateToolCall(tcId, {
+        chatRef.current.updateToolCall(tcId, {
           id: tcId,
           title: (d.title as string) || existing?.title || null,
           kind: (d.kind as string) || existing?.kind || null,
@@ -195,49 +208,49 @@ export function AcpChatPane({
           created_at: existing?.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as ToolCallRecord);
-        onToolResult?.(data);
+        onToolResultRef.current?.(data);
       }),
 
       on(`${eventPrefix}:context_usage`, (data: unknown) => {
         if (!matchesFilter(data)) return;
         const d = data as Record<string, unknown>;
-        session.setContextUsage(d.percentage as number);
+        sessionRef.current.setContextUsage(d.percentage as number);
       }),
 
       on(`${eventPrefix}:mcp_status`, (data: unknown) => {
         if (!matchesFilter(data)) return;
-        session.handleMcpStatus(data as Record<string, unknown>);
+        sessionRef.current.handleMcpStatus(data as Record<string, unknown>);
       }),
 
       on(`${eventPrefix}:done`, (data: unknown) => {
         if (!matchesFilter(data)) return;
-        chat.finalizeTurn();
-        session.endTurn();
-        onDone?.();
+        chatRef.current.finalizeTurn();
+        sessionRef.current.endTurn();
+        onDoneRef.current?.();
       }),
 
       on(`${eventPrefix}:cancelled`, (data: unknown) => {
         if (!matchesFilter(data)) return;
-        chat.failPendingToolCalls();
-        chat.finalizeTurn();
-        session.endTurn();
+        chatRef.current.failPendingToolCalls();
+        chatRef.current.finalizeTurn();
+        sessionRef.current.endTurn();
       }),
 
       on(`${eventPrefix}:model_info`, (data: unknown) => {
         if (!matchesFilter(data)) return;
         const d = data as Record<string, unknown>;
-        if (typeof d.model === 'string') session.setDetectedModel(d.model);
+        if (typeof d.model === 'string') sessionRef.current.setDetectedModel(d.model);
       }),
 
       on(`${eventPrefix}:error`, (data: unknown) => {
         if (!matchesFilter(data)) return;
         const d = data as Record<string, unknown>;
-        session.endTurn();
+        sessionRef.current.endTurn();
         const errorText = d.error as string;
         const stderrText = d.stderr as string | undefined;
         const content = `\u26a0\ufe0f ${errorText}${stderrText ? `\n\n\`\`\`\n${stderrText}\n\`\`\`` : ''}`;
-        chat.addSystemMessage(content);
-        chat.setIsStreaming(false);
+        chatRef.current.addSystemMessage(content);
+        chatRef.current.setIsStreaming(false);
       }),
 
       on(`${eventPrefix}:stderr`, (data: unknown) => {
@@ -248,7 +261,9 @@ export function AcpChatPane({
     ];
 
     return () => unsubs.forEach((unsub) => unsub());
-  }, [on, eventPrefix, matchesFilter, isActive, onToolResult, onDone, chat, session]);
+  // Only re-subscribe when the WS connection, prefix, filter, or active state changes.
+  // Callbacks and state are accessed via refs — no teardown on every render.
+  }, [on, eventPrefix, matchesFilter, isActive]);
 
   // --- Auto-scroll ---
   useEffect(() => {
