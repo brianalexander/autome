@@ -107,7 +107,7 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   await initializeRegistry();
 
   // Discover plugins early so node types are available before any other setup
-  const plugins = await loadPlugins();
+  const { loaded: plugins } = await loadPlugins();
   await applyPluginNodeTypes(plugins, nodeRegistry);
 
   // Discover and register custom ACP providers from ./providers/ and ~/.autome/providers/

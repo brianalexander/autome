@@ -149,26 +149,64 @@ async function cmdStart(args: ParsedArgs) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Doctor rendering helpers
+// ---------------------------------------------------------------------------
+
+const BOLD = '\x1b[1m';
+const RESET = '\x1b[0m';
+
+/** Icon characters keyed by pass/warn/fail state */
+const ICON_OK = '\u2713'; // ✓
+const ICON_WARN = '\u26a0'; // ⚠
+const ICON_ERR = '\u2717'; // ✗
+
+/** 7-space indent so sub-items align under plugin name text */
+const SUB_INDENT = '       ';
+
+function sectionHeader(title: string): void {
+  console.log(`\n  ${BOLD}${title}${RESET}`);
+}
+
+function checkLine(icon: string, label: string, detail?: string): void {
+  const suffix = detail ? `  (${detail})` : '';
+  console.log(`  ${icon}  ${label}${suffix}`);
+}
+
+function subLine(icon: string, label: string): void {
+  console.log(`${SUB_INDENT}${icon}  ${label}`);
+}
+
+// ---------------------------------------------------------------------------
+// Doctor command
+// ---------------------------------------------------------------------------
+
 async function cmdDoctor(_args: ParsedArgs) {
-  const checks: Array<{ label: string; pass: boolean; detail?: string }> = [];
+  let totalErrors = 0;
+  let totalWarnings = 0;
+
+  // ---- Environment section ------------------------------------------------
+  sectionHeader('Environment');
 
   // 1. Node version >= 20
   const [major] = process.versions.node.split('.').map(Number);
-  checks.push({
-    label: `Node.js >= 20 (found ${process.versions.node})`,
-    pass: major >= 20,
-  });
+  const nodeOk = major >= 20;
+  if (!nodeOk) totalErrors++;
+  checkLine(nodeOk ? ICON_OK : ICON_ERR, `Node.js >= 20 (found ${process.versions.node})`);
 
   // 2. Load config
   let resolvedConfig;
   try {
     resolvedConfig = await loadConfig();
+    checkLine(ICON_OK, 'Config loads without error');
   } catch (err) {
-    checks.push({ label: 'Config loads without error', pass: false, detail: String(err) });
-    printDoctorTable(checks);
+    totalErrors++;
+    checkLine(ICON_ERR, 'Config loads without error', String(err));
+    // Can't continue without config
+    printDoctorSummary(totalErrors, totalWarnings);
+    if (totalErrors > 0) process.exit(1);
     return;
   }
-  checks.push({ label: 'Config loads without error', pass: true });
 
   // 3. DB directory writable
   try {
@@ -178,25 +216,94 @@ async function cmdDoctor(_args: ParsedArgs) {
     }
     const { accessSync, constants } = await import('node:fs');
     accessSync(dbDir, constants.W_OK);
-    checks.push({ label: `DB dir writable (${dbDir})`, pass: true });
+    checkLine(ICON_OK, `DB dir writable (${dbDir})`);
   } catch (err) {
-    checks.push({
-      label: `DB dir writable (${resolvedConfig.databasePath})`,
-      pass: false,
-      detail: String(err),
-    });
+    totalErrors++;
+    checkLine(ICON_ERR, `DB dir writable (${resolvedConfig.databasePath})`, String(err));
   }
 
-  // 4. Plugins load without error
+  // ---- Plugins section ----------------------------------------------------
+  const { loadPlugins } = await import('../plugin/loader.js');
+  const { validatePlugins } = await import('../plugin/validate.js');
+  const { allBuiltinSpecs } = await import('../nodes/builtin/index.js');
+
+  let pluginLoadResult: Awaited<ReturnType<typeof loadPlugins>> | null = null;
+  let pluginLoadError: unknown = null;
+
   try {
-    const { loadPlugins } = await import('../plugin/loader.js');
-    await loadPlugins();
-    checks.push({ label: 'Plugins load without error', pass: true });
+    pluginLoadResult = await loadPlugins();
   } catch (err) {
-    checks.push({ label: 'Plugins load without error', pass: false, detail: String(err) });
+    pluginLoadError = err;
   }
 
-  // 5. ACP provider CLI on PATH
+  if (pluginLoadError !== null || pluginLoadResult === null) {
+    sectionHeader('Plugins');
+    totalErrors++;
+    checkLine(ICON_ERR, `Failed to load plugins: ${String(pluginLoadError)}`);
+  } else {
+    const { loaded, failures } = pluginLoadResult;
+
+    const pluginCount = loaded.length + failures.length;
+    sectionHeader(`Plugins (${pluginCount} loaded)`);
+
+    // Show load failures first
+    for (const failure of failures) {
+      totalErrors++;
+      checkLine(ICON_ERR, `Failed to load ${failure.path}: ${failure.error.message}`);
+    }
+
+    if (loaded.length === 0 && failures.length === 0) {
+      checkLine(ICON_OK, 'No plugins loaded');
+    } else if (loaded.length > 0) {
+      const builtinIds = new Set(allBuiltinSpecs.map((s) => s.id));
+      const report = await validatePlugins(loaded, builtinIds);
+
+      for (const result of report.plugins) {
+        const { plugin, issues, nodeTypeIds, templateIds } = result;
+        const hasError = issues.some((i) => i.severity === 'error');
+        const hasWarning = issues.some((i) => i.severity === 'warning');
+        const pluginIcon = hasError ? ICON_ERR : hasWarning ? ICON_WARN : ICON_OK;
+        const versionLabel = plugin.version ? ` v${plugin.version}` : '';
+        checkLine(pluginIcon, `${plugin.name}${versionLabel}`);
+
+        // Node types summary
+        if (nodeTypeIds.length > 0) {
+          subLine(ICON_OK, `Node types (${nodeTypeIds.length}): ${nodeTypeIds.join(', ')}`);
+        }
+
+        // Template summary
+        if (templateIds.length > 0) {
+          subLine(ICON_OK, `Templates (${templateIds.length}): ${templateIds.join(', ')}`);
+        }
+
+        // Individual issues
+        for (const issue of issues) {
+          if (issue.severity === 'error') {
+            totalErrors++;
+            subLine(ICON_ERR, issue.message);
+          } else if (issue.severity === 'warning') {
+            totalWarnings++;
+            subLine(ICON_WARN, issue.message);
+          }
+        }
+      }
+
+      // Cross-plugin issues (shown after all plugin results)
+      for (const issue of report.crossIssues) {
+        if (issue.severity === 'error') {
+          totalErrors++;
+          checkLine(ICON_ERR, issue.message);
+        } else if (issue.severity === 'warning') {
+          totalWarnings++;
+          checkLine(ICON_WARN, issue.message);
+        }
+      }
+    }
+  }
+
+  // ---- ACP Providers section -----------------------------------------------
+  sectionHeader('ACP Providers');
+
   if (resolvedConfig.acpProvider) {
     const cliMap: Record<string, string> = {
       kiro: 'kiro-cli',
@@ -206,35 +313,32 @@ async function cmdDoctor(_args: ParsedArgs) {
     const cliName = cliMap[resolvedConfig.acpProvider] ?? resolvedConfig.acpProvider;
     try {
       const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-      await execAsync(`${whichCmd} ${cliName}`);
-      checks.push({ label: `ACP provider CLI '${cliName}' on PATH`, pass: true });
+      const result = await execAsync(`${whichCmd} ${cliName}`);
+      const foundPath = result.stdout.trim();
+      checkLine(ICON_OK, `${resolvedConfig.acpProvider} (found at ${foundPath})`);
     } catch {
-      checks.push({
-        label: `ACP provider CLI '${cliName}' on PATH`,
-        pass: false,
-        detail: 'not found in PATH',
-      });
+      totalErrors++;
+      checkLine(ICON_ERR, `${resolvedConfig.acpProvider} — '${cliName}' not found in PATH`);
     }
   } else {
-    checks.push({
-      label: 'ACP provider CLI',
-      pass: true,
-      detail: 'none configured (will use default)',
-    });
+    checkLine(ICON_OK, 'none configured (will use default)');
   }
 
-  printDoctorTable(checks);
+  // ---- Summary -------------------------------------------------------------
+  console.log('');
+  printDoctorSummary(totalErrors, totalWarnings);
+  if (totalErrors > 0) process.exit(1);
 }
 
-function printDoctorTable(checks: Array<{ label: string; pass: boolean; detail?: string }>) {
-  console.log('\nautome doctor\n');
-  for (const check of checks) {
-    const icon = check.pass ? '\u2713' : '\u2717';
-    const line = `  ${icon}  ${check.label}`;
-    console.log(line + (check.detail ? `  (${check.detail})` : ''));
+function printDoctorSummary(errors: number, warnings: number): void {
+  if (errors === 0 && warnings === 0) {
+    console.log('All checks passed.');
+  } else {
+    const parts: string[] = [];
+    if (errors > 0) parts.push(`${errors} ${errors === 1 ? 'error' : 'errors'}`);
+    if (warnings > 0) parts.push(`${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`);
+    console.log(`Some checks failed. ${parts.join(', ')}.`);
   }
-  const allPassed = checks.every((c) => c.pass);
-  console.log(allPassed ? '\nAll checks passed.' : '\nSome checks failed.');
 }
 
 async function openBrowser(url: string) {
