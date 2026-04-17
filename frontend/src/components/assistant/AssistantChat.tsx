@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useRef } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AcpChatPane } from '../chat/AcpChatPane';
 import { useActiveProvider } from '../../hooks/queries';

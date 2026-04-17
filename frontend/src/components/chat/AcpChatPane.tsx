@@ -255,8 +255,7 @@ export function AcpChatPane({
 
       on(`${eventPrefix}:stderr`, (data: unknown) => {
         if (!matchesFilter(data)) return;
-        const d = data as Record<string, unknown>;
-        console.debug(`[${eventPrefix}:stderr]`, d.text);
+        // stderr events are silently consumed; no UI action needed.
       }),
     ];
 

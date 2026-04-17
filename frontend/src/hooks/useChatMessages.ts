@@ -66,6 +66,11 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [liveToolCalls, setLiveToolCalls] = useState<Map<string, ToolCallRecord>>(restoredToolCalls);
 
+  // Synchronous ref mirror of streamingText. React 18's deferred state updaters
+  // mean you can't capture state from a setState updater and use it synchronously.
+  // This ref is always up-to-date and readable without waiting for a render.
+  const streamingTextRef = useRef('');
+
   // Tracks whether the previous assistant turn has been finalized via `done` /
   // `cancelled`. When true, the NEXT chunk or tool segment must start a new
   // assistant message rather than appending to the previous one — otherwise
@@ -84,7 +89,9 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   useEffect(() => {
     if (prevInitialRef.current === initialMessages) return;
     prevInitialRef.current = initialMessages;
-    if (hasLocalActivityRef.current) return; // Live state is authoritative — don't overwrite
+    if (hasLocalActivityRef.current) {
+      return;
+    }
     if (restoredMessages.length > 0) {
       setMessages(restoredMessages);
       setLiveToolCalls(restoredToolCalls);
@@ -119,17 +126,14 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
     });
   }, []);
 
-  // Atomically flush any pending streaming text then append a tool segment to the
-  // current assistant message. Captures streaming text first, then applies both
-  // state updates sequentially — avoids calling setState inside another setState
-  // updater, which is prohibited in React 18 concurrent mode.
+  // Flush any pending streaming text then append a tool segment.
+  // Reads accumulated text from the synchronous ref, clears it, then issues two
+  // setMessages calls that React 18 batches into one render.
   const appendToolSegment = useCallback((toolCallId: string) => {
-    // Step 1: capture and clear streaming text
-    let flushedText = '';
-    setStreamingText((prev) => {
-      flushedText = prev;
-      return '';
-    });
+    // Step 1: capture and clear streaming text (read from ref — always synchronous)
+    const flushedText = streamingTextRef.current;
+    streamingTextRef.current = '';
+    setStreamingText('');
 
     // Step 2: flush any pending text, then append the tool segment.
     // React 18 automatic batching groups these two setMessages calls into one render.
@@ -158,11 +162,9 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   // Marks the turn as finalized so the NEXT chunk/tool starts a fresh assistant message
   // rather than appending to this one (preventing back-to-back turn merge bugs).
   const finalizeTurn = useCallback(() => {
-    let flushedText = '';
-    setStreamingText((prev) => {
-      flushedText = prev;
-      return '';
-    });
+    const flushedText = streamingTextRef.current;
+    streamingTextRef.current = '';
+    setStreamingText('');
     if (flushedText) flushStreamingText(flushedText);
     setIsStreaming(false);
     turnFinalizedRef.current = true;
@@ -180,6 +182,7 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
       },
     ]);
     setIsStreaming(true);
+    streamingTextRef.current = '';
     setStreamingText('');
   }, []);
 
@@ -193,7 +196,8 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
 
   // Append an incremental text chunk from a streaming response.
   const appendChunk = useCallback((text: string) => {
-    setStreamingText((prev) => prev + text);
+    streamingTextRef.current += text;
+    setStreamingText(streamingTextRef.current);
     setIsStreaming(true);
   }, []);
 
@@ -231,6 +235,7 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   // Clear all messages (used for "clear chat" action).
   const clearMessages = useCallback(() => {
     hasLocalActivityRef.current = false; // Allow re-seed after clear
+    streamingTextRef.current = '';
     setMessages([]);
   }, []);
 
