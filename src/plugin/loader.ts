@@ -5,6 +5,7 @@ import { homedir } from 'os';
 import { glob } from 'glob';
 import type { LoadedPlugin, PluginManifest, NodeTemplate } from './types.js';
 import type { NodeTypeSpec } from '../nodes/types.js';
+import { fromProject, PROJECT_ROOT } from '../paths.js';
 
 export interface PluginLoadResult {
   loaded: LoadedPlugin[];
@@ -18,8 +19,8 @@ export async function loadPlugins(): Promise<PluginLoadResult> {
   // Determine the project-local plugins directory. AUTOME_PLUGINS_DIR env var overrides.
   const envPluginsDir = process.env.AUTOME_PLUGINS_DIR;
   const localPluginsDir = envPluginsDir
-    ? resolve(process.cwd(), envPluginsDir)
-    : join(process.cwd(), 'plugins');
+    ? resolve(PROJECT_ROOT, envPluginsDir)
+    : fromProject('plugins');
 
   // 1. Project-local plugins directory
   if (existsSync(localPluginsDir)) {

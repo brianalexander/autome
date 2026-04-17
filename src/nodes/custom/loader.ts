@@ -15,10 +15,11 @@ import { join, extname } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import type { NodeTypeSpec } from '../types.js';
+import { fromProject } from '../../paths.js';
 
 /** Paths where custom nodes are discovered */
 export const CUSTOM_NODE_DIRS = [
-  join(process.cwd(), 'nodes'),
+  fromProject('nodes'),
   join(homedir(), '.autome', 'nodes'),
 ];
 

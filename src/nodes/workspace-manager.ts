@@ -11,10 +11,11 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { fromProject } from '../paths.js';
 
 const execFileAsync = promisify(execFile);
 
-const BASE_DIR = join(process.cwd(), 'data', 'workspaces', 'code');
+const BASE_DIR = fromProject('data', 'workspaces', 'code');
 
 /**
  * Serializes npm install operations per workflow+version to prevent concurrent

@@ -3,15 +3,13 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { eq, and, sql, inArray, desc, asc } from 'drizzle-orm';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { readFileSync, readdirSync, mkdirSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import type { WorkflowDefinition, MCPServerConfig } from '../types/workflow.js';
 import type { WorkflowInstance, InitiatedBy, PendingAuthorMessage } from '../types/instance.js';
 import type { CustomProviderConfig } from '../types/events.js';
 import * as schema from './schema.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+import { fromPackage } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Node template types
@@ -151,20 +149,7 @@ function parseNodeTemplateRow(row: RawNodeTemplateRow): NodeTemplateRow {
     updated_at: row.updated_at,
   };
 }
-// Resolve migrations dir: works from both src/ (tsx dev) and dist/ (compiled).
-// When compiled, __dirname is dist/db/ which has no migrations/ subfolder.
-// Walk up to the package root and check src/db/migrations first.
-function findMigrationsDir(): string {
-  // Direct sibling (works in dev: src/db/migrations)
-  const direct = join(__dirname, 'migrations');
-  if (existsSync(direct)) return direct;
-  // Package root: __dirname is dist/db → go up 2 levels → src/db/migrations
-  const fromDist = join(__dirname, '..', '..', 'src', 'db', 'migrations');
-  if (existsSync(fromDist)) return fromDist;
-  // Fallback
-  return direct;
-}
-const MIGRATIONS_DIR = findMigrationsDir();
+const MIGRATIONS_DIR = fromPackage('src', 'db', 'migrations');
 
 export class OrchestratorDB {
   private sqlite: Database.Database;

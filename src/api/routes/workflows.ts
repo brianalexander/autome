@@ -5,6 +5,7 @@ import { createReadStream } from 'fs';
 import { writeFile, unlink, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { launchWorkflow } from '../../workflow/launch.js';
+import { fromProject } from '../../paths.js';
 import { WorkflowDefinitionSchema } from '../../schemas/pipeline.js';
 import type { RouteDeps, SharedState } from './shared.js';
 import { validateAllStagesConfig, validateGraphStructure } from './validation.js';
@@ -446,8 +447,8 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
       const force = (request.query as Record<string, string>).force === 'true';
 
       // Write to temp file
-      const tempPath = join(process.cwd(), 'data', `_upload-${Date.now()}${BUNDLE_EXTENSION}`);
-      await mkdir(join(process.cwd(), 'data'), { recursive: true });
+      const tempPath = fromProject('data', `_upload-${Date.now()}${BUNDLE_EXTENSION}`);
+      await mkdir(fromProject('data'), { recursive: true });
 
       const chunks: Buffer[] = [];
       for await (const chunk of data.file) {
@@ -473,8 +474,8 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
       const data = await request.file();
       if (!data) return reply.code(400).send({ error: 'No file uploaded' });
 
-      const tempPath = join(process.cwd(), 'data', `_preview-${Date.now()}${BUNDLE_EXTENSION}`);
-      await mkdir(join(process.cwd(), 'data'), { recursive: true });
+      const tempPath = fromProject('data', `_preview-${Date.now()}${BUNDLE_EXTENSION}`);
+      await mkdir(fromProject('data'), { recursive: true });
 
       const chunks: Buffer[] = [];
       for await (const chunk of data.file) {

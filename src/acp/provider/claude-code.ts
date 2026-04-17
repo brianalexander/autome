@@ -4,6 +4,7 @@ import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { BaseProvider } from './base.js';
 import type { CanonicalAgentSpec, VendorNotificationResult, DiscoveredAgent } from './types.js';
+import { fromPackage } from '../../paths.js';
 
 /** Parse YAML-like frontmatter from a Markdown string. Returns null if no frontmatter found. */
 function parseFrontmatter(content: string): { meta: Record<string, unknown>; body: string } | null {
@@ -43,7 +44,7 @@ export class ClaudeCodeProvider extends BaseProvider {
   getSpawnArgs(options: { agent?: string; model?: string }): string[] {
     // Use local fork of claude-agent-acp with --agent support
     // TODO: Switch to npx @agentclientprotocol/claude-agent-acp after upstream merge
-    const entryPoint = join(process.cwd(), 'packages', 'claude-agent-acp', 'dist', 'index.js');
+    const entryPoint = fromPackage('packages', 'claude-agent-acp', 'dist', 'index.js');
     const args = [entryPoint];
     if (options.agent) args.push('--agent', options.agent);
     return args;

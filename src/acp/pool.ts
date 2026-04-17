@@ -6,6 +6,7 @@ import type { MCPServerConfig } from '../types/workflow.js';
 import { config, DEFAULT_ACP_PROVIDER } from '../config.js';
 import type { AcpProvider } from './provider/types.js';
 import { createProvider } from './provider/registry.js';
+import { fromPackage, fromProject } from '../paths.js';
 
 export interface AgentStageConfig {
   agentId: string;
@@ -51,7 +52,7 @@ export class AgentPool {
     // Provider should always be passed explicitly — server.ts initializes it before constructing pools.
     // The createProvider() fallback here supports built-in providers only.
     this.provider = options?.provider || createProvider(config.acpProvider ?? DEFAULT_ACP_PROVIDER);
-    this.baseWorkDir = options?.baseWorkDir || join(process.cwd(), 'data', 'workspaces');
+    this.baseWorkDir = options?.baseWorkDir || fromProject('data', 'workspaces');
   }
 
   async spawn(options: SpawnOptions): Promise<SpawnResult> {
@@ -77,7 +78,7 @@ export class AgentPool {
     // If this workflow has bundled agents, symlink them into the working directory
     // so the provider's CLI discovers them via its local agent dir
     if (options.definitionId) {
-      const bundleAgentsDir = join(process.cwd(), 'data', 'bundles', options.definitionId, 'agents');
+      const bundleAgentsDir = fromProject('data', 'bundles', options.definitionId, 'agents');
       if (existsSync(bundleAgentsDir)) {
         const targetDir = effectiveProvider.getLocalAgentDir(workDir);
         if (!existsSync(targetDir)) {
@@ -95,7 +96,7 @@ export class AgentPool {
       {
         name: 'workflow_control',
         command: 'node',
-        args: [join(process.cwd(), 'dist', 'mcp', 'workflow-control-server.js')],
+        args: [fromPackage('dist', 'mcp', 'workflow-control-server.js')],
         env: {
           WORKFLOW_INSTANCE_ID: instanceId,
           STAGE_ID: stageId,

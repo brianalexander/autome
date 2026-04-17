@@ -2,6 +2,7 @@ import { readdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import type { AcpProvider, AgentDiscoveryOptions, VendorNotificationResult, DiscoveredAgent } from './types.js';
+import { fromProject, PROJECT_ROOT } from '../../paths.js';
 
 /**
  * Base class for ACP providers.
@@ -53,17 +54,17 @@ export abstract class BaseProvider implements AcpProvider {
 
     // 1. Workflow-scoped agents (highest priority — from imported bundles)
     if (opts?.workflowId) {
-      const bundlesBase = opts.bundlesDir || join(process.cwd(), 'data', 'bundles');
+      const bundlesBase = opts.bundlesDir || fromProject('data', 'bundles');
       const bundleAgentDir = join(bundlesBase, opts.workflowId, 'agents');
       addAgents(await this.scanAgentDir(bundleAgentDir, 'local'));
     }
 
     // 2. Provider-specific local agents
-    const localDir = this.getLocalAgentDir(opts?.workingDir || process.cwd());
+    const localDir = this.getLocalAgentDir(opts?.workingDir || PROJECT_ROOT);
     addAgents(await this.scanAgentDir(localDir, 'local'));
 
     // 3. Canonical agents (agents/<name>/agent.json + prompt.md)
-    addAgents(await this.scanCanonicalAgents(opts?.workingDir || process.cwd()));
+    addAgents(await this.scanCanonicalAgents(opts?.workingDir || PROJECT_ROOT));
 
     // 4. Provider-specific global agents
     const globalDir = this.getGlobalAgentDir();

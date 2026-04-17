@@ -5,10 +5,10 @@
  * stageId of 'global'. It connects to the assistant MCP server which provides
  * tools for inspecting workflow runs and taking corrective actions.
  */
-import { join } from 'path';
 import type { AgentPool } from '../../acp/pool.js';
 import { config as appConfig } from '../../config.js';
 import type { SessionConfig } from './agent-utils.js';
+import { fromPackage } from '../../paths.js';
 
 /**
  * Build a SessionConfig describing the AI Assistant session.
@@ -33,7 +33,7 @@ export function buildAssistantSessionConfig(assistantPool: AgentPool): SessionCo
         {
           name: 'assistant',
           command: 'node',
-          args: [join(process.cwd(), 'dist', 'mcp', 'assistant-server.js')],
+          args: [fromPackage('dist', 'mcp', 'assistant-server.js')],
           env: {
             ORCHESTRATOR_PORT: String(orchestratorPort),
           },

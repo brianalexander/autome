@@ -12,10 +12,11 @@ import { join, extname } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import type { AcpProvider } from './types.js';
+import { fromProject } from '../../paths.js';
 
 /** Paths where custom providers are discovered */
 export const CUSTOM_PROVIDER_DIRS = [
-  join(process.cwd(), 'providers'),
+  fromProject('providers'),
   join(homedir(), '.autome', 'providers'),
 ];
 

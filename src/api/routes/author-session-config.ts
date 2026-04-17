@@ -5,10 +5,10 @@
  * can construct an author session config without pulling in the full route
  * registration closure (and without creating a circular import).
  */
-import { join } from 'path';
 import type { AgentPool } from '../../acp/pool.js';
 import { config as appConfig } from '../../config.js';
 import type { SessionConfig } from './agent-utils.js';
+import { fromPackage } from '../../paths.js';
 
 /**
  * Build a SessionConfig describing the AI Author session for a given workflow.
@@ -38,7 +38,7 @@ export function buildAuthorSessionConfig(authorPool: AgentPool, workflowId: stri
         {
           name: 'workflow_author',
           command: 'node',
-          args: [join(process.cwd(), 'dist', 'mcp', 'workflow-author-server.js')],
+          args: [fromPackage('dist', 'mcp', 'workflow-author-server.js')],
           env: {
             ORCHESTRATOR_PORT: String(orchestratorPort),
           },

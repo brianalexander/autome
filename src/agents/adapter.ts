@@ -2,12 +2,13 @@ import { readFile, mkdir, readdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import type { AcpProvider, CanonicalAgentSpec } from '../acp/provider/types.js';
+import { fromPackage, PROJECT_ROOT } from '../paths.js';
 
 /**
  * Read a canonical agent definition from agents/<name>/
  */
 export async function readCanonicalAgent(agentName: string): Promise<{ spec: CanonicalAgentSpec; prompt: string }> {
-  const baseDir = join(process.cwd(), 'agents', agentName);
+  const baseDir = fromPackage('agents', agentName);
   const specContent = await readFile(join(baseDir, 'agent.json'), 'utf-8');
   const spec = JSON.parse(specContent) as CanonicalAgentSpec;
 
@@ -24,7 +25,7 @@ export async function readCanonicalAgent(agentName: string): Promise<{ spec: Can
  * List all canonical agent names
  */
 export async function listCanonicalAgents(): Promise<string[]> {
-  const agentsDir = join(process.cwd(), 'agents');
+  const agentsDir = fromPackage('agents');
   try {
     const entries = await readdir(agentsDir, { withFileTypes: true });
     return entries.filter(e => e.isDirectory()).map(e => e.name);
@@ -43,7 +44,7 @@ export async function generateAgentConfigs(provider: AcpProvider): Promise<{ gen
   }
 
   const agentNames = await listCanonicalAgents();
-  const targetDir = provider.getLocalAgentDir(process.cwd());
+  const targetDir = provider.getLocalAgentDir(PROJECT_ROOT);
   await mkdir(targetDir, { recursive: true });
 
   const generated: string[] = [];
