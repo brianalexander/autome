@@ -301,6 +301,26 @@ async function cmdDoctor(_args: ParsedArgs) {
     }
   }
 
+  // ---- Secrets section -------------------------------------------------------
+  sectionHeader('Secrets');
+
+  try {
+    const { resolveMasterKey } = await import('../secrets/master-key.js');
+    const { source } = resolveMasterKey(resolvedConfig.dataDir);
+    if (source === 'env') {
+      checkLine(ICON_OK, 'Master key loaded from AUTOME_MASTER_KEY env var');
+    } else if (source === 'file') {
+      totalWarnings++;
+      checkLine(ICON_WARN, 'Master key stored in .master-key file — set AUTOME_MASTER_KEY env var for production');
+    } else {
+      totalWarnings++;
+      checkLine(ICON_WARN, 'Master key generated and stored in .master-key file — set AUTOME_MASTER_KEY env var for production');
+    }
+  } catch (err) {
+    totalErrors++;
+    checkLine(ICON_ERR, `Master key resolution failed: ${String(err)}`);
+  }
+
   // ---- ACP Providers section -----------------------------------------------
   sectionHeader('ACP Providers');
 

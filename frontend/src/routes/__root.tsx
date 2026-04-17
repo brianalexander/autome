@@ -209,6 +209,12 @@ function RootLayout() {
             >
               Templates
             </Link>
+            <Link
+              to="/settings"
+              className="text-text-secondary hover:text-text-primary [&.active]:text-text-primary [&.active]:font-medium transition-colors"
+            >
+              Settings
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-2">

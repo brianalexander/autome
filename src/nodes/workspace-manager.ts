@@ -138,12 +138,25 @@ export async function writeCodeFile(
 import handler from './${fileId}_code.ts';
 
 const __input = ${JSON.stringify(inputData)};
+const __secrets = process.env.__AUTOME_SECRETS__
+  ? JSON.parse(process.env.__AUTOME_SECRETS__)
+  : {};
+const context = {
+  secrets: new Proxy(__secrets, {
+    get(target, prop) {
+      if (typeof prop === 'string' && !(prop in target)) {
+        throw new Error(\`Secret "\${prop}" is not defined. Add it in Settings → Secrets.\`);
+      }
+      return target[prop];
+    },
+  }),
+};
 
 try {
   if (typeof handler !== 'function') {
     throw new Error('Code must have a default export that is a function. Got: ' + typeof handler);
   }
-  const __result = await Promise.resolve(handler(__input));
+  const __result = await Promise.resolve(handler({ input: __input.input, config: __input.config, context }));
   process.stdout.write('\\n__CODE_EXEC_OUTPUT_START__\\n' + JSON.stringify(__result) + '\\n__CODE_EXEC_OUTPUT_END__\\n');
 } catch (err) {
   process.stderr.write(err?.stack || err?.message || String(err));

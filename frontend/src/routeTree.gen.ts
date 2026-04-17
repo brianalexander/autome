@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TemplatesRouteImport } from './routes/templates'
 import { Route as InstancesRouteImport } from './routes/instances'
 import { Route as ApprovalsRouteImport } from './routes/approvals'
@@ -17,6 +18,11 @@ import { Route as WorkflowsNewRouteImport } from './routes/workflows.new'
 import { Route as WorkflowsWorkflowIdRouteImport } from './routes/workflows.$workflowId'
 import { Route as InstancesInstanceIdRouteImport } from './routes/instances.$instanceId'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TemplatesRoute = TemplatesRouteImport.update({
   id: '/templates',
   path: '/templates',
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
   '/instances': typeof InstancesRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/templates': typeof TemplatesRoute
   '/instances/$instanceId': typeof InstancesInstanceIdRoute
   '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
   '/instances': typeof InstancesRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/templates': typeof TemplatesRoute
   '/instances/$instanceId': typeof InstancesInstanceIdRoute
   '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/approvals': typeof ApprovalsRoute
   '/instances': typeof InstancesRouteWithChildren
+  '/settings': typeof SettingsRoute
   '/templates': typeof TemplatesRoute
   '/instances/$instanceId': typeof InstancesInstanceIdRoute
   '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/instances'
+    | '/settings'
     | '/templates'
     | '/instances/$instanceId'
     | '/workflows/$workflowId'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/instances'
+    | '/settings'
     | '/templates'
     | '/instances/$instanceId'
     | '/workflows/$workflowId'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/instances'
+    | '/settings'
     | '/templates'
     | '/instances/$instanceId'
     | '/workflows/$workflowId'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApprovalsRoute: typeof ApprovalsRoute
   InstancesRoute: typeof InstancesRouteWithChildren
+  SettingsRoute: typeof SettingsRoute
   TemplatesRoute: typeof TemplatesRoute
   WorkflowsWorkflowIdRoute: typeof WorkflowsWorkflowIdRoute
   WorkflowsNewRoute: typeof WorkflowsNewRoute
@@ -122,6 +135,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/templates': {
       id: '/templates'
       path: '/templates'
@@ -190,6 +210,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApprovalsRoute: ApprovalsRoute,
   InstancesRoute: InstancesRouteWithChildren,
+  SettingsRoute: SettingsRoute,
   TemplatesRoute: TemplatesRoute,
   WorkflowsWorkflowIdRoute: WorkflowsWorkflowIdRoute,
   WorkflowsNewRoute: WorkflowsNewRoute,

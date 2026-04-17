@@ -11,6 +11,9 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { OrchestratorDB } from './db/database.js';
 import { registerRoutes } from './api/routes.js';
+import { resolveMasterKey } from './secrets/master-key.js';
+import { createSecretsService, setSecretsService } from './secrets/service.js';
+import { registerSecretsGlobal } from './engine/context-resolver.js';
 import { websocketPlugin } from './api/websocket.js';
 import { EventBus } from './events/bus.js';
 import { ManualTriggerProvider } from './events/providers/manual.js';
@@ -67,6 +70,12 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
 
   // Initialize database using resolved config path
   db = new OrchestratorDB(resolvedConfig.databasePath);
+
+  // Initialize secrets master key and service
+  const { key: masterKey } = resolveMasterKey(resolvedConfig.dataDir);
+  const secretsService = createSecretsService(db, masterKey);
+  setSecretsService(secretsService);
+  registerSecretsGlobal(secretsService);
 
   // Initialize event system
   eventBus = new EventBus();
@@ -186,7 +195,7 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   await app.register(websocketPlugin);
 
   // Register routes with all dependencies (plugins get routes registered inside)
-  await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins });
+  await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins, secretsService });
 
   // Production: serve bundled frontend static files
   if (resolvedConfig.mode === 'production') {

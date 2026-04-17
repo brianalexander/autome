@@ -13,6 +13,7 @@ import { registerWebhookRoutes } from './routes/webhooks.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerTestRunRoutes } from './routes/test-runs.js';
 import { registerTemplateRoutes } from './routes/templates.js';
+import { registerSecretsRoutes } from './routes/secrets.js';
 // Re-export RouteDeps so existing imports from './routes.js' still work
 export type { RouteDeps } from './routes/shared.js';
 
@@ -56,6 +57,7 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   registerSettingsRoutes(app, deps);
   registerTestRunRoutes(app, deps);
   registerTemplateRoutes(app, deps);
+  registerSecretsRoutes(app, deps);
 
   // Health endpoint
   const typedApp = app.withTypeProvider<ZodTypeProvider>();

@@ -6,6 +6,7 @@ packages/claude-agent-acp/src/tests/
 packages/claude-agent-acp/package-lock.json
 data/
 .env
+.master-key
 *.db
 *.db-journal
 .playwright-cli/

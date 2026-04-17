@@ -269,19 +269,21 @@ describe('writeCodeFile', () => {
     const userCode = `export default function(input) { return input.value * 2; }`;
     const runnerPath = await writeCodeFile(info.runsDir, 'test-id', userCode, { value: 42 });
 
-    expect(runnerPath).toMatch(/_run\.mjs$/);
+    expect(runnerPath).toMatch(/_run\.ts$/);
     expect(existsSync(runnerPath)).toBe(true);
 
-    const codeFilePath = runnerPath.replace(/_run\.mjs$/, '_code.mjs');
+    const codeFilePath = runnerPath.replace(/_run\.ts$/, '_code.ts');
     expect(existsSync(codeFilePath)).toBe(true);
 
     const codeContent = await readFile(codeFilePath, 'utf-8');
     expect(codeContent).toBe(userCode);
 
     const runnerContent = await readFile(runnerPath, 'utf-8');
-    expect(runnerContent).toContain('test-id_code.mjs');
+    expect(runnerContent).toContain('test-id_code.ts');
     expect(runnerContent).toContain('"value":42');
     expect(runnerContent).toContain('__CODE_EXEC_OUTPUT_START__');
+    expect(runnerContent).toContain('__AUTOME_SECRETS__');
+    expect(runnerContent).toContain('context');
   });
 
   it('serializes input data into the runner', async () => {
@@ -299,7 +301,7 @@ describe('cleanupCodeFile', () => {
     const info = await ensureWorkspace('wf-cleanup-code-001', 1, {});
     const runnerPath = await writeCodeFile(info.runsDir, 'cleanup-id', `export default () => {}`, {});
 
-    const codePath = runnerPath.replace(/_run\.mjs$/, '_code.mjs');
+    const codePath = runnerPath.replace(/_run\.ts$/, '_code.ts');
     expect(existsSync(runnerPath)).toBe(true);
     expect(existsSync(codePath)).toBe(true);
 
@@ -310,7 +312,7 @@ describe('cleanupCodeFile', () => {
   });
 
   it('does not throw if files are already gone', async () => {
-    const fakePath = join(tmpdir(), 'does-not-exist_run.mjs');
+    const fakePath = join(tmpdir(), 'does-not-exist_run.ts');
     await expect(cleanupCodeFile(fakePath)).resolves.toBeUndefined();
   });
 });

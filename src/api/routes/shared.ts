@@ -6,6 +6,7 @@ import { broadcast } from '../websocket.js';
 import type { WorkflowDefinition } from '../../types/workflow.js';
 import type { LoadedPlugin } from '../../plugin/types.js';
 import type { WorkflowRunner } from '../../engine/runner.js';
+import type { SecretsService } from '../../secrets/service.js';
 
 // ---------------------------------------------------------------------------
 // Route dependency injection
@@ -21,6 +22,7 @@ export interface RouteDeps {
   assistantPool?: AgentPool;
   /** Loaded plugins — consumed by registerRoutes to attach plugin routes */
   plugins?: LoadedPlugin[];
+  secretsService?: SecretsService;
 }
 
 // ---------------------------------------------------------------------------

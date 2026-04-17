@@ -12,6 +12,23 @@ import * as schema from './schema.js';
 import { fromPackage } from '../paths.js';
 
 // ---------------------------------------------------------------------------
+// Secret types
+// ---------------------------------------------------------------------------
+
+export interface SecretRow {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
+export interface SecretRowWithValue extends SecretRow {
+  value_encrypted: Buffer;
+}
+
+// ---------------------------------------------------------------------------
 // Node template types
 // ---------------------------------------------------------------------------
 
@@ -1542,6 +1559,72 @@ export class OrchestratorDB {
 
   clearTimersForInstance(instanceId: string): void {
     this.sqlite.prepare('DELETE FROM scheduled_timers WHERE instance_id = ?').run(instanceId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Secrets
+  // ---------------------------------------------------------------------------
+
+  listSecrets(): SecretRow[] {
+    return this.sqlite
+      .prepare<[], SecretRow>(
+        'SELECT id, name, description, created_at, updated_at, last_used_at FROM secrets ORDER BY name',
+      )
+      .all();
+  }
+
+  listSecretsWithValues(): SecretRowWithValue[] {
+    return this.sqlite
+      .prepare<[], { id: string; name: string; description: string | null; created_at: string; updated_at: string; last_used_at: string | null; value_encrypted: Buffer }>(
+        'SELECT id, name, description, created_at, updated_at, last_used_at, value_encrypted FROM secrets ORDER BY name',
+      )
+      .all();
+  }
+
+  getSecret(name: string): SecretRow | null {
+    return this.sqlite
+      .prepare<[string], SecretRow>(
+        'SELECT id, name, description, created_at, updated_at, last_used_at FROM secrets WHERE name = ?',
+      )
+      .get(name) ?? null;
+  }
+
+  getSecretWithValue(name: string): SecretRowWithValue | null {
+    return this.sqlite
+      .prepare<[string], { id: string; name: string; description: string | null; created_at: string; updated_at: string; last_used_at: string | null; value_encrypted: Buffer }>(
+        'SELECT id, name, description, created_at, updated_at, last_used_at, value_encrypted FROM secrets WHERE name = ?',
+      )
+      .get(name) ?? null;
+  }
+
+  createSecret(params: { id: string; name: string; value_encrypted: Buffer; description: string | null }): SecretRow {
+    this.sqlite
+      .prepare(
+        `INSERT INTO secrets (id, name, value_encrypted, description) VALUES (?, ?, ?, ?)`,
+      )
+      .run(params.id, params.name, params.value_encrypted, params.description);
+    return this.getSecret(params.name)!;
+  }
+
+  updateSecret(name: string, params: { value_encrypted: Buffer; description: string | null }): SecretRow {
+    const result = this.sqlite
+      .prepare(
+        `UPDATE secrets SET value_encrypted = ?, description = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE name = ?`,
+      )
+      .run(params.value_encrypted, params.description, name);
+    if (result.changes === 0) throw new Error(`Secret "${name}" not found`);
+    return this.getSecret(name)!;
+  }
+
+  deleteSecret(name: string): boolean {
+    const result = this.sqlite.prepare('DELETE FROM secrets WHERE name = ?').run(name);
+    return result.changes > 0;
+  }
+
+  touchSecretLastUsed(name: string): void {
+    this.sqlite
+      .prepare(`UPDATE secrets SET last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE name = ?`)
+      .run(name);
   }
 
   // ---------------------------------------------------------------------------

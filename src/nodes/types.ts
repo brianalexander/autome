@@ -65,6 +65,8 @@ export interface StepExecutorContext {
   orchestratorUrl: string;
   /** Current iteration (for cycled stages) */
   iteration: number;
+  /** Decrypted secrets map, injected by the executor at runtime */
+  secrets?: Record<string, string>;
 }
 
 export interface StepExecutor {
@@ -91,6 +93,7 @@ export interface TriggerExecutor {
     stageId: string,
     config: Record<string, unknown>,
     emit: (event: Record<string, unknown>) => void,
+    secrets?: Record<string, string>,
   ): Promise<() => void>;
 }
 

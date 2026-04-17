@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { workflows, instances, agents, nodeTypes, acpProviders, settings, approvals, templates } from '../lib/api';
+import { workflows, instances, agents, nodeTypes, acpProviders, settings, approvals, templates, secrets } from '../lib/api';
 import type { PaginatedResponse } from '../lib/api';
 import type { WorkflowDefinition } from '../lib/api';
 import { useUIStore } from '../stores/uiStore';
@@ -353,4 +353,9 @@ export function useApprovals() {
     // Only poll when WS is down; WS pushes real-time approval updates when connected.
     refetchInterval: wsConnected ? false : 10_000,
   });
+}
+
+// Secrets queries
+export function useSecrets() {
+  return useQuery({ queryKey: ['secrets'], queryFn: secrets.list });
 }

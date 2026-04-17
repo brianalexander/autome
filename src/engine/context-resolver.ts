@@ -1,9 +1,18 @@
 import nunjucks from 'nunjucks';
 import type { WorkflowContext } from '../types/instance.js';
 import type { StageDefinition, EdgeDefinition, WorkflowDefinition } from '../types/workflow.js';
+import type { SecretsService } from '../secrets/service.js';
 
 // Configure nunjucks: no filesystem templates, autoescape off (we're building prompts, not HTML)
 const nunjucksEnv = new nunjucks.Environment(null, { autoescape: false, throwOnUndefined: false });
+
+/**
+ * Register a secrets service so that {{ secret('NAME') }} works in templates.
+ * Call once during server startup after the secrets service is created.
+ */
+export function registerSecretsGlobal(secretsService: SecretsService): void {
+  nunjucksEnv.addGlobal('secret', (name: string) => secretsService.getValue(name));
+}
 
 // Helper to access edge fields that may not be present on all edge variants
 function getEdgePromptTemplate(edge: EdgeDefinition): string | undefined {

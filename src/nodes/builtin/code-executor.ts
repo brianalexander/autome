@@ -49,6 +49,7 @@ const executor: StepExecutor = {
       // 2. Build input payload
       const scope = buildExecutorScope(execCtx);
       const inputPayload = { input: scope.input, config };
+      const secretsEnv = execCtx.secrets ? JSON.stringify(execCtx.secrets) : undefined;
 
       // 3. Write temp code file
       const fileId = `${stageId}-${iteration}-${Date.now()}`;
@@ -80,6 +81,7 @@ const executor: StepExecutor = {
             env: {
               ...process.env,
               NODE_PATH: workspace.nodeModules,
+              ...(secretsEnv ? { __AUTOME_SECRETS__: secretsEnv } : {}),
             },
             maxBuffer: 10 * 1024 * 1024, // 10MB
           },

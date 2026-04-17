@@ -12,6 +12,7 @@ import {
   type StageOutput,
 } from './graph-helpers.js';
 import { resolveTemplateValue } from '../engine/context-resolver.js';
+import { getSecretsSnapshot } from '../secrets/service.js';
 
 // ---------------------------------------------------------------------------
 // Retry helper
@@ -47,6 +48,7 @@ export async function executeWithRetry(
         input,
         orchestratorUrl,
         iteration,
+        secrets: getSecretsSnapshot(),
       });
       return result as { output: unknown };
     } catch (err) {

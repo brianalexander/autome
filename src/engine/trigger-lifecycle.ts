@@ -8,6 +8,7 @@ import { nodeRegistry } from '../nodes/registry.js';
 import type { TriggerExecutor } from '../nodes/types.js';
 import type { WorkflowDefinition } from '../types/workflow.js';
 import type { EventBus, EventSubscription } from '../events/bus.js';
+import { getSecretsSnapshot } from '../secrets/service.js';
 
 /** Map of workflowId -> array of cleanup functions for active triggers */
 const activeTriggers = new Map<string, Array<() => void>>();
@@ -89,18 +90,24 @@ export async function activateWorkflowTriggers(definition: WorkflowDefinition): 
     const configWithVersion = { ...stageConfig, _workflowVersion: definition.version ?? 1 };
 
     try {
-      const cleanup = await executor.activate(definition.id, stage.id, configWithVersion, (payload: Record<string, unknown>) => {
-        // Route trigger events through the event bus, matching the pattern
-        // used by ManualTriggerProvider. The event bus will match this to
-        // subscriptions and emit 'trigger' events that server.ts handles.
-        eventBus!.handleEvent({
-          id: uuid(),
-          provider: stage.type,
-          type: 'trigger',
-          timestamp: new Date().toISOString(),
-          payload,
-        });
-      });
+      const cleanup = await executor.activate(
+        definition.id,
+        stage.id,
+        configWithVersion,
+        (payload: Record<string, unknown>) => {
+          // Route trigger events through the event bus, matching the pattern
+          // used by ManualTriggerProvider. The event bus will match this to
+          // subscriptions and emit 'trigger' events that server.ts handles.
+          eventBus!.handleEvent({
+            id: uuid(),
+            provider: stage.type,
+            type: 'trigger',
+            timestamp: new Date().toISOString(),
+            payload,
+          });
+        },
+        getSecretsSnapshot(),
+      );
 
       cleanups.push(cleanup);
       console.log(

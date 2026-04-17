@@ -49,7 +49,7 @@ try {
 const executor: TriggerExecutor = {
   type: 'trigger',
 
-  async activate(workflowId, stageId, config, emit) {
+  async activate(workflowId, stageId, config, emit, secrets?) {
     const code = (config.code as string) || '';
     const dependencies = (config.dependencies as Record<string, string>) || {};
     const timeoutSeconds = (config.timeout_seconds as number) || 0;
@@ -78,6 +78,7 @@ const executor: TriggerExecutor = {
         ...process.env,
         NODE_PATH: workspace.nodeModules,
         TRIGGER_CONFIG: JSON.stringify(config),
+        ...(secrets ? { __AUTOME_SECRETS__: JSON.stringify(secrets) } : {}),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

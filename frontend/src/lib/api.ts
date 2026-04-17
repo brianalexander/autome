@@ -377,6 +377,25 @@ export const templates = {
   export: (id: string) => request<Record<string, unknown>>(`/templates/${id}/export`),
 };
 
+// Secrets
+export interface SecretRecord {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
+export const secrets = {
+  list: () => request<SecretRecord[]>('/secrets'),
+  create: (data: { name: string; value: string; description?: string }) =>
+    request<SecretRecord>('/secrets', { method: 'POST', body: JSON.stringify(data) }),
+  update: (name: string, data: { value: string; description?: string }) =>
+    request<SecretRecord>(`/secrets/${name}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (name: string) => request<void>(`/secrets/${name}`, { method: 'DELETE' }),
+};
+
 export const assistantApi = {
   sendMessage: (message: string) =>
     request<{ ok: boolean }>('/assistant/chat', {
