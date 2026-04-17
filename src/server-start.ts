@@ -24,7 +24,7 @@ import { cleanupOrphanTests } from './workflow/test-run-janitor.js';
 import { startTestRunListener } from './workflow/test-run-listener.js';
 import { initializeRegistry, nodeRegistry } from './nodes/registry.js';
 import { loadPlugins } from './plugin/loader.js';
-import { applyPluginNodeTypes, shutdownPlugins, syncPluginTemplates, trackLoadedPlugin } from './plugin/apply.js';
+import { applyPlugins } from './plugin/apply.js';
 import {
   initTriggerLifecycle,
   activateWorkflowTriggers,
@@ -107,8 +107,13 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   await initializeRegistry();
 
   // Discover plugins early so node types are available before any other setup
-  const { loaded: plugins } = await loadPlugins();
-  await applyPluginNodeTypes(plugins, nodeRegistry);
+  const { loaded: plugins, failures: pluginFailures } = await loadPlugins();
+  if (pluginFailures.length > 0) {
+    for (const f of pluginFailures) {
+      console.warn(`[plugins] Failed to load ${f.path}: ${f.error.message}`);
+    }
+  }
+  await applyPlugins(plugins, nodeRegistry, db);
 
   // Discover and register custom ACP providers from ./providers/ and ~/.autome/providers/
   await initializeProviders();
@@ -183,9 +188,6 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   // Register routes with all dependencies (plugins get routes registered inside)
   await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins });
 
-  // Sync plugin-defined templates into the DB (idempotent: create or update by source)
-  await syncPluginTemplates(plugins, db);
-
   // Production: serve bundled frontend static files
   if (resolvedConfig.mode === 'production') {
     const frontendPath = resolveFrontendDistPath();
@@ -217,7 +219,6 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
     stopTestRunListener?.();
     if (janitorInterval) clearInterval(janitorInterval);
     await runner?.shutdown().catch((err) => console.warn('[runner] Shutdown error:', err));
-    await shutdownPlugins().catch((err) => console.warn('[plugins] Shutdown error:', err));
     await eventBus.stopAll().catch(() => {});
     await authorPool?.terminateAll().catch(() => {});
     await acpPool?.terminateAll().catch(() => {});
@@ -248,18 +249,6 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   await app.listen({ port: resolvedConfig.port, host: resolvedConfig.host });
   console.log(`Server running on ${resolvedConfig.host}:${resolvedConfig.port}`);
   console.log(`WebSocket available at ws://localhost:${resolvedConfig.port}/ws`);
-
-  // Call plugin onReady hooks after the server is fully listening
-  for (const plugin of plugins) {
-    if (plugin.onReady) {
-      try {
-        await plugin.onReady({ nodeRegistry, eventBus });
-      } catch (err) {
-        console.warn(`[plugins] onReady error for "${plugin.name}":`, err);
-      }
-    }
-    trackLoadedPlugin(plugin);
-  }
 
   // Register signal handlers for graceful shutdown
   const shutdown = async (signal: string) => {

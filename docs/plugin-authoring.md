@@ -1,109 +1,93 @@
 # Plugin Authoring Guide
 
-A **plugin** is a single object that registers custom node types, templates, API routes, and lifecycle hooks. Plugins are loaded at server boot and remain active for the lifetime of the process.
+A **plugin** is a directory containing an `autome-plugin.json` manifest, node type files, and template JSON files. Plugins are discovered at server boot and remain active for the lifetime of the process.
 
-- [The Plugin Interface](#the-plugin-interface)
-- [Where Plugins Come From](#where-plugins-come-from)
-- [Custom Node Types](#custom-node-types)
-- [Node Templates](#node-templates)
-- [Custom API Routes](#custom-api-routes)
-- [Lifecycle Hooks](#lifecycle-hooks)
-- [Distributing Your Plugin](#distributing-your-plugin)
+- [Plugin Structure](#plugin-structure)
+- [Manifest Reference](#manifest-reference)
+- [Writing a Node Type](#writing-a-node-type)
+- [Writing a Template](#writing-a-template)
+- [Discovery](#discovery)
+- [Example: A Complete Plugin](#example-a-complete-plugin)
 - [Type Reference](#type-reference)
 
 ---
 
-## The Plugin Interface
+## Plugin Structure
 
-```typescript
-import { definePlugin } from 'autome/plugin';
-
-export default definePlugin({
-  // Required
-  name: 'acme-integrations',
-
-  // Optional
-  version: '1.0.0',
-  apiVersion: 1,
-
-  // Extension points
-  nodeTypes: [/* NodeTypeSpec[] */],
-  templates: [/* NodeTemplate[] */],
-  registerRoutes: (app, deps, state) => { /* ... */ },
-  onReady: (ctx) => { /* ... */ },
-  onClose: () => { /* ... */ },
-});
+```
+plugins/
+└── my-plugin/
+    ├── autome-plugin.json        ← manifest (required)
+    ├── nodes/
+    │   ├── create-ticket.ts      ← default-exports a NodeTypeSpec
+    │   └── search.ts
+    └── templates/
+        ├── bug-report.json       ← { id, name, nodeType, config, ... }
+        └── feature-request.json
 ```
 
-`definePlugin()` is a pass-through helper that gives you type checking without runtime cost. All fields are optional except `name`.
-
-**Plugin identity**: `name` must be unique across all loaded plugins. Use a scope-style identifier (e.g. `acme-integrations`, `company/workflows`).
+Each plugin is a subdirectory of `./plugins/` (or `~/.autome/plugins/` for user-global). The directory must contain an `autome-plugin.json` file.
 
 ---
 
-## Where Plugins Come From
+## Manifest Reference
 
-On boot, autome looks for plugins in this order:
-
-1. **`AUTOME_PLUGINS` env var** (highest priority) — path to a single plugin file
-2. **`autome.plugins.ts`** or **`autome.plugins.js`** in `process.cwd()`
-3. **`~/.autome/plugins/`** — each `.ts` / `.js` / `.mjs` file in this directory is loaded
-
-Each file must default-export either a single plugin or an array of plugins.
-
-```typescript
-// Single plugin
-export default definePlugin({ name: 'my-plugin', /* ... */ });
-
-// Or an array
-export default [
-  definePlugin({ name: 'plugin-a', /* ... */ }),
-  definePlugin({ name: 'plugin-b', /* ... */ }),
-];
+```json
+{
+  "id": "jira",
+  "name": "Jira Integration",
+  "version": "1.0.0",
+  "description": "Custom Jira node types and templates",
+  "nodeTypes": ["./nodes/create-ticket.ts", "./nodes/search.ts"],
+  "templates": ["./templates/*.json"]
+}
 ```
+
+| Field | Required | Description |
+|---|---|---|
+| `id` | yes | Unique plugin identifier (used as the template `source` prefix) |
+| `name` | yes | Human-readable name shown in `doctor` output |
+| `version` | no | Semver string |
+| `description` | no | Short description |
+| `nodeTypes` | no | Array of paths to files that default-export a `NodeTypeSpec`. Relative to the plugin directory. |
+| `templates` | no | Array of paths or globs to JSON template files. Relative to the plugin directory. Supports `*.json` style globs. |
+
+All paths in `nodeTypes` and `templates` are resolved relative to the directory containing `autome-plugin.json`.
 
 ---
 
-## Custom Node Types
+## Writing a Node Type
 
-A node type is the blueprint for a stage. Users drag a node type onto the canvas, configure it, and the executor runs when the workflow reaches that stage.
-
-### Anatomy of a Node Type
+A node type file must **default-export** a `NodeTypeSpec`. No wrapper, no `definePlugin()` — just the spec.
 
 ```typescript
+// plugins/jira/nodes/create-ticket.ts
 import type { NodeTypeSpec, StepExecutor } from 'autome/plugin';
 
-const jiraExecutor: StepExecutor = {
+const executor: StepExecutor = {
   type: 'step',
-  async execute({ ctx, config, input }) {
-    // Access the durable execution context:
-    // - ctx.instanceId, ctx.sleep, ctx.waitFor, ctx.abortSignal
-    //
-    // config = the user's stage config (shaped by configSchema below)
-    // input = output from the upstream stage via the incoming edge
-
+  async execute({ config, input }) {
     const response = await fetch(`${config.baseUrl}/rest/api/3/issue`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.apiToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(input.sourceOutput),
+      body: JSON.stringify(input?.sourceOutput),
     });
-
     const ticket = await response.json();
     return { output: { ticketId: ticket.key, url: ticket.self } };
   },
 };
 
-export const jiraCreateTicketSpec: NodeTypeSpec = {
+const spec: NodeTypeSpec = {
   id: 'jira-create-ticket',
   name: 'Jira: Create Ticket',
   category: 'step',
   description: 'Creates a ticket in Jira',
-  icon: 'ticket',                      // any Lucide icon name
+  icon: 'ticket',
   color: { bg: '#eff6ff', border: '#3b82f6', text: '#2563eb' },
-  configSchema: {                       // JSON Schema — drives the auto-form
+  configSchema: {
     type: 'object',
     properties: {
       baseUrl: { type: 'string', title: 'Jira Base URL' },
@@ -113,8 +97,10 @@ export const jiraCreateTicketSpec: NodeTypeSpec = {
     required: ['baseUrl', 'apiToken', 'projectKey'],
   },
   defaultConfig: { baseUrl: '', apiToken: '', projectKey: '' },
-  executor: jiraExecutor,
+  executor,
 };
+
+export default spec;
 ```
 
 ### Executor Contract
@@ -142,15 +128,11 @@ The `ctx.waitFor(key)` primitive is how a stage blocks for an external signal �
 
 ```typescript
 async execute({ ctx, stageId }) {
-  // Signal key convention: 'gate-<stageId>' for approvals,
-  // 'stage-complete-<stageId>' for agent callbacks
   const approval = await ctx.waitFor<{ approved: boolean }>(`gate-${stageId}`);
   if (!approval.approved) throw new TerminalError('Rejected');
   return { output: approval };
 }
 ```
-
-An external HTTP call to `/api/instances/:id/gates/:stageId/approve` resolves the wait and the workflow resumes.
 
 ### Trigger Executors
 
@@ -165,7 +147,7 @@ const webhookListener: TriggerExecutor = {
     const server = startListener((payload) => {
       emit({ provider: 'my-webhook', payload });
     });
-    return () => server.close();  // cleanup function
+    return () => server.close(); // cleanup function
   },
 };
 ```
@@ -176,227 +158,179 @@ Set `category: 'trigger'` on the `NodeTypeSpec` and use `triggerMode: 'prompt' |
 
 The `configSchema` is a JSON Schema object. Autome auto-generates forms from it. Supported extensions:
 
-- `"format": "code"` — renders a code editor instead of a text input
+- `"format": "code"` — renders a code editor
 - `"format": "json"` — renders a JSON editor
 - `"format": "secret"` — renders a password input
 - `"format": "template"` — renders a template editor (for prompt templates)
 
-Keep schemas flat and descriptive. Use `title` for the form label and `description` for help text.
-
-### Edge Schemas
-
-A node can declare schemas for edge-level config:
-
-- `inEdgeSchema` — fields on incoming edges (e.g., agents declare `prompt_template`)
-- `outEdgeSchema` — fields on outgoing edges (e.g., gates declare `condition`)
-
-These render in the edge config panel.
-
 ---
 
-## Node Templates
+## Writing a Template
 
-A template is a **named, preconfigured snapshot** of an existing node type. Templates are not new node types — they're starting points users can drop onto canvases.
+A template is a **named, preconfigured snapshot** of an existing node type. Templates are JSON files — no TypeScript needed.
 
-```typescript
-import type { NodeTemplate } from 'autome/plugin';
-
-const jiraCreateTicketTemplate: NodeTemplate = {
-  id: 'acme-jira-create-ticket',
-  name: 'Jira: Create Bug',
-  description: 'Preconfigured Jira node for filing bugs',
-  nodeType: 'http-request',              // existing node type to clone
-  icon: 'bug',
-  category: 'Integrations',
-  config: {
-    url: 'https://acme.atlassian.net/rest/api/3/issue',
-    method: 'POST',
-    headers: {
-      'Authorization': 'Bearer {{ACME_JIRA_TOKEN}}',
-      'Content-Type': 'application/json',
+```json
+{
+  "id": "acme-jira-create-bug",
+  "name": "Jira: Create Bug",
+  "description": "Preconfigured Jira node for filing bugs",
+  "nodeType": "http-request",
+  "icon": "bug",
+  "category": "Integrations",
+  "config": {
+    "url": "https://acme.atlassian.net/rest/api/3/issue",
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer {{ACME_JIRA_TOKEN}}",
+      "Content-Type": "application/json"
     },
-    body: {
-      fields: {
-        project: { key: 'BUG' },
-        issuetype: { name: 'Bug' },
-      },
-    },
+    "body": {
+      "fields": {
+        "project": { "key": "BUG" },
+        "issuetype": { "name": "Bug" }
+      }
+    }
   },
-  exposed: ['body.fields.summary', 'body.fields.description'],
-  locked: ['method', 'url'],
-};
-
-export default definePlugin({
-  name: 'acme-templates',
-  templates: [jiraCreateTicketTemplate],
-});
+  "exposed": ["body.fields.summary", "body.fields.description"],
+  "locked": ["method", "url"]
+}
 ```
 
 **Key fields**:
 - `id` — stable, unique across your plugin
-- `nodeType` — must match an existing registered node type (built-in or from another plugin)
-- `config` — the saved configuration; copied into a new stage when the user drags the template
+- `nodeType` — must match a registered node type ID (built-in or from another plugin)
+- `config` — copied into a new stage when the user drags the template onto a canvas
 - `exposed` — hint to the UI about which fields the user should customize
 - `locked` — hint to the UI about which fields should not change
 
-**Current behavior**: templates are copy-paste. When a user drags a template onto a canvas, its `config` is copied into a new stage. There is no live link back to the template (by design — simpler mental model, no orphan-link bugs).
+A template file can export a single object or an array of objects.
 
 ### How Plugin Templates Sync
 
 On every boot, autome syncs plugin templates into the DB:
 
-- New plugin template → `INSERT` into `node_templates` with `source = 'plugin:<your-plugin-name>'`
+- New plugin template → `INSERT` into `node_templates` with `source = 'plugin:<plugin-id>'`
 - Existing template from the same plugin with **unchanged content** → no-op
 - Existing template from the same plugin with **changed content** → `UPDATE` in place
 - Existing template from a **different source** → skip (user's local customizations are protected)
 
-This means you can ship updates to your plugin templates and they'll propagate on the next boot.
+---
 
-### Local Templates
+## Discovery
 
-Users can also save templates directly from the UI (Bookmark icon on a configured node). Those have `source = 'local'` and are fully user-owned.
+On boot, autome scans for plugins in this order:
+
+1. **`./plugins/*/autome-plugin.json`** in `process.cwd()` — project-local
+2. **`~/.autome/plugins/*/autome-plugin.json`** — user-global
+3. **Loose `.ts`/`.js` files** in `./plugins/` (not inside subdirectories) — legacy fallback for quick scripts that default-export an object with a `name` field
+4. **`AUTOME_PLUGINS_DIR` env var** — overrides the project-local plugins directory path (instead of `./plugins/`)
+
+Each plugin directory is only loaded once. Plugins from both project-local and user-global directories are merged (project-local first).
 
 ---
 
-## Custom API Routes
+## Example: A Complete Plugin
 
-Plugins can register additional Fastify routes:
+Create a plugin that adds a custom "Slack Notify" node type and a starter template:
 
-```typescript
-import type { AutomePlugin } from 'autome/plugin';
-
-export default definePlugin({
-  name: 'acme-admin',
-  registerRoutes: (app, deps, state) => {
-    // app: Fastify instance
-    // deps: { db, eventBus, runner, ... }
-    // state: { acpPool, authorPool, authorDrafts, ... }
-
-    app.get('/api/acme/status', async () => {
-      const count = deps.db.listInstances({ status: 'running' }).length;
-      return { runningInstances: count };
-    });
-
-    app.post<{ Body: { workflowId: string } }>('/api/acme/cron/fire-now', async (req) => {
-      // You have access to the runner, event bus, DB — drive any core behavior
-      deps.eventBus.emit('manual-trigger', { workflowId: req.body.workflowId });
-      return { triggered: true };
-    });
-  },
-});
-```
-
-**Available via `deps`**:
-
-| Field | Type | What it does |
-|---|---|---|
-| `db` | `OrchestratorDB` | SQLite access via typed methods |
-| `eventBus` | `EventBus` | Publish/subscribe to workflow events |
-| `runner` | `WorkflowRunner` | Start, cancel, or resume instances |
-| `manualTrigger` | Provider | Fire manual triggers |
-| `acpPool`, `authorPool`, `assistantPool` | `AgentPool` | Manage ACP agent sessions |
-
-**Namespacing**: prefix your routes with something unique (e.g. `/api/acme/*`) to avoid conflicts with future core routes.
-
----
-
-## Lifecycle Hooks
-
-### `onReady(ctx)`
-
-Called after the core has initialized (routes registered, node registry populated, etc.) but **before `app.listen()`**. Use for one-time setup that needs access to the registry or event bus.
-
-```typescript
-export default definePlugin({
-  name: 'acme-setup',
-  async onReady({ nodeRegistry, eventBus }) {
-    console.log('Loaded node types:', nodeRegistry.list().map(n => n.id));
-    eventBus.on('workflow-finished', (event) => {
-      // Send a metric to Datadog, etc.
-    });
-  },
-});
-```
-
-### `onClose()`
-
-Called during graceful shutdown (SIGINT, SIGTERM, or explicit `app.close()`). Use to flush buffers, close external connections, etc.
-
-```typescript
-export default definePlugin({
-  name: 'acme-metrics',
-  onClose: async () => {
-    await datadogClient.flush();
-  },
-});
-```
-
----
-
-## Distributing Your Plugin
-
-### Option 1: Project-Local File
-
-The simplest — just put an `autome.plugins.ts` file at the root of your project.
+### Directory layout
 
 ```
-my-company/
-├── package.json          # depends on autome
-├── autome.plugins.ts     # your plugins
-├── src/
-│   └── nodes/
-│       └── jira.ts       # individual node specs
-└── data/
-    └── orchestrator.db   # runtime state
+plugins/
+└── slack/
+    ├── autome-plugin.json
+    ├── nodes/
+    │   └── notify.ts
+    └── templates/
+        └── alert.json
 ```
 
-Run autome directly: `npx autome` (see [Bootstrapping Guide](./bootstrapping.md)).
-
-### Option 2: npm Package
-
-Ship your plugin as a reusable npm package:
+### `autome-plugin.json`
 
 ```json
 {
-  "name": "@acme/autome-plugin",
-  "version": "1.2.0",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "peerDependencies": {
-    "autome": "^0.1.0"
-  }
+  "id": "slack",
+  "name": "Slack Integration",
+  "version": "1.0.0",
+  "description": "Slack node types and templates",
+  "nodeTypes": ["./nodes/notify.ts"],
+  "templates": ["./templates/*.json"]
 }
 ```
 
-```typescript
-// src/index.ts — your plugin package
-import { definePlugin } from 'autome/plugin';
-// ... your node types and templates
-
-export default definePlugin({ name: '@acme/plugin', /* ... */ });
-```
-
-Consumers install and register:
+### `nodes/notify.ts`
 
 ```typescript
-// consumer's autome.plugins.ts
-import acmePlugin from '@acme/autome-plugin';
-import { definePlugin } from 'autome/plugin';
+import type { NodeTypeSpec, StepExecutor } from 'autome/plugin';
 
-export default [
-  acmePlugin,
-  definePlugin({ name: 'my-local', /* ... */ }),
-];
+const executor: StepExecutor = {
+  type: 'step',
+  async execute({ config, input }) {
+    await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        channel: config.channel,
+        text: String(input?.sourceOutput ?? config.defaultMessage),
+      }),
+    });
+    return { output: { sent: true } };
+  },
+};
+
+const spec: NodeTypeSpec = {
+  id: 'slack-notify',
+  name: 'Slack: Notify',
+  category: 'step',
+  description: 'Posts a message to a Slack channel',
+  icon: 'message-square',
+  color: { bg: '#f0fdf4', border: '#22c55e', text: '#16a34a' },
+  configSchema: {
+    type: 'object',
+    properties: {
+      token: { type: 'string', title: 'Bot Token', format: 'secret' },
+      channel: { type: 'string', title: 'Channel (e.g. #alerts)' },
+      defaultMessage: { type: 'string', title: 'Default Message' },
+    },
+    required: ['token', 'channel'],
+  },
+  defaultConfig: { token: '', channel: '', defaultMessage: '' },
+  executor,
+};
+
+export default spec;
 ```
 
-### Option 3: Global Plugin Directory
+### `templates/alert.json`
 
-Drop plugin files in `~/.autome/plugins/`. Useful for machine-wide tooling not tied to a specific project.
-
+```json
+{
+  "id": "slack-alert-template",
+  "name": "Slack: Alert",
+  "description": "Send an alert to #alerts",
+  "nodeType": "slack-notify",
+  "icon": "bell",
+  "category": "Notifications",
+  "config": {
+    "channel": "#alerts",
+    "defaultMessage": "Workflow completed"
+  },
+  "exposed": ["config.defaultMessage"],
+  "locked": ["config.channel"]
+}
 ```
-~/.autome/plugins/
-├── 01-acme.ts        # loaded first (alphabetical)
-└── 02-company.ts
+
+### Verify
+
+```bash
+npx tsx src/cli/index.ts doctor
+# Should show:
+#   ✓ Slack Integration v1.0.0
+#         ✓ Node types (1): slack-notify
+#         ✓ Templates (1): slack-alert-template
 ```
 
 ---
@@ -406,12 +340,11 @@ Drop plugin files in `~/.autome/plugins/`. Useful for machine-wide tooling not t
 All types are exported from `autome/plugin`:
 
 ```typescript
-import {
-  // Core plugin API
-  definePlugin,
-  AutomePlugin,
+import type {
+  // Plugin types
+  PluginManifest,
+  LoadedPlugin,
   NodeTemplate,
-  PluginContext,
 
   // Node type system
   NodeTypeSpec,
@@ -425,60 +358,22 @@ import {
   WorkflowDefinition,
   EdgeDefinition,
   NodeTypeInfo,
-
-  // Route-level access
-  RouteDeps,
-  SharedState,
 } from 'autome/plugin';
 ```
 
-### `AutomePlugin` contract
+### `PluginManifest` fields
 
 ```typescript
-interface AutomePlugin {
-  name: string;                  // required, unique
-  version?: string;              // your plugin version (semver)
-  apiVersion?: number;           // current: 1
-  nodeTypes?: NodeTypeSpec[];
-  templates?: NodeTemplate[];
-  registerRoutes?: (app, deps, state) => void | Promise<void>;
-  onReady?: (ctx) => void | Promise<void>;
-  onClose?: () => void | Promise<void>;
+interface PluginManifest {
+  id: string;           // required, unique plugin identifier
+  name: string;         // required, human-readable name
+  version?: string;     // semver
+  description?: string; // short description
+  nodeTypes?: string[]; // paths to NodeTypeSpec files (relative to plugin dir)
+  templates?: string[]; // paths/globs to JSON template files (relative to plugin dir)
 }
 ```
 
 ### Stability
 
-The `autome/plugin` barrel export is the **stable public API surface**. Internal refactors of autome will not break these types. Anything imported from deeper paths (e.g. `autome/src/db/database.js`) is not guaranteed stable.
-
-If a breaking change to the plugin API is needed, the `apiVersion` field lets the core reject incompatible plugins gracefully.
-
----
-
-## Common Patterns
-
-### Secrets handling
-
-Don't hardcode secrets in templates. Use placeholder syntax and have the user fill them via env vars or an external secrets source:
-
-```typescript
-config: {
-  headers: {
-    'Authorization': 'Bearer {{MY_API_TOKEN}}',
-  },
-}
-```
-
-Users can reference env vars in configs at runtime via templating (handled by the core).
-
-### Iterative agents
-
-For agents that should be re-invoked in cycles, set `cycle_behavior` in the stage config and model the loop as an edge that points back to the agent. The core handles iteration counting and session continuation.
-
-### Error paths
-
-Add an `on_error` outgoing edge from a stage to route failures to a cleanup stage. This is configured in the UI — your executor just throws errors normally.
-
----
-
-Next: see [Bootstrapping Guide](./bootstrapping.md) for how to install autome as a dependency and wire it up in your own app.
+The `autome/plugin` barrel export is the **stable public API surface**. Internal refactors will not break these types. Anything imported from deeper paths (e.g. `autome/src/db/database.js`) is not guaranteed stable.

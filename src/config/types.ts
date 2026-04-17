@@ -17,10 +17,6 @@ export interface AutomeConfig {
   /** Default ACP provider. Can be overridden per-workflow. */
   acpProvider?: 'claude-code' | 'opencode' | 'kiro' | (string & {});
 
-  /** Plugin files to load in order. Paths are resolved relative to cwd.
-   *  In addition to any autome.plugins.ts auto-discovered. */
-  plugins?: string[];
-
   /** Mode: 'dev' uses dev defaults (CORS open, etc.), 'production' uses
    *  production defaults (bundled frontend, stricter CORS). Default: 'auto'
    *  (based on NODE_ENV). */
@@ -37,7 +33,6 @@ export interface ResolvedConfig {
   databasePath: string;
   workspacesDir: string;
   acpProvider: string | undefined;
-  plugins: string[];
   mode: 'dev' | 'production';
   openBrowser: boolean;
 }

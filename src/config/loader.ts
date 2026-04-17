@@ -49,7 +49,6 @@ export async function loadConfig(overrides?: Partial<AutomeConfig>): Promise<Res
     databasePath,
     workspacesDir,
     acpProvider: merged.acpProvider ?? undefined,
-    plugins: merged.plugins ?? [],
     mode,
     openBrowser: merged.openBrowser ?? false,
   };
@@ -66,7 +65,6 @@ function readEnvConfig(): Partial<AutomeConfig> {
   if (process.env.DATA_DIR) cfg.dataDir = process.env.DATA_DIR;
   if (process.env.DATABASE_PATH) cfg.databasePath = process.env.DATABASE_PATH;
   if (process.env.ACP_PROVIDER) cfg.acpProvider = process.env.ACP_PROVIDER;
-  if (process.env.AUTOME_PLUGINS) cfg.plugins = [process.env.AUTOME_PLUGINS];
   if (process.env.NODE_ENV === 'production') cfg.mode = 'production';
 
   return cfg;

@@ -1,12 +1,12 @@
 /**
  * validate.ts
  *
- * Validates loaded AutomePlugin instances against their declared metadata.
- * Does NOT execute registerRoutes, onReady, onClose, or any runtime hooks —
- * only inspects declarative metadata.
+ * Validates loaded plugins against their declared metadata.
+ * Only inspects declarative metadata (nodeTypes and templates) —
+ * no runtime hooks to execute.
  */
 
-import type { AutomePlugin } from './types.js';
+import type { LoadedPlugin } from './types.js';
 import { jsonSchemaToZod } from '../nodes/schema-to-zod.js';
 
 // ---------------------------------------------------------------------------
@@ -21,7 +21,7 @@ export interface PluginIssue {
 }
 
 export interface PluginValidationResult {
-  plugin: AutomePlugin;
+  plugin: LoadedPlugin;
   issues: PluginIssue[];
   /** Node type IDs contributed by this plugin */
   nodeTypeIds: string[];
@@ -40,12 +40,6 @@ export interface ValidationReport {
   crossIssues: CrossPluginIssue[];
 }
 
-// ---------------------------------------------------------------------------
-// Current plugin API version understood by this build
-// ---------------------------------------------------------------------------
-
-const CURRENT_API_VERSION = 1;
-
 // Node type ID must start with a lowercase letter, then lowercase letters/digits/hyphens
 const NODE_TYPE_ID_RE = /^[a-z][a-z0-9-]*$/;
 
@@ -54,11 +48,9 @@ const NODE_TYPE_ID_RE = /^[a-z][a-z0-9-]*$/;
 // ---------------------------------------------------------------------------
 
 /**
- * Validate loaded plugins. Does NOT execute runtime hooks.
- * Only inspects declarative metadata (nodeTypes and templates).
+ * Validate loaded plugins. Only inspects declarative metadata (nodeTypes and templates).
  *
  * Checks performed per plugin:
- *   - apiVersion compat (warning if plugin requests newer than current)
  *   - node type ID format (^[a-z][a-z0-9-]*$)
  *   - node type required fields (id, name, category, executor, configSchema, defaultConfig, etc.)
  *   - configSchema compiles via jsonSchemaToZod (error on malformed)
@@ -71,7 +63,7 @@ const NODE_TYPE_ID_RE = /^[a-z][a-z0-9-]*$/;
  *   - duplicate template IDs across plugins
  */
 export async function validatePlugins(
-  plugins: AutomePlugin[],
+  plugins: LoadedPlugin[],
   builtinNodeTypes: Set<string>,
 ): Promise<ValidationReport> {
   const results: PluginValidationResult[] = [];
@@ -80,7 +72,7 @@ export async function validatePlugins(
   // references can be resolved across plugin boundaries.
   const allPluginNodeTypeIds = new Set<string>();
   for (const plugin of plugins) {
-    for (const spec of plugin.nodeTypes ?? []) {
+    for (const spec of plugin.nodeTypes) {
       if (spec.id) allPluginNodeTypeIds.add(spec.id);
     }
   }
@@ -94,16 +86,8 @@ export async function validatePlugins(
     const nodeTypeIds: string[] = [];
     const templateIds: string[] = [];
 
-    // --- apiVersion compat ---
-    if (plugin.apiVersion !== undefined && plugin.apiVersion > CURRENT_API_VERSION) {
-      issues.push({
-        severity: 'warning',
-        message: `API version ${plugin.apiVersion} requested, current is ${CURRENT_API_VERSION}`,
-      });
-    }
-
     // --- node types ---
-    for (const spec of plugin.nodeTypes ?? []) {
+    for (const spec of plugin.nodeTypes) {
       // id
       if (!spec.id) {
         issues.push({ severity: 'error', message: 'Node type is missing required field: id' });
@@ -167,7 +151,7 @@ export async function validatePlugins(
     }
 
     // --- templates ---
-    for (const tpl of plugin.templates ?? []) {
+    for (const tpl of plugin.templates) {
       // required fields
       if (!tpl.id) {
         issues.push({ severity: 'error', message: 'Template is missing required field: id' });
@@ -209,10 +193,10 @@ export async function validatePlugins(
       if (seenNodeTypeIds.has(id)) {
         crossIssues.push({
           severity: 'error',
-          message: `Duplicate node type ID '${id}' in plugins '${seenNodeTypeIds.get(id)}' and '${result.plugin.name}'`,
+          message: `Duplicate node type ID '${id}' in plugins '${seenNodeTypeIds.get(id)}' and '${result.plugin.manifest.name}'`,
         });
       } else {
-        seenNodeTypeIds.set(id, result.plugin.name);
+        seenNodeTypeIds.set(id, result.plugin.manifest.name);
       }
     }
 
@@ -220,10 +204,10 @@ export async function validatePlugins(
       if (seenTemplateIds.has(id)) {
         crossIssues.push({
           severity: 'error',
-          message: `Duplicate template ID '${id}' in plugins '${seenTemplateIds.get(id)}' and '${result.plugin.name}'`,
+          message: `Duplicate template ID '${id}' in plugins '${seenTemplateIds.get(id)}' and '${result.plugin.manifest.name}'`,
         });
       } else {
-        seenTemplateIds.set(id, result.plugin.name);
+        seenTemplateIds.set(id, result.plugin.manifest.name);
       }
     }
   }

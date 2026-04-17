@@ -263,8 +263,8 @@ async function cmdDoctor(_args: ParsedArgs) {
         const hasError = issues.some((i) => i.severity === 'error');
         const hasWarning = issues.some((i) => i.severity === 'warning');
         const pluginIcon = hasError ? ICON_ERR : hasWarning ? ICON_WARN : ICON_OK;
-        const versionLabel = plugin.version ? ` v${plugin.version}` : '';
-        checkLine(pluginIcon, `${plugin.name}${versionLabel}`);
+        const versionLabel = plugin.manifest.version ? ` v${plugin.manifest.version}` : '';
+        checkLine(pluginIcon, `${plugin.manifest.name}${versionLabel}`);
 
         // Node types summary
         if (nodeTypeIds.length > 0) {

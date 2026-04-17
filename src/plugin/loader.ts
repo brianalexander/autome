@@ -1,84 +1,227 @@
 import { existsSync } from 'fs';
-import { join } from 'path';
-import { readdir } from 'fs/promises';
+import { join, resolve } from 'path';
+import { readdir, readFile } from 'fs/promises';
 import { homedir } from 'os';
-import type { AutomePlugin } from './types.js';
+import { glob } from 'glob';
+import type { LoadedPlugin, PluginManifest, NodeTemplate } from './types.js';
+import type { NodeTypeSpec } from '../nodes/types.js';
 
 export interface PluginLoadResult {
-  loaded: AutomePlugin[];
+  loaded: LoadedPlugin[];
   failures: Array<{ path: string; error: Error }>;
 }
 
 export async function loadPlugins(): Promise<PluginLoadResult> {
-  const loaded: AutomePlugin[] = [];
+  const loaded: LoadedPlugin[] = [];
   const failures: Array<{ path: string; error: Error }> = [];
 
-  // 1. AUTOME_PLUGINS env var (highest priority)
-  const envPath = process.env.AUTOME_PLUGINS;
-  if (envPath) {
-    const resolved = join(process.cwd(), envPath);
-    if (existsSync(resolved)) {
-      const result = await loadPluginFile(resolved);
-      loaded.push(...result.plugins);
-      failures.push(...result.failures);
-    } else {
-      console.warn(`[plugins] AUTOME_PLUGINS path not found: ${resolved}`);
-    }
+  // Determine the project-local plugins directory. AUTOME_PLUGINS_DIR env var overrides.
+  const envPluginsDir = process.env.AUTOME_PLUGINS_DIR;
+  const localPluginsDir = envPluginsDir
+    ? resolve(process.cwd(), envPluginsDir)
+    : join(process.cwd(), 'plugins');
+
+  // 1. Project-local plugins directory
+  if (existsSync(localPluginsDir)) {
+    const result = await scanPluginsDir(localPluginsDir);
+    loaded.push(...result.loaded);
+    failures.push(...result.failures);
   }
 
-  // 2. autome.plugins.ts / autome.plugins.js in cwd
-  if (!envPath) {
-    for (const filename of ['autome.plugins.ts', 'autome.plugins.js']) {
-      const configPath = join(process.cwd(), filename);
-      if (existsSync(configPath)) {
-        const result = await loadPluginFile(configPath);
-        loaded.push(...result.plugins);
-        failures.push(...result.failures);
-        break; // only load first found
-      }
-    }
-  }
-
-  // 3. ~/.autome/plugins/ directory
+  // 2. User-global plugins directory (~/.autome/plugins/)
   const globalPluginsDir = join(homedir(), '.autome', 'plugins');
   if (existsSync(globalPluginsDir)) {
-    try {
-      const entries = await readdir(globalPluginsDir);
-      for (const entry of entries.sort()) {
-        if (entry.endsWith('.ts') || entry.endsWith('.js') || entry.endsWith('.mjs')) {
-          const filePath = join(globalPluginsDir, entry);
-          const result = await loadPluginFile(filePath);
-          loaded.push(...result.plugins);
-          failures.push(...result.failures);
-        }
+    const result = await scanPluginsDir(globalPluginsDir);
+    loaded.push(...result.loaded);
+    failures.push(...result.failures);
+  }
+
+  return { loaded, failures };
+}
+
+/**
+ * Scan a plugins directory for:
+ * 1. Subdirectories with autome-plugin.json (manifest-driven)
+ * 2. Loose .ts/.js files (legacy single-file fallback)
+ */
+async function scanPluginsDir(pluginsDir: string): Promise<PluginLoadResult> {
+  const loaded: LoadedPlugin[] = [];
+  const failures: Array<{ path: string; error: Error }> = [];
+
+  let entries: string[];
+  try {
+    entries = await readdir(pluginsDir);
+  } catch (err) {
+    console.warn(`[plugins] Failed to read ${pluginsDir}:`, err);
+    return { loaded, failures };
+  }
+
+  for (const entry of entries.sort()) {
+    const entryPath = join(pluginsDir, entry);
+
+    // Check if this entry is a subdirectory with a manifest
+    const manifestPath = join(entryPath, 'autome-plugin.json');
+    if (existsSync(manifestPath)) {
+      const result = await loadManifestPlugin(entryPath, manifestPath);
+      if (result.plugin) {
+        loaded.push(result.plugin);
       }
-    } catch (err) {
-      console.warn(`[plugins] Failed to read ${globalPluginsDir}:`, err);
+      failures.push(...result.failures);
+      continue;
+    }
+
+    // Legacy fallback: loose .ts or .js files directly in the plugins dir
+    if (entry.endsWith('.ts') || entry.endsWith('.js') || entry.endsWith('.mjs')) {
+      const result = await loadLegacyFile(entryPath);
+      if (result.plugin) {
+        loaded.push(result.plugin);
+      } else if (result.error) {
+        failures.push({ path: entryPath, error: result.error });
+      }
     }
   }
 
   return { loaded, failures };
 }
 
-async function loadPluginFile(
+/**
+ * Load a manifest-driven plugin from a directory.
+ */
+async function loadManifestPlugin(
+  pluginDir: string,
+  manifestPath: string,
+): Promise<{ plugin?: LoadedPlugin; failures: Array<{ path: string; error: Error }> }> {
+  const failures: Array<{ path: string; error: Error }> = [];
+
+  // Parse manifest
+  let manifest: PluginManifest;
+  try {
+    const raw = await readFile(manifestPath, 'utf-8');
+    manifest = JSON.parse(raw) as PluginManifest;
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error(`[plugins] Failed to parse ${manifestPath}:`, error);
+    return { failures: [{ path: manifestPath, error }] };
+  }
+
+  // Validate required fields
+  if (!manifest.id || typeof manifest.id !== 'string') {
+    const error = new Error('Manifest missing required field: id');
+    return { failures: [{ path: manifestPath, error }] };
+  }
+  if (!manifest.name || typeof manifest.name !== 'string') {
+    const error = new Error('Manifest missing required field: name');
+    return { failures: [{ path: manifestPath, error }] };
+  }
+
+  // Load node types
+  const nodeTypes: NodeTypeSpec[] = [];
+  if (manifest.nodeTypes?.length) {
+    for (const relPath of manifest.nodeTypes) {
+      const absPath = resolve(pluginDir, relPath);
+      try {
+        const mod = await import(absPath);
+        const spec = mod.default;
+        if (!spec || typeof spec !== 'object' || !('id' in spec)) {
+          failures.push({
+            path: absPath,
+            error: new Error(`Node type file does not default-export a NodeTypeSpec (missing 'id')`),
+          });
+        } else {
+          nodeTypes.push(spec as NodeTypeSpec);
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        failures.push({ path: absPath, error });
+      }
+    }
+
+    // If any node type failed to load, fail the entire plugin (partial loads are confusing)
+    if (failures.length > 0) {
+      return { failures };
+    }
+  }
+
+  // Load templates
+  const templates: NodeTemplate[] = [];
+  if (manifest.templates?.length) {
+    for (const pattern of manifest.templates) {
+      const matchedFiles = await glob(pattern, { cwd: pluginDir, absolute: false });
+      for (const relFile of matchedFiles.sort()) {
+        const absFile = resolve(pluginDir, relFile);
+        try {
+          const raw = await readFile(absFile, 'utf-8');
+          const parsed = JSON.parse(raw) as NodeTemplate | NodeTemplate[];
+          const list = Array.isArray(parsed) ? parsed : [parsed];
+          for (const tpl of list) {
+            if (!tpl || typeof tpl !== 'object' || !('id' in tpl)) {
+              console.warn(`[plugins] Skipping invalid template entry in ${absFile}`);
+              continue;
+            }
+            templates.push(tpl);
+          }
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          failures.push({ path: absFile, error });
+        }
+      }
+
+      if (failures.length > 0) {
+        return { failures };
+      }
+    }
+  }
+
+  const plugin: LoadedPlugin = {
+    manifest,
+    dir: pluginDir,
+    nodeTypes,
+    templates,
+  };
+
+  console.log(
+    `[plugins] Loaded "${manifest.name}"${manifest.version ? ` v${manifest.version}` : ''} ` +
+    `(${nodeTypes.length} node type(s), ${templates.length} template(s))`,
+  );
+
+  return { plugin, failures };
+}
+
+/**
+ * Legacy fallback: a loose .ts/.js file that default-exports an object with at least a `name` field.
+ */
+async function loadLegacyFile(
   filePath: string,
-): Promise<{ plugins: AutomePlugin[]; failures: Array<{ path: string; error: Error }> }> {
+): Promise<{ plugin?: LoadedPlugin; error?: Error }> {
   try {
     const mod = await import(filePath);
     const exported = mod.default ?? mod;
-    const list = Array.isArray(exported) ? exported : [exported];
-    // Validate each has a name
-    const plugins = list.filter((p: unknown) => {
-      if (!p || typeof p !== 'object' || !('name' in p)) {
-        console.warn(`[plugins] Skipping invalid plugin export from ${filePath}`);
-        return false;
-      }
-      return true;
-    });
-    return { plugins, failures: [] };
+
+    if (!exported || typeof exported !== 'object' || !('name' in exported)) {
+      console.warn(`[plugins] Skipping ${filePath}: does not default-export an object with a 'name' field`);
+      return {};
+    }
+
+    const legacy = exported as { name: string; version?: string; nodeTypes?: NodeTypeSpec[]; templates?: NodeTemplate[] };
+
+    const manifest: PluginManifest = {
+      id: legacy.name,
+      name: legacy.name,
+      version: legacy.version,
+    };
+
+    const plugin: LoadedPlugin = {
+      manifest,
+      dir: filePath,
+      nodeTypes: legacy.nodeTypes ?? [],
+      templates: legacy.templates ?? [],
+    };
+
+    console.log(`[plugins] Loaded legacy plugin "${manifest.name}" from ${filePath}`);
+    return { plugin };
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     console.error(`[plugins] Failed to import ${filePath}:`, error);
-    return { plugins: [], failures: [{ path: filePath, error }] };
+    return { error };
   }
 }

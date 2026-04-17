@@ -15,20 +15,22 @@ This guide walks through installing autome as a dependency and running your own 
 
 ## Overview
 
-Autome is designed to be embedded. You install it, drop an `autome.plugins.ts` file next to it, and run the server. Your plugins get registered at boot and the rest behaves identically to a stock autome.
+Autome is designed to be embedded. You install it, create a `plugins/` directory next to it, and run the server. Your plugins get discovered and registered at boot — the rest behaves identically to a stock autome.
 
 ```
 ┌─────────────────────────────────────────────┐
 │  Your Project                               │
-│  ├── autome.plugins.ts   ← your plugins     │
-│  ├── src/nodes/*.ts      ← custom node code │
+│  ├── plugins/            ← your plugins     │
+│  │   └── my-plugin/                         │
+│  │       ├── autome-plugin.json             │
+│  │       └── nodes/...                      │
 │  ├── data/               ← runtime state    │
 │  └── node_modules/                          │
 │      └── autome/        ← the core         │
 └─────────────────────────────────────────────┘
 ```
 
-The core (autome) provides the server, workflow engine, UI, API, and DB layer. Your project provides extensions.
+The core (autome) provides the server, workflow engine, UI, API, and DB layer. Your project provides extensions via the `plugins/` directory.
 
 ---
 
@@ -59,37 +61,43 @@ npm install -D typescript tsx @types/node
     "outDir": "./dist",
     "rootDir": "./src"
   },
-  "include": ["src/**/*", "autome.plugins.ts"]
+  "include": ["src/**/*", "plugins/**/*"]
 }
 ```
 
 ### 3. Create your first plugin
 
-```typescript
-// autome.plugins.ts
-import { definePlugin } from 'autome/plugin';
+```bash
+mkdir -p plugins/my-plugin/templates
+```
 
-export default definePlugin({
-  name: 'my-autome',
-  version: '1.0.0',
-  templates: [
-    {
-      id: 'github-webhook-receiver',
-      name: 'GitHub Webhook Receiver',
-      nodeType: 'webhook-trigger',
-      config: {
-        output_schema: {
-          type: 'object',
-          properties: {
-            action: { type: 'string' },
-            repository: { type: 'object' },
-          },
-          required: ['action', 'repository'],
-        },
+```json
+// plugins/my-plugin/autome-plugin.json
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "templates": ["./templates/*.json"]
+}
+```
+
+```json
+// plugins/my-plugin/templates/github-webhook.json
+{
+  "id": "github-webhook-receiver",
+  "name": "GitHub Webhook Receiver",
+  "nodeType": "webhook-trigger",
+  "config": {
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "action": { "type": "string" },
+        "repository": { "type": "object" }
       },
-    },
-  ],
-});
+      "required": ["action", "repository"]
+    }
+  }
+}
 ```
 
 ### 4. Add package.json scripts
@@ -122,47 +130,42 @@ A typical embedded autome project:
 my-autome/
 ├── package.json
 ├── tsconfig.json
-├── autome.plugins.ts              # Plugin registration
-├── src/
-│   ├── nodes/
-│   │   ├── jira.ts                # Custom node type
-│   │   └── slack.ts               # Another custom node type
-│   ├── routes/
-│   │   └── admin.ts               # Custom Fastify routes
-│   └── templates/
-│       ├── jira-bug.json          # Template definitions
-│       └── slack-alert.json
-├── data/                          # Runtime state (SQLite, workspaces)
+├── plugins/
+│   ├── jira/
+│   │   ├── autome-plugin.json
+│   │   ├── nodes/
+│   │   │   ├── create-ticket.ts    ← default-exports a NodeTypeSpec
+│   │   │   └── search.ts
+│   │   └── templates/
+│   │       ├── bug-report.json
+│   │       └── feature-request.json
+│   └── slack/
+│       ├── autome-plugin.json
+│       └── nodes/
+│           └── notify.ts
+├── data/                           ← runtime state (SQLite, workspaces)
 │   ├── orchestrator.db
-│   ├── workspaces/                # Code executor workspaces
-│   └── agents/                    # ACP agent configs
-└── .env                           # Environment config (optional)
+│   ├── workspaces/
+│   └── agents/
+└── .env                            ← environment config (optional)
 ```
 
-### `autome.plugins.ts` (recommended pattern)
+### Plugin manifest (`autome-plugin.json`)
 
-Keep the entry file small and delegate to modules:
+The manifest declares everything autome needs to load your plugin:
 
-```typescript
-// autome.plugins.ts
-import { definePlugin } from 'autome/plugin';
-import { jiraCreateTicketSpec } from './src/nodes/jira.js';
-import { slackNotifySpec } from './src/nodes/slack.js';
-import { registerAdminRoutes } from './src/routes/admin.js';
-import jiraBugTemplate from './src/templates/jira-bug.json' assert { type: 'json' };
-import slackAlertTemplate from './src/templates/slack-alert.json' assert { type: 'json' };
-
-export default definePlugin({
-  name: '@mycompany/autome-plugin',
-  version: '1.0.0',
-  nodeTypes: [jiraCreateTicketSpec, slackNotifySpec],
-  templates: [jiraBugTemplate, slackAlertTemplate],
-  registerRoutes: registerAdminRoutes,
-  onReady: async ({ nodeRegistry }) => {
-    console.log(`[mycompany] Loaded ${nodeRegistry.list().length} node types total`);
-  },
-});
+```json
+{
+  "id": "jira",
+  "name": "Jira Integration",
+  "version": "1.0.0",
+  "description": "Custom Jira node types and templates",
+  "nodeTypes": ["./nodes/create-ticket.ts", "./nodes/search.ts"],
+  "templates": ["./templates/*.json"]
+}
 ```
+
+Node type files must default-export a `NodeTypeSpec`. Template files are plain JSON.
 
 ---
 
@@ -178,18 +181,19 @@ Autome reads config from environment variables. Create a `.env` file or pass the
 | `DATABASE_PATH` | `./data/orchestrator.db` | SQLite file location |
 | `NODE_ENV` | `development` | `production` enables caching/logging changes |
 
-### Plugin loading
+### Plugin discovery
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AUTOME_PLUGINS` | _unset_ | Path to a plugin file. Overrides `autome.plugins.ts` discovery. |
+| `AUTOME_PLUGINS_DIR` | `./plugins` | Override the project-local plugins directory path |
 
-Plugin discovery order when `AUTOME_PLUGINS` is unset:
+Plugin discovery order:
 
-1. `./autome.plugins.ts` (or `.js`) in `process.cwd()`
-2. `~/.autome/plugins/*.{ts,js,mjs}` (alphabetical)
+1. `./plugins/*/autome-plugin.json` (or `$AUTOME_PLUGINS_DIR/*/autome-plugin.json`)
+2. `~/.autome/plugins/*/autome-plugin.json` (user-global, always scanned)
+3. Loose `.ts`/`.js` files directly in the plugins directories (legacy fallback)
 
-Plugins from both sources are merged (project plugins first).
+Plugins from all sources are merged (project-local first).
 
 ### ACP provider settings
 
@@ -281,8 +285,6 @@ npm update autome
 
 Autome follows semver. Breaking changes bump the major version. Your plugins survive minor and patch updates because they depend only on the `autome/plugin` barrel.
 
-If a breaking plugin API change lands, bump the `apiVersion` field on your plugin to match.
-
 ### Database migrations
 
 Autome runs migrations automatically on boot. New columns and tables are added in place; existing data is preserved. You don't need to manage the migration process yourself.
@@ -293,7 +295,7 @@ If you need to roll back, keep a backup of `data/orchestrator.db` before upgradi
 
 Template changes propagate automatically:
 
-- Plugin ships `templates: [{ id: 'acme-jira', name: 'New Name', ... }]`
+- Plugin ships updated `templates/bug-report.json` with a new name
 - Next boot, autome detects the change and updates the DB row
 - Users see the new name on the Templates page
 
@@ -303,37 +305,39 @@ Your users' local (non-plugin) templates are never overwritten.
 
 ## Troubleshooting
 
-### `[plugins] AUTOME_PLUGINS path not found`
-
-The `AUTOME_PLUGINS` env var points to a path that doesn't exist. Check the path is absolute or relative to `process.cwd()`.
-
-### `Unknown tool: my-tool` in agent runs
-
-An agent tried to call an MCP tool that isn't registered. Check that your plugin includes any MCP servers it needs via the ACP agent config.
-
 ### Plugin doesn't appear to load
 
 Check the boot logs for:
 
 ```
-[plugins] Loading "your-plugin-name" v1.0.0
-[plugins]   Registered node type: your-node-id
+[plugins] Loaded "your-plugin-name" v1.0.0 (1 node type(s), 2 template(s))
 ```
 
 If the load message is missing:
-- Confirm `autome.plugins.ts` exists in `process.cwd()`
-- Check `tsx` is installed and can resolve `autome/plugin`
-- Make sure you `export default` (not named export)
+- Confirm `plugins/your-plugin/autome-plugin.json` exists in `process.cwd()`
+- Run `npx tsx src/cli/index.ts doctor` to see load failures
+- Ensure the `autome-plugin.json` has both `id` and `name` fields
 
-### `Cannot find module 'autome/plugin'`
+### `Failed to parse autome-plugin.json`
 
-The `exports` field in `package.json` requires Node 16+ resolution. If you're using older tooling, import from `autome/dist/plugin/index.js` directly. But the recommended setup uses `tsx` which handles this natively.
+Your manifest has a JSON syntax error. Validate it with `node -e "JSON.parse(require('fs').readFileSync('plugins/my-plugin/autome-plugin.json','utf8'))"`.
+
+### Node type file fails to import
+
+The file must default-export a `NodeTypeSpec`. Common issues:
+- Named export instead of default export (use `export default spec`, not `export { spec }`)
+- Missing `id` field on the exported object
+- TypeScript compilation error (check `npx tsc --noEmit`)
 
 ### Templates not showing
 
-- Confirm the `nodeType` in the template matches a registered node type ID
-- Check `[plugins]   Registered template: ...` in boot logs
+- Confirm the `nodeType` in the template JSON matches a registered node type ID
+- Check `[plugins] Registered template: ...` in boot logs
 - Query the DB directly: `sqlite3 data/orchestrator.db "SELECT id, name, source FROM node_templates"`
+
+### `Unknown tool: my-tool` in agent runs
+
+An agent tried to call an MCP tool that isn't registered. Check that your plugin includes any MCP servers it needs via the ACP agent config.
 
 ### Workflow stages hang on cancel
 
@@ -343,5 +347,5 @@ Rare, but the execution context has a 5s timeout on cancel. If it fires, the DB 
 
 ## Further Reading
 
-- [Plugin Authoring Guide](./plugin-authoring.md) — full reference for node types, templates, routes, hooks
+- [Plugin Authoring Guide](./plugin-authoring.md) — full reference for node types, templates, and discovery
 - [Documentation Index](./README.md)

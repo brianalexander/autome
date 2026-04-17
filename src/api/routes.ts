@@ -57,15 +57,6 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   registerTestRunRoutes(app, deps);
   registerTemplateRoutes(app, deps);
 
-  // Register plugin routes (plugins receive app, deps, and the fully-initialised state)
-  if (deps.plugins?.length) {
-    for (const plugin of deps.plugins) {
-      if (plugin.registerRoutes) {
-        await plugin.registerRoutes(app, deps, state);
-      }
-    }
-  }
-
   // Health endpoint
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
   typedApp.get('/api/health', async (request, reply) => {
