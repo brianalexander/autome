@@ -722,6 +722,7 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         onAddNode={handleAddNodeFromPalette}
+        onAddTemplate={handleAddTemplateFromPalette}
       />
       <ShortcutsHelp
         isOpen={shortcutsHelpOpen}

@@ -1,35 +1,85 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Search } from 'lucide-react';
-import { useNodeTypes } from '../../hooks/queries';
+import { Search, Bookmark } from 'lucide-react';
+import { useNodeTypes, useTemplates } from '../../hooks/queries';
+import type { NodeTemplateRecord } from '../../lib/api';
 import { buildNodeCategories, flattenNodeEntries } from '../../lib/nodeRegistry';
 import { resolveLucideIcon } from '../../lib/iconResolver';
+
+interface PaletteItem {
+  /** Unique key for the result list */
+  key: string;
+  label: string;
+  description: string;
+  icon: string;
+  /** Shown as a subtle tag on the right */
+  category: string;
+  kind: 'node' | 'template';
+  /** For nodes: the node type ID. For templates: unused. */
+  nodeType?: string;
+  /** For templates: the full template record. */
+  template?: NodeTemplateRecord;
+}
 
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
   onAddNode: (type: string) => void;
+  onAddTemplate?: (template: NodeTemplateRecord) => void;
 }
 
-export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPaletteProps) {
+export function CommandPalette({ isOpen, onClose, onAddNode, onAddTemplate }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: nodeTypeList } = useNodeTypes();
+  const { data: templateList } = useTemplates();
 
-  const allNodes = useMemo(() => {
-    if (!nodeTypeList) return [];
-    return flattenNodeEntries(buildNodeCategories(nodeTypeList));
-  }, [nodeTypeList]);
+  // Build unified list: node types first, then templates
+  const allItems: PaletteItem[] = useMemo(() => {
+    const items: PaletteItem[] = [];
+
+    // Node types
+    if (nodeTypeList) {
+      for (const entry of flattenNodeEntries(buildNodeCategories(nodeTypeList))) {
+        items.push({
+          key: `node:${entry.type}`,
+          label: entry.label,
+          description: entry.description,
+          icon: entry.icon,
+          category: entry.category,
+          kind: 'node',
+          nodeType: entry.type,
+        });
+      }
+    }
+
+    // Templates
+    if (templateList) {
+      for (const tmpl of templateList) {
+        items.push({
+          key: `template:${tmpl.id}`,
+          label: tmpl.name,
+          description: tmpl.description || `${tmpl.node_type} template`,
+          icon: tmpl.icon || 'bookmark',
+          category: 'Template',
+          kind: 'template',
+          template: tmpl,
+        });
+      }
+    }
+
+    return items;
+  }, [nodeTypeList, templateList]);
 
   const filtered = query.trim()
-    ? allNodes.filter(
-        (n) =>
-          n.label.toLowerCase().includes(query.toLowerCase()) ||
-          n.description.toLowerCase().includes(query.toLowerCase()) ||
-          n.category.toLowerCase().includes(query.toLowerCase()),
+    ? allItems.filter(
+        (item) =>
+          item.label.toLowerCase().includes(query.toLowerCase()) ||
+          item.description.toLowerCase().includes(query.toLowerCase()) ||
+          item.category.toLowerCase().includes(query.toLowerCase()),
       )
-    : allNodes;
+    : allItems;
 
   // Capture-phase Escape listener — fires before the global shortcut handler
   // so closing the palette doesn't also deselect nodes.
@@ -59,6 +109,18 @@ export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPalettePro
     setSelectedIndex(0);
   }, [query]);
 
+  const handleSelect = useCallback(
+    (item: PaletteItem) => {
+      if (item.kind === 'template' && item.template && onAddTemplate) {
+        onAddTemplate(item.template);
+      } else if (item.kind === 'node' && item.nodeType) {
+        onAddNode(item.nodeType);
+      }
+      onClose();
+    },
+    [onAddNode, onAddTemplate, onClose],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'ArrowDown') {
@@ -69,13 +131,12 @@ export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPalettePro
         setSelectedIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === 'Enter' && filtered[selectedIndex]) {
         e.preventDefault();
-        onAddNode(filtered[selectedIndex].type);
-        onClose();
+        handleSelect(filtered[selectedIndex]);
       } else if (e.key === 'Escape') {
         onClose();
       }
     },
-    [filtered, selectedIndex, onAddNode, onClose],
+    [filtered, selectedIndex, handleSelect, onClose],
   );
 
   if (!isOpen) return null;
@@ -96,7 +157,7 @@ export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPalettePro
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search nodes to add..."
+            placeholder="Search nodes and templates..."
             className="flex-1 bg-transparent text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] outline-none"
           />
           <kbd className="text-[10px] text-[var(--color-text-tertiary)] bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 rounded font-mono">
@@ -108,19 +169,18 @@ export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPalettePro
         <div className="overflow-y-auto flex-1 py-1">
           {filtered.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-[var(--color-text-tertiary)]">
-              No matching nodes found
+              No matching nodes or templates found
             </div>
           ) : (
             filtered.map((item, i) => {
-              const Icon = resolveLucideIcon(item.icon);
+              const Icon = item.kind === 'template' && item.icon === 'bookmark'
+                ? Bookmark
+                : resolveLucideIcon(item.icon);
               const isSelected = i === selectedIndex;
               return (
                 <button
-                  key={item.type}
-                  onClick={() => {
-                    onAddNode(item.type);
-                    onClose();
-                  }}
+                  key={item.key}
+                  onClick={() => handleSelect(item)}
                   onMouseEnter={() => setSelectedIndex(i)}
                   className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                     isSelected
@@ -144,7 +204,7 @@ export function CommandPalette({ isOpen, onClose, onAddNode }: CommandPalettePro
                     </div>
                   </div>
                   <span
-                    className={`text-[10px] ${isSelected ? 'text-white/50' : 'text-[var(--color-text-tertiary)]'}`}
+                    className={`text-[10px] flex-shrink-0 ${isSelected ? 'text-white/50' : 'text-[var(--color-text-tertiary)]'}`}
                   >
                     {item.category}
                   </span>
