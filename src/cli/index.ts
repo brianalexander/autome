@@ -4,14 +4,12 @@
  *
  * Commands:
  *   autome [start]     Start the server (default)
- *   autome init        Create autome.config.ts in cwd
  *   autome doctor      Environment checks
  *
  * Options:
  *   --port <n>         Override port
  *   --host <h>         Override host
  *   --data-dir <path>  Override data directory
- *   --config <path>    Use alternate config file (not yet supported — reserved)
  *   --open             Auto-open browser on start
  *   --no-open          Don't open browser (default)
  *   --verbose          Verbose logging
@@ -19,7 +17,7 @@
  *   -v, --version      Show version
  */
 
-import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, exec } from 'node:child_process';
@@ -33,11 +31,11 @@ const execAsync = promisify(exec);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
-// Arg parsing (hand-rolled, ~50 lines)
+// Arg parsing
 // ---------------------------------------------------------------------------
 
 interface ParsedArgs {
-  command: string;
+  command: 'start' | 'doctor';
   port?: number;
   host?: string;
   dataDir?: string;
@@ -60,7 +58,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
-    if (arg === 'start' || arg === 'init' || arg === 'doctor') {
+    if (arg === 'start' || arg === 'doctor') {
       result.command = arg;
     } else if (arg === '--port' || arg === '-p') {
       result.port = parseInt(args[++i] ?? '', 10);
@@ -91,16 +89,16 @@ Usage: autome [command] [options]
 
 Commands:
   start          Start the server (default)
-  init           Create autome.config.ts in current directory
   doctor         Run environment checks
 
 Options:
-  --port <n>         Override server port
-  --host <h>         Override bind host
-  --data-dir <path>  Override data directory
+  --port <n>         Override server port (default: 3001)
+  --host <h>         Override bind host (default: 127.0.0.1)
+                     Use 0.0.0.0 to expose on LAN
+  --data-dir <path>  Override data directory (default: ./data)
   --open             Auto-open browser after start
   --no-open          Don't open browser (default)
-  --verbose          Verbose logging
+  --verbose          Verbose logging (prints resolved config)
   -h, --help         Show this help
   -v, --version      Show version
 `);
@@ -127,20 +125,21 @@ async function cmdStart(args: ParsedArgs) {
     console.log('[autome] Resolved config:', resolvedConfig);
   }
 
-  // Production mode: check frontend is built
+  // Production mode: warn if the frontend wasn't built
   if (resolvedConfig.mode === 'production') {
     const frontendDistIndex = resolve(__dirname, '../../frontend/dist/index.html');
     if (!existsSync(frontendDistIndex)) {
-      console.log(`[autome] Production mode: frontend not built.
-         Run: npm run build:all
-         Then try again.`);
-      // Continue anyway — API-only mode is valid
+      console.log(
+        '[autome] Production mode: frontend not built. Run `npm run build:all` and try again.\n' +
+          '         Starting in API-only mode.',
+      );
     }
   }
 
-  console.log(`[autome] Starting server on ${resolvedConfig.host}:${resolvedConfig.port} (mode: ${resolvedConfig.mode})`);
+  console.log(
+    `[autome] Starting server on ${resolvedConfig.host}:${resolvedConfig.port} (mode: ${resolvedConfig.mode})`,
+  );
 
-  // Dynamically import server start so the module is loaded after config is ready
   const { startServer } = await import('../server-start.js');
   await startServer(resolvedConfig);
 
@@ -148,50 +147,6 @@ async function cmdStart(args: ParsedArgs) {
     const url = `http://${resolvedConfig.host === '0.0.0.0' ? 'localhost' : resolvedConfig.host}:${resolvedConfig.port}`;
     await openBrowser(url);
   }
-}
-
-async function cmdInit(_args: ParsedArgs) {
-  const configPath = resolve(process.cwd(), 'autome.config.ts');
-
-  if (existsSync(configPath)) {
-    console.log(`[autome] autome.config.ts already exists at ${configPath}`);
-    console.log('        Delete it first if you want to re-initialize.');
-    return;
-  }
-
-  const template = `import { defineConfig } from 'autome';
-
-export default defineConfig({
-  // Port the server listens on
-  port: 3001,
-
-  // Bind to localhost only. Use '0.0.0.0' to expose on LAN.
-  host: '127.0.0.1',
-
-  // Root data directory (DB, workspaces, etc.)
-  dataDir: './data',
-
-  // Default ACP provider: 'claude-code' | 'opencode' | 'kiro'
-  // acpProvider: 'kiro',
-
-  // Auto-open browser on start
-  openBrowser: false,
-});
-`;
-
-  writeFileSync(configPath, template, 'utf-8');
-  console.log(`[autome] Created ${configPath}`);
-
-  // Create data dir
-  const dataDir = resolve(process.cwd(), 'data');
-  if (!existsSync(dataDir)) {
-    mkdirSync(dataDir, { recursive: true });
-    console.log(`[autome] Created ${dataDir}/`);
-  }
-
-  // Future: seed examples
-  console.log('[autome] Future: seed examples');
-  console.log('[autome] Done. Run `autome start` to launch the server.');
 }
 
 async function cmdDoctor(_args: ParsedArgs) {
@@ -204,7 +159,7 @@ async function cmdDoctor(_args: ParsedArgs) {
     pass: major >= 20,
   });
 
-  // 2. Load config and check DB path writable
+  // 2. Load config
   let resolvedConfig;
   try {
     resolvedConfig = await loadConfig();
@@ -225,7 +180,11 @@ async function cmdDoctor(_args: ParsedArgs) {
     accessSync(dbDir, constants.W_OK);
     checks.push({ label: `DB dir writable (${dbDir})`, pass: true });
   } catch (err) {
-    checks.push({ label: `DB dir writable (${resolvedConfig.databasePath})`, pass: false, detail: String(err) });
+    checks.push({
+      label: `DB dir writable (${resolvedConfig.databasePath})`,
+      pass: false,
+      detail: String(err),
+    });
   }
 
   // 4. Plugins load without error
@@ -250,10 +209,18 @@ async function cmdDoctor(_args: ParsedArgs) {
       await execAsync(`${whichCmd} ${cliName}`);
       checks.push({ label: `ACP provider CLI '${cliName}' on PATH`, pass: true });
     } catch {
-      checks.push({ label: `ACP provider CLI '${cliName}' on PATH`, pass: false, detail: 'not found in PATH' });
+      checks.push({
+        label: `ACP provider CLI '${cliName}' on PATH`,
+        pass: false,
+        detail: 'not found in PATH',
+      });
     }
   } else {
-    checks.push({ label: 'ACP provider CLI', pass: true, detail: 'none configured (will use default)' });
+    checks.push({
+      label: 'ACP provider CLI',
+      pass: true,
+      detail: 'none configured (will use default)',
+    });
   }
 
   printDoctorTable(checks);
@@ -306,9 +273,6 @@ async function main() {
   switch (args.command) {
     case 'start':
       await cmdStart(args);
-      break;
-    case 'init':
-      await cmdInit(args);
       break;
     case 'doctor':
       await cmdDoctor(args);
