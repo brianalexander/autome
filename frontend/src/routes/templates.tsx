@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { Bookmark, Download, Upload, Copy, Trash2, FileJson, X } from 'lucide-react';
+import { Bookmark, Download, Upload, CopyPlus, Clipboard, Check, Trash2, FileJson, X, ClipboardPaste } from 'lucide-react';
 import { useTemplates } from '../hooks/queries';
 import { templates as templatesApi, type NodeTemplateRecord, type StageDefinition } from '../lib/api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -50,7 +50,22 @@ function TemplateCard({
   onSelect: () => void;
   onRefresh: () => void;
 }) {
-  const handleExport = async (e: React.MouseEvent) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyJson = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const data = await templatesApi.export(template.id);
+      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast.success('JSON copied to clipboard');
+    } catch (err) {
+      toast.error(`Copy failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       const data = await templatesApi.export(template.id);
@@ -62,7 +77,7 @@ function TemplateCard({
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -134,9 +149,16 @@ function TemplateCard({
 
       <div className="px-4 py-2 border-t border-border/50 flex items-center gap-1">
         <button
-          onClick={handleExport}
+          onClick={handleCopyJson}
           className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface-secondary transition-colors"
-          title="Export as JSON"
+          title="Copy JSON to clipboard"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Clipboard className="w-3.5 h-3.5" />}
+        </button>
+        <button
+          onClick={handleDownload}
+          className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface-secondary transition-colors"
+          title="Download as JSON file"
         >
           <Download className="w-3.5 h-3.5" />
         </button>
@@ -145,13 +167,12 @@ function TemplateCard({
           className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface-secondary transition-colors"
           title="Duplicate"
         >
-          <Copy className="w-3.5 h-3.5" />
+          <CopyPlus className="w-3.5 h-3.5" />
         </button>
         <div className="flex-1" />
         <button
           onClick={handleDelete}
           className="text-text-muted hover:text-red-500 p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
-          title="Delete"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -310,6 +331,8 @@ function TemplatesPage() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['templates'] });
 
@@ -323,23 +346,41 @@ function TemplatesPage() {
     setSelectedId(null);
   }
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImporting(true);
     try {
       const text = await file.text();
-      const json = JSON.parse(text);
-      const items = Array.isArray(json) ? json : [json];
-      const imported = await templatesApi.import(items);
-      toast.success(`Imported ${imported.length} template${imported.length !== 1 ? 's' : ''}`);
-      refresh();
+      await doImport(text);
     } catch (err) {
       toast.error(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setImporting(false);
       if (importInputRef.current) importInputRef.current.value = '';
     }
+  };
+
+  const handlePasteImport = async () => {
+    if (!pasteText.trim()) return;
+    setImporting(true);
+    try {
+      await doImport(pasteText);
+      setPasteOpen(false);
+      setPasteText('');
+    } catch (err) {
+      toast.error(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const doImport = async (text: string) => {
+    const json = JSON.parse(text);
+    const items = Array.isArray(json) ? json : [json];
+    const imported = await templatesApi.import(items);
+    toast.success(`Imported ${imported.length} template${imported.length !== 1 ? 's' : ''}`);
+    refresh();
   };
 
   if (isLoading) {
@@ -387,24 +428,70 @@ function TemplatesPage() {
 
       </div>
 
-      {/* Floating import button — positioned outside the scrollable area so it stays visible */}
-      <div className="absolute bottom-6 left-0 right-0 pointer-events-none flex items-center justify-end pr-6" style={selectedTemplate ? { right: 480 } : undefined}>
+      {/* Floating import buttons */}
+      <div className="absolute bottom-6 left-0 right-0 pointer-events-none flex items-center justify-end gap-2 pr-6" style={selectedTemplate ? { right: 480 } : undefined}>
         <input
           ref={importInputRef}
           type="file"
           accept=".json"
           className="hidden"
-          onChange={handleImport}
+          onChange={handleFileImport}
         />
+        <button
+          onClick={() => setPasteOpen(true)}
+          disabled={importing}
+          className="pointer-events-auto flex items-center gap-1.5 px-4 py-2 text-xs rounded-lg border border-border bg-surface shadow-lg text-text-secondary hover:text-text-primary hover:border-border-subtle transition-colors disabled:opacity-50"
+        >
+          <ClipboardPaste className="w-3.5 h-3.5" />
+          Paste JSON
+        </button>
         <button
           onClick={() => importInputRef.current?.click()}
           disabled={importing}
           className="pointer-events-auto flex items-center gap-1.5 px-4 py-2 text-xs rounded-lg border border-border bg-surface shadow-lg text-text-secondary hover:text-text-primary hover:border-border-subtle transition-colors disabled:opacity-50"
         >
           <Upload className="w-3.5 h-3.5" />
-          {importing ? 'Importing...' : 'Import JSON'}
+          {importing ? 'Importing...' : 'Import File'}
         </button>
       </div>
+
+      {/* Paste JSON modal */}
+      {pasteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setPasteOpen(false)}>
+          <div className="bg-surface border border-border rounded-xl w-full max-w-lg mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-text-primary">Import Template from JSON</h3>
+              <button onClick={() => setPasteOpen(false)} className="text-text-tertiary hover:text-text-primary p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder={'Paste a template JSON object or array here...\n\n{\n  "name": "My Template",\n  "nodeType": "code-executor",\n  "config": { ... }\n}'}
+                spellCheck={false}
+                className="w-full h-64 text-xs font-mono bg-surface-secondary border border-border rounded-lg px-3 py-2 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-blue-400 resize-none"
+              />
+            </div>
+            <div className="p-4 border-t border-border flex justify-end gap-2">
+              <button
+                onClick={() => setPasteOpen(false)}
+                className="px-4 py-2 text-xs text-text-secondary hover:text-text-primary rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePasteImport}
+                disabled={!pasteText.trim() || importing}
+                className="px-4 py-2 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {importing ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Right-side config editor */}
       {selectedTemplate && (
