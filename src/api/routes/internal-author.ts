@@ -168,6 +168,27 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
     }
     parts.push('</available_agents>');
 
+    // Surface available secret names (never values) so the agent can reference
+    // them when generating code nodes or templated configs.
+    if (deps.secretsService) {
+      const secretList = deps.secretsService.list();
+      parts.push('<available_secrets>');
+      if (secretList.length === 0) {
+        parts.push('(none — users can add secrets in Settings → Secrets)');
+      } else {
+        for (const s of secretList) {
+          parts.push(`  - ${s.name}${s.description ? `: ${s.description}` : ''}`);
+        }
+        parts.push(
+          'Reference secrets by name, never hardcode values:',
+          '  - In code nodes:      const token = context.secrets.JIRA_TOKEN;',
+          '  - In templated config: {{ secret(\'JIRA_TOKEN\') }}',
+          'Secret values are never serialized into workflow JSON.',
+        );
+      }
+      parts.push('</available_secrets>');
+    }
+
     // Include OpenAPI spec on first message of the session
     // Emit autonomous testing setting
     const autoTestEnabled = !!(workflow as WorkflowDefinition)?.authoring?.auto_test;

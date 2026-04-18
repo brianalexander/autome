@@ -20,14 +20,16 @@ You MUST use the autome_api MCP tool to create and modify pipelines. Never write
 
 ### Code Executor
 
-The code-executor runs JavaScript in an isolated Node.js process with npm package support. Refer to `<node_types>` in your context for the full config schema.
+The code-executor runs TypeScript/JavaScript in an isolated Node.js process with npm package support. Refer to `<node_types>` in your context for the full config schema.
 
 **Key rules:**
 - Code is a standard ES module with a `default export` function
-- The function receives `{ input, config }` and must return the output
+- The function receives `{ input, config, context }` and must return the output
+- TypeScript is supported — use type annotations, interfaces, generics freely
 - Supports standard ES module `import` statements for installed dependencies
 - Supports `async` functions: `export default async ({ input }) => { ... }`
 - Set `dependencies` in the config to install npm packages
+- Use `context.secrets.SECRET_NAME` to access secrets — NEVER hardcode API keys
 
 **Example (with dependencies):**
 ```javascript
@@ -52,6 +54,39 @@ export default ({ input }) => {
     timestamp: new Date().toISOString(),
   };
 };
+```
+
+**Example (using secrets):**
+```typescript
+export default async ({ input, context }) => {
+  const res = await fetch('https://api.example.com/data', {
+    headers: { Authorization: `Bearer ${context.secrets.EXAMPLE_API_KEY}` },
+  });
+  return await res.json();
+};
+```
+
+### Secrets
+
+Available secret names are listed in `<available_secrets>` in your context. Secret VALUES are never visible to you — only their names.
+
+**Rules:**
+- **Never hardcode** API keys, tokens, or credentials in code or config. Always reference secrets by name.
+- In code nodes: `context.secrets.SECRET_NAME`
+- In templated config (HTTP headers, webhook URLs, prompt templates): `{{ secret('SECRET_NAME') }}`
+- If a workflow needs a secret that doesn't exist yet, tell the user: "This workflow needs `JIRA_TOKEN`. Add it in Settings → Secrets."
+- Secret names follow `^[A-Z][A-Z0-9_]*$` convention (e.g. `JIRA_TOKEN`, `SLACK_WEBHOOK_URL`)
+
+**Example — HTTP node config with a secret:**
+```json
+{
+  "url": "https://acme.atlassian.net/rest/api/3/issue",
+  "method": "POST",
+  "headers": {
+    "Authorization": "Bearer {{ secret('JIRA_TOKEN') }}",
+    "Content-Type": "application/json"
+  }
+}
 ```
 
 ### Edges — The Critical Part
