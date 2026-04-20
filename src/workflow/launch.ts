@@ -6,6 +6,7 @@ import type { WorkflowRunner } from '../engine/runner.js';
 import { broadcast } from '../api/websocket.js';
 import { nodeRegistry } from '../nodes/registry.js';
 import { jsonSchemaToZod } from '../nodes/schema-to-zod.js';
+import { resolveTemplate } from '../engine/context-resolver.js';
 
 interface LaunchOptions {
   isTest?: boolean;
@@ -21,6 +22,47 @@ interface LaunchOptions {
    * Defaults to true.
    */
   markEntryStagesOnError?: boolean;
+}
+
+/**
+ * Compute a human-readable display summary for a new instance at launch time.
+ *
+ * Priority:
+ * 1. prompt-trigger → first 80 chars of payload.prompt (trimmed, whitespace-collapsed).
+ * 2. workflow.instance_summary_template → render nunjucks template against trigger payload.
+ * 3. Fallback: "<trigger_provider> · <YYYY-MM-DD HH:mm>"
+ */
+export function computeDisplaySummary(
+  triggerStage: { type: string; config?: Record<string, unknown> } | undefined,
+  workflow: WorkflowDefinition,
+  event: Event,
+): string {
+  const payload = event.payload as Record<string, unknown> | undefined;
+
+  // 1. prompt-trigger — use the prompt text
+  if (triggerStage?.type === 'prompt-trigger' && payload?.prompt && typeof payload.prompt === 'string') {
+    const collapsed = payload.prompt.replace(/\s+/g, ' ').trim();
+    return collapsed.length > 80 ? collapsed.slice(0, 80) : collapsed;
+  }
+
+  // 2. instance_summary_template
+  const template = (workflow as WorkflowDefinition & { instance_summary_template?: string }).instance_summary_template;
+  if (template) {
+    try {
+      const result = resolveTemplate(template, { trigger: payload ?? {}, output: payload ?? {} });
+      const trimmed = result.trim();
+      if (trimmed) return trimmed;
+    } catch {
+      // Swallow render errors — fall through to default
+    }
+  }
+
+  // 3. Fallback
+  const provider = triggerStage?.type?.replace('-trigger', '') ?? 'manual';
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10); // YYYY-MM-DD
+  const timePart = now.toTimeString().slice(0, 5);  // HH:mm
+  return `${provider} · ${datePart} ${timePart}`;
 }
 
 export interface LaunchResult {
@@ -56,7 +98,7 @@ export async function launchWorkflow(
 ): Promise<LaunchResult> {
   const { isTest = false, initiatedBy = 'user', markEntryStagesOnError = true } = opts ?? {};
 
-  // Validate trigger payload against the trigger stage's payload_schema (if configured)
+  // Find trigger stage (used for validation and display_summary)
   const triggerStage = workflow.stages.find(s => nodeRegistry.isTriggerType(s.type));
   const payloadSchema = (triggerStage?.config as Record<string, unknown> | undefined)?.payload_schema;
   if (payloadSchema && typeof payloadSchema === 'object') {
@@ -113,6 +155,12 @@ export async function launchWorkflow(
     },
   };
 
+  const displaySummary = computeDisplaySummary(
+    triggerStage as { type: string; config?: Record<string, unknown> } | undefined,
+    workflow,
+    event,
+  );
+
   const instance = db.createInstance({
     definition_id: workflow.id,
     definition_version: workflow.version,
@@ -123,6 +171,7 @@ export async function launchWorkflow(
     trigger_event: event as unknown as Record<string, unknown>,
     context,
     current_stage_ids: [],
+    display_summary: displaySummary,
   });
 
   let runnerError: string | undefined;

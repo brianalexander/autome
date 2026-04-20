@@ -6,6 +6,7 @@ import type { Event } from '../types/events.js';
 import type { WorkflowContext } from '../types/instance.js';
 import type { ExecutionContext } from './types.js';
 import { TerminalError, isTerminalError } from './types.js';
+import { broadcast } from '../api/websocket.js';
 
 interface RunHandle {
   instanceId: string;
@@ -25,6 +26,7 @@ export class WorkflowRunner {
   constructor(
     private db: OrchestratorDB,
     private eventBus: EventBus,
+    private orchestratorUrl: string = 'http://127.0.0.1:3001',
   ) {}
 
   async start(
@@ -43,15 +45,19 @@ export class WorkflowRunner {
     // Build the ExecutionContext for this run
     const execCtx: ExecutionContext = {
       instanceId,
+      orchestratorUrl: this.orchestratorUrl,
       setStatus: (status) => {
         this.db.updateInstance(instanceId, { status: status as import('../types/instance.js').WorkflowInstance['status'] });
         this.eventBus.emit('instance:status', { instanceId, status });
+        broadcast('instance:updated', { instanceId, status }, { instanceId });
       },
       setContext: (context) => {
         this.db.updateInstance(instanceId, { context });
+        broadcast('instance:updated', { instanceId }, { instanceId });
       },
       setCurrentStageIds: (ids) => {
         this.db.updateInstance(instanceId, { current_stage_ids: ids });
+        broadcast('instance:updated', { instanceId, currentStageIds: ids }, { instanceId });
       },
       waitFor: <T = unknown>(key: string): Promise<T> => {
         return this.waitForSignal<T>(instanceId, key, waitResolvers);
@@ -75,12 +81,14 @@ export class WorkflowRunner {
       } catch (err) {
         if (abortController.signal.aborted) {
           this.db.updateInstance(instanceId, { status: 'cancelled', completed_at: new Date().toISOString() });
+          broadcast('instance:updated', { instanceId, status: 'cancelled' }, { instanceId });
         } else {
           console.error(`[runner] Workflow ${instanceId} failed:`, err);
           this.db.updateInstance(instanceId, {
             status: 'failed',
             completed_at: new Date().toISOString(),
           });
+          broadcast('instance:updated', { instanceId, status: 'failed' }, { instanceId });
         }
         throw err;
       } finally {
@@ -118,6 +126,7 @@ export class WorkflowRunner {
     if (!handle) {
       // Not running in memory — just update DB
       this.db.updateInstance(instanceId, { status: 'cancelled', completed_at: new Date().toISOString() });
+      broadcast('instance:updated', { instanceId, status: 'cancelled' }, { instanceId });
       return;
     }
     console.log(`[runner.cancel] ${instanceId}: aborting, ${handle.waitResolvers.size} waiters pending`);
@@ -139,6 +148,7 @@ export class WorkflowRunner {
         `[runner.cancel] ${instanceId}: executionPromise did not settle within ${timeoutMs}ms — forcing cancellation`,
       );
       this.db.updateInstance(instanceId, { status: 'cancelled', completed_at: new Date().toISOString() });
+      broadcast('instance:updated', { instanceId, status: 'cancelled' }, { instanceId });
       this.active.delete(instanceId);
     } else {
       console.log(`[runner.cancel] ${instanceId}: execution settled`);
@@ -249,6 +259,7 @@ export class WorkflowRunner {
           }
           if (runningStageIds.length > 0) {
             this.db.updateInstance(instance.id, { context });
+            broadcast('instance:updated', { instanceId: instance.id }, { instanceId: instance.id });
             await this.startResume(
               instance.id,
               definition,

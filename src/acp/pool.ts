@@ -23,7 +23,7 @@ export interface SpawnOptions {
   stageId: string;
   config: AgentStageConfig;
   workingDir?: string;
-  orchestratorPort?: number;
+  orchestratorPort: number;
   /** If provided, loadSession is used instead of newSession */
   acpSessionId?: string;
   /** Workflow definition ID — used to symlink bundle agents into the working directory for provider agent discovery. */
@@ -56,7 +56,7 @@ export class AgentPool {
   }
 
   async spawn(options: SpawnOptions): Promise<SpawnResult> {
-    const { instanceId, stageId, config: stageConfig, orchestratorPort = config.port } = options;
+    const { instanceId, stageId, config: stageConfig, orchestratorPort } = options;
     const key = `${instanceId}:${stageId}`;
 
     // Terminate existing process for this stage if any

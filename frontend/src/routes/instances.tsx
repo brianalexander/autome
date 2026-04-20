@@ -2,11 +2,12 @@ import { createFileRoute, Link, Outlet, useMatch, useNavigate } from '@tanstack/
 import { toast } from 'sonner';
 import { Activity, ChevronDown } from 'lucide-react';
 import { z } from 'zod';
-import { useInstances, useWorkflows, useCancelInstance, useDeleteInstance } from '../hooks/queries';
+import { useInstances, useWorkflows, useCancelInstance, useDeleteInstance, useRenameInstance } from '../hooks/queries';
 import { isTriggerType, type WorkflowInstance, type WorkflowDefinition } from '../lib/api';
 import { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { formatDuration } from '../lib/format';
+import { Pencil, Check, X } from 'lucide-react';
 
 const PAGE_SIZE = 50;
 
@@ -73,6 +74,96 @@ const initiatedByColors: Record<string, string> = {
   webhook: 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-300',
   cron: 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-300',
 };
+
+// ---------------------------------------------------------------------------
+// Inline rename widget
+// ---------------------------------------------------------------------------
+
+function InlineRename({
+  instanceId,
+  currentSummary,
+  fallback,
+}: {
+  instanceId: string;
+  currentSummary: string | null | undefined;
+  fallback: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const renameInstance = useRenameInstance();
+
+  const display = currentSummary ?? fallback;
+
+  const startEdit = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setValue(currentSummary ?? '');
+    setEditing(true);
+  };
+
+  const commit = (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    const trimmed = value.trim();
+    renameInstance.mutate({ id: instanceId, display_summary: trimmed || null });
+    setEditing(false);
+  };
+
+  const cancel = (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    setEditing(false);
+  };
+
+  useEffect(() => {
+    if (editing) {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [editing]);
+
+  if (editing) {
+    return (
+      <div
+        className="flex items-center gap-1 min-w-0"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      >
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') cancel();
+          }}
+          onBlur={() => commit()}
+          placeholder={fallback}
+          className="flex-1 min-w-0 bg-surface border border-blue-500 rounded px-1.5 py-0.5 text-xs text-text-primary focus:outline-none"
+          maxLength={500}
+        />
+        <button onClick={commit} className="flex-shrink-0 text-green-500 hover:text-green-400">
+          <Check size={12} />
+        </button>
+        <button onClick={cancel} className="flex-shrink-0 text-text-muted hover:text-text-secondary">
+          <X size={12} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 min-w-0 group/rename">
+      <span className="text-xs text-text-secondary truncate">{display}</span>
+      <button
+        onClick={startEdit}
+        className="flex-shrink-0 opacity-0 group-hover/rename:opacity-100 text-text-muted hover:text-text-secondary transition-opacity"
+        title="Rename"
+      >
+        <Pencil size={10} />
+      </button>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Status chip filter
@@ -342,6 +433,14 @@ function InstancesList() {
                             failed: {failedStage}
                           </span>
                         )}
+                      </div>
+                      {/* display_summary with inline rename */}
+                      <div className="mt-0.5 max-w-xs" onClick={(e) => e.preventDefault()}>
+                        <InlineRename
+                          instanceId={inst.id}
+                          currentSummary={(inst as WorkflowInstance & { display_summary?: string | null }).display_summary}
+                          fallback={inst.id.slice(0, 8)}
+                        />
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="font-mono text-[10px] text-text-muted">{inst.id.slice(0, 8)}</span>

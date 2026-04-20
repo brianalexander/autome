@@ -9,6 +9,14 @@ export interface ExecutionContext {
   /** Workflow instance ID (stable across restarts, unique per instance). */
   readonly instanceId: string;
 
+  /**
+   * Base URL for self-calls back to the orchestrator API (e.g. spawn-agent,
+   * kill-agent). Sourced from the resolved runtime port — never from the static
+   * config.orchestratorUrl which is computed at module load before the port is
+   * known.
+   */
+  readonly orchestratorUrl: string;
+
   /** Updates instance status in DB and in-memory state. */
   setStatus(status: string): void;
 

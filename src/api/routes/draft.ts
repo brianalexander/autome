@@ -555,8 +555,12 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
         manual: 'manual-trigger',
         webhook: 'webhook-trigger',
         cron: 'cron-trigger',
+        prompt: 'prompt-trigger',
       };
-      const triggerType = triggerTypeMap[triggerConfig.provider] || 'manual-trigger';
+      const triggerType = triggerTypeMap[triggerConfig.provider];
+      if (!triggerType) {
+        return reply.code(400).send({ error: `Unknown trigger provider: ${triggerConfig.provider}` });
+      }
       const spec = nodeRegistry.get(triggerType);
 
       // Find existing trigger stage (any trigger category)

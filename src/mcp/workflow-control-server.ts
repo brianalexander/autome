@@ -2,11 +2,15 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { config } from '../config.js';
-
 const instanceId = process.env.WORKFLOW_INSTANCE_ID;
 const stageId = process.env.STAGE_ID;
-const orchestratorPort = process.env.ORCHESTRATOR_PORT || String(config.port);
+
+if (!process.env.ORCHESTRATOR_PORT) {
+  console.error('[workflow-control-server] ORCHESTRATOR_PORT env var is required');
+  process.exit(1);
+}
+
+const orchestratorPort = process.env.ORCHESTRATOR_PORT;
 const baseUrl = `http://localhost:${orchestratorPort}`;
 
 if (!instanceId || !stageId) {

@@ -267,7 +267,7 @@ export function registerSignalRoutes(app: FastifyInstance, deps: RouteDeps, stat
             agentId,
             overrides,
           },
-          orchestratorPort: appConfig.port,
+          orchestratorPort: deps.orchestratorPort,
           definitionId,
           ...(providerOverride ? { providerOverride } : {}),
         });

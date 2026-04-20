@@ -104,6 +104,8 @@ export const WorkflowInstanceSchema = z.object({
   resume_count: z.number().int().default(0),
   context: WorkflowContextSchema,
   current_stage_ids: z.array(z.string()),
+  /** Human-readable summary of what this run is about. Computed at launch. */
+  display_summary: z.string().nullable().optional(),
 });
 
 export type WorkflowInstance = z.infer<typeof WorkflowInstanceSchema>;

@@ -23,6 +23,8 @@ export interface RouteDeps {
   /** Loaded plugins — consumed by registerRoutes to attach plugin routes */
   plugins?: LoadedPlugin[];
   secretsService?: SecretsService;
+  /** The port this server is actually listening on — must be threaded from resolvedConfig.port. */
+  orchestratorPort: number;
 }
 
 // ---------------------------------------------------------------------------

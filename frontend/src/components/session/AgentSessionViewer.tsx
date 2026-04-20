@@ -3,14 +3,16 @@
  * Adds: header with status/tabs, iteration picker, config tab, prompt tab, stage output display.
  * Loads persisted transcript segments so chat history survives navigation.
  */
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Copy, Check } from 'lucide-react';
-import { useCancelStage, useAgent, useInjectMessage, useSegments, useStagePrompt, useRestartStageSession } from '../../hooks/queries';
+import { useCancelStage, useAgent, useInjectMessage, useStagePrompt, useRestartStageSession } from '../../hooks/queries';
+import { useChatSegments } from '../../hooks/useChatSegments';
 import { AcpChatPane } from '../chat/AcpChatPane';
-import { segmentsToMessages } from '../../lib/segmentsToMessages';
 import { formatDuration, formatElapsed } from '../../lib/format';
+import { formatValue } from '../../lib/formatValue';
 import { StatusBadge } from '../ui/StatusBadge';
 import { SectionHeader } from '../ui/SectionHeader';
+import { instances } from '../../lib/api';
 import type { StageContext, StageRun, StageDefinition, KiroAgentSpec } from '../../lib/api';
 
 interface AgentSessionViewerProps {
@@ -29,7 +31,7 @@ function toToolsList(value: unknown): string[] {
 }
 
 export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef, onClose }: AgentSessionViewerProps) {
-  const [activeTab, setActiveTab] = useState<'chat' | 'prompt' | 'config'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'prompt' | 'config' | 'input' | 'output'>('chat');
   const [selectedRunIndex, setSelectedRunIndex] = useState<number>(stageContext.runs.length - 1);
   const [copied, setCopied] = useState(false);
   const cancelStage = useCancelStage();
@@ -46,16 +48,14 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
   const selectedRun: StageRun | undefined = runs.length > 0 ? runs[runIdx] : undefined;
 
   // Load persisted segments for this stage
-  const { data: segments } = useSegments(instanceId, stageId);
+  const { initialMessages } = useChatSegments(
+    ['segments', instanceId, stageId],
+    () => instances.getSegments(instanceId, stageId),
+    { enabled: !!instanceId && !!stageId },
+  );
 
   // Load rendered prompt
   const { data: promptData } = useStagePrompt(instanceId, stageId);
-
-  // Convert segments to initialMessages format for AcpChatPane
-  const initialMessages = useMemo(() => {
-    if (!segments?.length) return undefined;
-    return segmentsToMessages(segments);
-  }, [segments]);
 
   // Elapsed timer for running stages
   const [elapsed, setElapsed] = useState(0);
@@ -186,38 +186,81 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
               {tab}
             </button>
           ))}
+          {selectedRun?.input != null && (
+            <button
+              onClick={() => setActiveTab('input')}
+              className={`px-3 py-1.5 text-xs capitalize border-b-2 ${
+                activeTab === 'input'
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-text-tertiary hover:text-text-secondary'
+              }`}
+            >
+              Input
+            </button>
+          )}
+          {selectedRun?.output != null && (
+            <button
+              onClick={() => setActiveTab('output')}
+              className={`px-3 py-1.5 text-xs capitalize border-b-2 ${
+                activeTab === 'output'
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-text-tertiary hover:text-text-secondary'
+              }`}
+            >
+              Output
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Prompt tab — shows the rendered prompt sent to this agent */}
-      {activeTab === 'prompt' && (
-        <div className="flex-1 overflow-y-auto p-4 min-h-0">
-          {promptData?.prompt ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <SectionHeader>Rendered Prompt</SectionHeader>
-                <span className="text-[10px] text-text-muted">
-                  {promptData.created_at ? new Date(promptData.created_at).toLocaleTimeString() : ''}
-                </span>
-              </div>
-              <pre className="text-xs text-text-secondary bg-surface-secondary rounded-lg p-4 overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                {promptData.prompt}
-              </pre>
-            </div>
-          ) : (
-            <div className="text-text-tertiary text-sm text-center py-8">
-              {stageContext.status === 'pending'
-                ? 'Stage has not started yet.'
-                : 'No rendered prompt available for this stage.'}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Chat tab — always mounted to keep WS subscriptions alive during tab switches */}
+      <div
+        data-testid="acp-chat-pane-wrapper"
+        className={activeTab === 'chat' ? 'flex-1 min-h-0 overflow-hidden' : 'hidden'}
+      >
+        <AcpChatPane
+          eventPrefix="agent"
+          eventFilter={{ instanceId, stageId }}
+          placeholder="Send a message to the agent..."
+          emptyMessage={isRunning ? 'Waiting for agent output...' : 'No transcript data available.'}
+          isActive={isRunning}
+          sessionState={isRunning ? 'idle' : undefined}
+          onSendMessage={handleSendMessage}
+          onStop={handleStop}
+          onRestartSession={handleRestartSession}
+          agentName={agentId || undefined}
+          modelName={agentInfo?.spec?.model || undefined}
+          initialMessages={initialMessages}
+        />
+      </div>
 
-      {/* Config tab */}
-      {activeTab === 'config' && (
-        stageDef ? (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+      {/* Prompt tab — always mounted */}
+      <div className={activeTab === 'prompt' ? 'flex-1 overflow-y-auto p-4 min-h-0' : 'hidden'}>
+        {promptData?.prompt ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <SectionHeader>Rendered Prompt</SectionHeader>
+              <span className="text-[10px] text-text-muted">
+                {promptData.created_at ? new Date(promptData.created_at).toLocaleTimeString() : ''}
+              </span>
+            </div>
+            <pre className="text-xs text-text-secondary bg-surface-secondary rounded-lg p-4 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+              {promptData.prompt}
+            </pre>
+          </div>
+        ) : (
+          <div className="text-text-tertiary text-sm text-center py-8">
+            {stageContext.status === 'pending'
+              ? 'Stage has not started yet.'
+              : 'No rendered prompt available for this stage.'}
+          </div>
+        )}
+      </div>
+
+      {/* Config tab — always mounted */}
+      <div className={activeTab === 'config' ? 'flex-1 overflow-y-auto min-h-0' : 'hidden'}>
+        {stageDef ? (
+          <div className="p-4 space-y-4">
             <SectionHeader>Agent</SectionHeader>
             <div className="space-y-3 pl-2 border-l-2 border-border">
               <ConfigField label="ID" value={<span className="font-mono">{agentId}</span>} />
@@ -327,28 +370,30 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
           <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm p-4">
             Stage definition not available.
           </div>
-        )
-      )}
+        )}
+      </div>
 
-      {activeTab === 'chat' && (
-        /* Chat tab — delegates to shared AcpChatPane */
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <AcpChatPane
-            eventPrefix="agent"
-            eventFilter={{ instanceId, stageId }}
-            placeholder="Send a message to the agent..."
-            emptyMessage={isRunning ? 'Waiting for agent output...' : 'No transcript data available.'}
-            isActive={isRunning}
-            sessionState={isRunning ? 'idle' : undefined}
-            onSendMessage={handleSendMessage}
-            onStop={handleStop}
-            onRestartSession={handleRestartSession}
-            agentName={agentId || undefined}
-            modelName={agentInfo?.spec?.model || undefined}
-            initialMessages={initialMessages}
-          />
-        </div>
-      )}
+      {/* Input tab — always mounted */}
+      <div className={activeTab === 'input' ? 'flex-1 overflow-y-auto p-4 min-h-0' : 'hidden'}>
+        {selectedRun?.input != null ? (
+          <pre className="text-xs text-text-secondary bg-surface-secondary rounded-lg p-4 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+            {formatValue(selectedRun.input)}
+          </pre>
+        ) : (
+          <div className="text-text-tertiary text-sm text-center py-8">No input available for this run.</div>
+        )}
+      </div>
+
+      {/* Output tab — always mounted */}
+      <div className={activeTab === 'output' ? 'flex-1 overflow-y-auto p-4 min-h-0' : 'hidden'}>
+        {selectedRun?.output != null ? (
+          <pre className="text-xs text-text-secondary bg-surface-secondary rounded-lg p-4 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+            {formatValue(selectedRun.output)}
+          </pre>
+        ) : (
+          <div className="text-text-tertiary text-sm text-center py-8">No output available for this run.</div>
+        )}
+      </div>
     </div>
   );
 }

@@ -10,6 +10,7 @@ You MUST use the autome_api MCP tool to create and modify pipelines. Never write
 
 **Triggers** (entry points — every workflow needs one):
 - **manual-trigger**: Triggered via UI button. Config: `{ provider: 'manual' }`. ALWAYS set `output_schema` to define the JSON payload structure (e.g. `{ type: 'object', properties: { prompt: { type: 'string' } }, required: ['prompt'] }`). The schema generates the trigger form and enables type hints downstream.
+- **prompt-trigger**: Chat-style trigger for ad-hoc prompts. Fixed output_schema `{ prompt: string, attachments?: array }` — no config beyond `{ provider: 'prompt' }`. Use for workflows where the user kicks off a run by typing natural language (e.g. "summarize this page: ..."). Renders a dedicated textarea in the trigger dialog instead of a JSON form.
 - **webhook-trigger**: Triggered by HTTP POST. Config: `{ provider: 'webhook' }`. ALWAYS set `output_schema` to define and validate the expected payload shape.
 - **cron-trigger**: Triggered on a schedule. Config: `{ provider: 'cron', cron: '0 9 * * *' }`. Has a built-in output schema.
 
@@ -127,6 +128,15 @@ Both the workflow and individual stages have a markdown `readme`/`description` f
 **Stage `readme`** (set on POST/PATCH /stages): a CommonMark markdown README per stage. Use it for caveats, callouts, requirements, gotchas, why a particular choice was made, links to relevant docs. Don't restate inputs/outputs (those are already visible from the config and edges).
 
 Both fields support: headings, lists, code blocks, links, bold/italic, blockquotes. Keep them concise and useful.
+
+### Run summaries (Instances list)
+
+Every instance gets a `display_summary` shown on the /instances list. Computed at launch:
+1. If the trigger is `prompt-trigger`, the first 80 chars of `payload.prompt`.
+2. Else if the workflow has `instance_summary_template` (top-level nunjucks template), it renders against the trigger payload.
+3. Else falls back to `<trigger_type> · <timestamp>`.
+
+Set `instance_summary_template` on the workflow for non-chat triggers where the default timestamp isn't useful — e.g. a webhook workflow might use `"PR #{{ output.pr_number }}: {{ output.title }}"`.
 
 ## Best Practices
 1. ALWAYS set output_schema on ALL stages — triggers, agents, code-executors. This defines the output shape and enables type hints for downstream nodes. For triggers, it also generates the trigger form.

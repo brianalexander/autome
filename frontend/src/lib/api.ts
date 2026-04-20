@@ -218,6 +218,11 @@ export const instances = {
       body: JSON.stringify({ fromStageId }),
     }),
   getDefinition: (instanceId: string) => request<WorkflowDefinition>(`/instances/${instanceId}/definition`),
+  rename: (id: string, display_summary: string | null) =>
+    request<{ instanceId: string; display_summary: string | null }>(`/instances/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ display_summary }),
+    }),
 };
 
 // Author chat API

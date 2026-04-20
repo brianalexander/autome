@@ -9,10 +9,12 @@ import { webhookTriggerSpec } from './webhook-trigger.js';
 import { cronTriggerSpec } from './cron-trigger.js';
 import { codeExecutorNodeSpec } from './code-executor.js';
 import { codeTriggerSpec } from './code-trigger.js';
+import { promptTriggerSpec } from './prompt-trigger.js';
 
 export const allBuiltinSpecs: NodeTypeSpec[] = [
   // Triggers
   manualTriggerSpec,
+  promptTriggerSpec,
   webhookTriggerSpec,
   cronTriggerSpec,
   codeTriggerSpec,

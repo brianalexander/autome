@@ -24,7 +24,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: RouteDeps, s
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
   const { db } = deps;
 
-  const assistantSessionConfig = () => buildAssistantSessionConfig(state.assistantPool);
+  const assistantSessionConfig = () => buildAssistantSessionConfig(state.assistantPool, deps.orchestratorPort);
 
   // POST /api/assistant/chat — Send a message to the assistant AI
   typedApp.post(

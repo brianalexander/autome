@@ -7,9 +7,12 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { config } from '../config.js';
+if (!process.env.ORCHESTRATOR_PORT) {
+  console.error('[assistant-server] ORCHESTRATOR_PORT env var is required');
+  process.exit(1);
+}
 
-const orchestratorPort = process.env.ORCHESTRATOR_PORT || String(config.port);
+const orchestratorPort = process.env.ORCHESTRATOR_PORT;
 const baseUrl = `http://localhost:${orchestratorPort}`;
 
 const server = new Server({ name: 'workflow-assistant', version: '1.0.0' }, { capabilities: { tools: {} } });

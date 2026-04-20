@@ -79,22 +79,51 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
   // ordering bugs when interleaved with ephemeral system messages.
   const turnFinalizedRef = useRef(false);
 
-  // Re-seed if initialMessages changes after mount (e.g., react-query cache update).
-  // CRITICAL: once the user has interacted (sent a message, received chunks, etc.),
-  // the live state is authoritative and must NEVER be overwritten by a DB fetch.
-  // The isStreaming guard alone isn't sufficient — the re-seed can fire in the same
-  // render cycle as finalizeTurn (isStreaming already false), wiping just-flushed text.
+  // Re-seed from DB whenever initialMessages changes by reference.
+  // The backend persists every chunk, tool call, tool result, and user message
+  // synchronously, so the DB is always the source of truth — there is no window
+  // where the DB is behind the live stream. Re-seeding is always safe.
+  //
+  // Reference-equality dedup prevents spurious re-seeds when react-query returns
+  // the same data with a new array reference (structural-sharing cache hits).
   const prevInitialRef = useRef(initialMessages);
-  const hasLocalActivityRef = useRef(false);
   useEffect(() => {
     if (prevInitialRef.current === initialMessages) return;
     prevInitialRef.current = initialMessages;
-    if (hasLocalActivityRef.current) {
-      return;
-    }
-    if (restoredMessages.length > 0) {
-      setMessages(restoredMessages);
-      setLiveToolCalls(restoredToolCalls);
+    setMessages(restoredMessages);
+    setLiveToolCalls(restoredToolCalls);
+
+    // Reconcile streamingText with the re-seeded DB state.
+    // Backend persists each chunk BEFORE broadcasting (agent-utils.ts invariant),
+    // so any chunk accumulated in streamingText is already present at the tail of
+    // the last assistant message's last text segment. Find the longest suffix of
+    // that segment which is also a PREFIX of streamingText, and trim it away so
+    // the content isn't rendered twice (and isn't appended again on done).
+    if (streamingTextRef.current && restoredMessages.length > 0) {
+      const lastMsg = restoredMessages[restoredMessages.length - 1];
+      if (lastMsg.role === 'assistant' && lastMsg.segments.length > 0) {
+        const lastSeg = lastMsg.segments[lastMsg.segments.length - 1];
+        if (lastSeg.type === 'text') {
+          const dbTail = lastSeg.content;
+          const live = streamingTextRef.current;
+          // Find longest k where dbTail.slice(-k) === live.slice(0, k).
+          // Iterate from min(dbTail.length, live.length) DOWN so we pick the
+          // longest match first and break out.
+          let overlap = 0;
+          const maxK = Math.min(dbTail.length, live.length);
+          for (let k = maxK; k >= 1; k--) {
+            if (dbTail.endsWith(live.slice(0, k))) {
+              overlap = k;
+              break;
+            }
+          }
+          if (overlap > 0) {
+            const trimmed = live.slice(overlap);
+            streamingTextRef.current = trimmed;
+            setStreamingText(trimmed);
+          }
+        }
+      }
     }
   }, [initialMessages, restoredMessages, restoredToolCalls]);
 
@@ -172,7 +201,6 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
 
   // Add a user message and mark streaming as started.
   const addUserMessage = useCallback((text: string) => {
-    hasLocalActivityRef.current = true; // Live state is now authoritative
     setMessages((prev) => [
       ...prev,
       {
@@ -234,7 +262,6 @@ export function useChatMessages(initialMessages?: InitialMessage[]) {
 
   // Clear all messages (used for "clear chat" action).
   const clearMessages = useCallback(() => {
-    hasLocalActivityRef.current = false; // Allow re-seed after clear
     streamingTextRef.current = '';
     setMessages([]);
   }, []);

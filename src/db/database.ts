@@ -435,6 +435,7 @@ export class OrchestratorDB {
       created_at: instance.created_at,
       updated_at: instance.updated_at,
       completed_at: instance.completed_at ?? null,
+      display_summary: instance.display_summary ?? null,
     }).run();
     return instance;
   }
@@ -488,6 +489,7 @@ export class OrchestratorDB {
       created_at: schema.instances.created_at,
       updated_at: schema.instances.updated_at,
       completed_at: schema.instances.completed_at,
+      display_summary: schema.instances.display_summary,
     };
 
     const rows = this.db
@@ -522,11 +524,22 @@ export class OrchestratorDB {
           completed_at: updated.completed_at ?? null,
           resume_count: updated.resume_count ?? 0,
           initiated_by: updated.initiated_by ?? 'user',
+          display_summary: updated.display_summary ?? null,
         })
         .where(eq(schema.instances.id, id))
         .run();
     });
     txn();
+  }
+
+  /** Update only the display_summary of an instance. Returns false if instance not found. */
+  renameInstance(id: string, displaySummary: string | null): boolean {
+    const result = this.db
+      .update(schema.instances)
+      .set({ display_summary: displaySummary, updated_at: sql`datetime('now')` })
+      .where(eq(schema.instances.id, id))
+      .run();
+    return result.changes > 0;
   }
 
   /** Atomically flip a failed/cancelled instance to 'running'. Returns true if successful, false if the status was already changed (lost race). */
@@ -562,6 +575,7 @@ export class OrchestratorDB {
       | 'created_at'
       | 'updated_at'
       | 'completed_at'
+      | 'display_summary'
     >,
   ): WorkflowInstance {
     return {
@@ -578,6 +592,7 @@ export class OrchestratorDB {
       created_at: row.created_at,
       updated_at: row.updated_at,
       completed_at: row.completed_at ?? undefined,
+      display_summary: row.display_summary ?? null,
     };
   }
 

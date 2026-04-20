@@ -199,6 +199,16 @@ export const WorkflowDefinitionSchema = z.object({
   }).optional().meta({
     description: 'AI Author settings for this workflow',
   }),
+  /**
+   * Optional nunjucks template for computing a human-readable instance summary.
+   * Rendered at launch time with { trigger, output } scope from the trigger payload.
+   * Ignored when the trigger is prompt-trigger (prompt text is used directly).
+   * Example: "PR #{{ output.pr_number }}: {{ output.title }}"
+   */
+  instance_summary_template: z.string().optional().meta({
+    description:
+      'Nunjucks template for computing a human-readable instance summary. Rendered at launch with trigger payload in scope. Ignored for prompt-trigger workflows (prompt text is used instead). Example: "PR #{{ output.pr_number }}: {{ output.title }}"',
+  }),
 });
 
 // ---------------------------------------------------------------------------
@@ -285,9 +295,9 @@ export const UpdateEdgeBodySchema = z
   .strict();
 
 export const UpdateTriggerBodySchema = z.object({
-  provider: z.enum(['manual', 'webhook']).meta({
+  provider: z.enum(['manual', 'webhook', 'prompt']).meta({
     description:
-      'Trigger provider type. "manual" = triggered via UI button or API call. "webhook" = triggered by an incoming HTTP POST to the webhook endpoint.',
+      'Trigger provider type. "manual" = triggered via UI button or API call. "webhook" = triggered by an incoming HTTP POST to the webhook endpoint. "prompt" = chat-style trigger with a fixed { prompt, attachments? } output schema.',
   }),
   filter: z.record(z.string(), z.unknown()).optional().meta({ description: 'Optional event filter criteria' }),
   webhook: z
@@ -311,6 +321,10 @@ export const UpdateMetadataBodySchema = z
     description: z.string().optional().meta({
       description:
         'CommonMark markdown README for the workflow. Use this for high-level context: what the workflow is for, caveats, callouts, requirements, authorship, credits, links to relevant docs. Don\'t restate the graph structure or trigger schema.',
+    }),
+    instance_summary_template: z.string().optional().nullable().meta({
+      description:
+        'Nunjucks template for computing a human-readable instance summary. Rendered at launch with trigger payload in scope. Ignored for prompt-trigger workflows.',
     }),
   })
   .strict();

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { formatDuration } from '../../lib/format';
+import { summarizeOutput } from '../../lib/summarizeOutput';
 import {
   ReactFlow,
   ConnectionMode,
@@ -306,17 +307,6 @@ function buildEdges(
 }
 
 // --- Runtime data helpers ---
-
-function summarizeOutput(output: unknown): string {
-  if (typeof output === 'string') return output.slice(0, 100);
-  if (!output || typeof output !== 'object') return String(output).slice(0, 100);
-  const o = output as Record<string, unknown>;
-  if (o.summary) return String(o.summary).slice(0, 100);
-  if (o.decision) return `Decision: ${o.decision}`;
-  if (o.message) return String(o.message).slice(0, 100);
-  const keys = Object.keys(o);
-  return `{${keys.slice(0, 3).join(', ')}${keys.length > 3 ? ', ...' : ''}}`;
-}
 
 export function generateStageId(type: string, existingIds: string[], label?: string): string {
   const existing = new Set(existingIds);

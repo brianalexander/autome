@@ -6,7 +6,6 @@
  * registration closure (and without creating a circular import).
  */
 import type { AgentPool } from '../../acp/pool.js';
-import { config as appConfig } from '../../config.js';
 import type { SessionConfig } from './agent-utils.js';
 import { fromPackage } from '../../paths.js';
 
@@ -21,8 +20,7 @@ import { fromPackage } from '../../paths.js';
  * Note: this is a pure factory — it does not touch the pool or DB. Pass the
  * actual pool you want the session to use (in practice always `state.authorPool`).
  */
-export function buildAuthorSessionConfig(authorPool: AgentPool, workflowId: string): SessionConfig {
-  const orchestratorPort = appConfig.port;
+export function buildAuthorSessionConfig(authorPool: AgentPool, workflowId: string, orchestratorPort: number): SessionConfig {
   return {
     pool: authorPool,
     instanceId: 'author',
@@ -49,5 +47,6 @@ export function buildAuthorSessionConfig(authorPool: AgentPool, workflowId: stri
     filterPayload: { workflowId },
     scope: { workflowId },
     cullKey: `author:${workflowId}`,
+    orchestratorPort,
   };
 }

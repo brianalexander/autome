@@ -230,7 +230,7 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
   }
 
   const authorSessionConfig = (workflowId: string) =>
-    buildAuthorSessionConfig(state.authorPool, workflowId);
+    buildAuthorSessionConfig(state.authorPool, workflowId, deps.orchestratorPort);
 
   // POST /api/author/chat — Send a message to the author AI
   typedApp.post(

@@ -218,20 +218,24 @@ export function useDeleteInstance() {
   });
 }
 
+export function useRenameInstance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, display_summary }: { id: string; display_summary: string | null }) =>
+      instances.rename(id, display_summary),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      queryClient.invalidateQueries({ queryKey: ['instance', id] });
+    },
+    onError: (err: Error) => toast.error(`Failed to rename run: ${err.message}`),
+  });
+}
+
 export function useInjectMessage() {
   return useMutation({
     mutationFn: ({ instanceId, stageId, message }: { instanceId: string; stageId: string; message: string }) =>
       instances.injectMessage(instanceId, stageId, message),
     onError: (err: Error) => toast.error(`Failed to send message: ${err.message}`),
-  });
-}
-
-// Segments queries
-export function useSegments(instanceId: string, stageId: string, iteration?: number) {
-  return useQuery({
-    queryKey: ['segments', instanceId, stageId, iteration],
-    queryFn: () => instances.getSegments(instanceId, stageId, iteration),
-    enabled: !!instanceId && !!stageId,
   });
 }
 

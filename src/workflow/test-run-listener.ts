@@ -8,6 +8,7 @@ import { broadcast } from '../api/websocket.js';
 export interface TestRunListenerDeps {
   db: OrchestratorDB;
   authorPool: AgentPool;
+  orchestratorPort: number;
 }
 
 /** Subscription handle returned by startTestRunListener. */
@@ -110,7 +111,7 @@ export function startTestRunListener(deps: TestRunListenerDeps): UnsubscribeFn {
 
     const message = templateMessage(instance, terminalStatus);
 
-    const result = await injectAuthorMessage({ db: deps.db, authorPool: deps.authorPool }, parentWorkflowId, message, {
+    const result = await injectAuthorMessage({ db: deps.db, authorPool: deps.authorPool, orchestratorPort: deps.orchestratorPort }, parentWorkflowId, message, {
       kind: 'system',
     });
 

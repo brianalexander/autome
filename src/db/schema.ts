@@ -61,6 +61,7 @@ export const instances = sqliteTable(
     updated_at: text('updated_at').notNull().default("(datetime('now'))"),
     completed_at: text('completed_at'),
     definition_snapshot: text('definition_snapshot'),
+    display_summary: text('display_summary'),
   },
   (table) => [
     index('idx_instances_definition').on(table.definition_id),

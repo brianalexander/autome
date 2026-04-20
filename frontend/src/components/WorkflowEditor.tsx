@@ -18,6 +18,7 @@ import { WorkflowCanvas, findBackEdgeIds, generateStageId, createDefaultStage, t
 import { ConfigPanel, EdgeConfigPanel } from './canvas/ConfigPanel';
 import { AuthorChat } from './author/AuthorChat';
 import { TriggerDialog } from './TriggerDialog';
+import { PromptTriggerDialog } from './PromptTriggerDialog';
 import { ResizablePanel } from './ui/ResizablePanel';
 import { IconSidebar, type SidebarTab } from './canvas/IconSidebar';
 import { NodePalette } from './canvas/NodePalette';
@@ -520,7 +521,11 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
     }
   }, [workflowId, currentDefinition?.name]);
 
-  // Trigger schema for TriggerDialog
+  // Trigger type and schema for TriggerDialog / PromptTriggerDialog
+  const triggerType = useMemo(() => {
+    return currentDefinition?.stages.find((s) => isTriggerType(s.type))?.type;
+  }, [currentDefinition]);
+
   const triggerSchema = useMemo(() => {
     const triggerStage = currentDefinition?.stages.find((s) => isTriggerType(s.type));
     return (triggerStage?.config as Record<string, unknown>)?.output_schema as
@@ -707,15 +712,25 @@ export function WorkflowEditor({ workflowId }: WorkflowEditorProps) {
         )}
       </div>
 
-      <TriggerDialog
-        workflowName={`${definition.name} (Test Run)`}
-        isOpen={testRunTriggerOpen}
-        onClose={handleTriggerDialogClose}
-        onTrigger={handleTriggerSubmit}
-        isPending={testRunStarting}
-        outputSchema={triggerSchema}
-        validation={testRunValidation}
-      />
+      {triggerType === 'prompt-trigger' ? (
+        <PromptTriggerDialog
+          workflowName={`${definition.name} (Test Run)`}
+          isOpen={testRunTriggerOpen}
+          onClose={handleTriggerDialogClose}
+          onTrigger={handleTriggerSubmit}
+          isPending={testRunStarting}
+        />
+      ) : (
+        <TriggerDialog
+          workflowName={`${definition.name} (Test Run)`}
+          isOpen={testRunTriggerOpen}
+          onClose={handleTriggerDialogClose}
+          onTrigger={handleTriggerSubmit}
+          isPending={testRunStarting}
+          outputSchema={triggerSchema}
+          validation={testRunValidation}
+        />
+      )}
 
       {/* Command palette and shortcuts help — fixed-position overlays */}
       <CommandPalette

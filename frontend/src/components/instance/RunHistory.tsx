@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { StatusBadge } from '../ui/StatusBadge';
 import { formatDuration } from '../../lib/format';
+import { formatValue } from '../../lib/formatValue';
 import type { StageRun } from '../../lib/api';
 
 function formatTimestamp(ts: string): string {
@@ -30,12 +31,6 @@ const STATUS_TEXT: Record<string, string> = {
 function StatusDot({ status }: { status: string }) {
   const color = STATUS_DOT[status] ?? 'bg-text-muted';
   return <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${color}`} />;
-}
-
-function formatValue(value: unknown): string {
-  if (value == null) return '';
-  if (typeof value === 'string') return value;
-  return JSON.stringify(value, null, 2);
 }
 
 // ─── Detail Modal ─────────────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-import { config as appConfig } from '../../config.js';
 import type { OrchestratorDB } from '../../db/database.js';
 import type { AgentPool } from '../../acp/pool.js';
 import type { AcpClient } from '../../acp/client.js';
@@ -71,14 +70,15 @@ export function wireAcpEvents(client: AcpClient, db: OrchestratorDB, opts: WireA
 
   // In-memory segments array for correct interleaving of text + tool references
   const segments: Array<{ type: 'text'; content: string } | { type: 'tool'; toolCallId: string }> = [];
-  let pendingText = '';
-  let persistPending = false;
 
-  const flushText = () => {
-    if (!pendingText) return;
+  // Maintain the in-memory interleaving invariant: when a text chunk arrives,
+  // either extend the last text segment or open a new one (sweeping any prior
+  // tool segment's pending statuses). Write every chunk to DB immediately —
+  // no debounce, no double-buffer.
+  const appendTextChunk = (text: string): void => {
     const last = segments[segments.length - 1];
     if (last && last.type === 'text') {
-      last.content += pendingText;
+      last.content += text;
     } else {
       if (last && last.type === 'tool') {
         const swept = db.sweepToolCallStatuses(instanceId, stageId, iteration, ['in_progress', 'pending'], 'completed');
@@ -86,31 +86,19 @@ export function wireAcpEvents(client: AcpClient, db: OrchestratorDB, opts: WireA
           broadcast(`${eventPrefix}:tools_swept`, { ...filterPayload, toStatus: 'completed' }, scope);
         }
       }
-      segments.push({ type: 'text', content: pendingText });
+      segments.push({ type: 'text', content: text });
     }
-    const textToWrite = pendingText;
-    pendingText = '';
-    if (!persistPending) {
-      persistPending = true;
-      setImmediate(() => {
-        persistPending = false;
-        db.appendToLastTextSegment(instanceId, stageId, iteration, textToWrite);
-      });
-    }
+    db.appendToLastTextSegment(instanceId, stageId, iteration, text);
   };
 
   client.on('agent_message_chunk', (content: Record<string, unknown>) => {
     const text = content?.type === 'text' ? (content.text as string) : '';
     if (!text) return;
+    // Persist BEFORE broadcasting: guarantees that if a frontend WS listener
+    // receives this chunk, the DB already contains it. This is the invariant
+    // that lets useChatMessages safely trim streamingText on re-seed.
+    appendTextChunk(text);
     broadcast(`${eventPrefix}:chunk`, { ...filterPayload, text }, scope);
-    pendingText += text;
-    if (!persistPending) {
-      persistPending = true;
-      setImmediate(() => {
-        persistPending = false;
-        flushText();
-      });
-    }
   });
 
   interface ToolCallEventData {
@@ -123,7 +111,6 @@ export function wireAcpEvents(client: AcpClient, db: OrchestratorDB, opts: WireA
   }
 
   client.on('tool_call', (data: ToolCallEventData) => {
-    flushText();
     // Extract parent tool use ID for sub-agent child grouping
     const meta = (data as any)?._meta?.claudeCode;
     const parentToolUseId = meta?.parentToolUseId as string | undefined;
@@ -182,7 +169,6 @@ export function wireAcpEvents(client: AcpClient, db: OrchestratorDB, opts: WireA
   });
 
   client.on('turn_end', () => {
-    flushText();
     db.sweepToolCallStatuses(instanceId, stageId, iteration, ['in_progress', 'pending'], 'completed');
     broadcast(`${eventPrefix}:done`, filterPayload, scope);
     if (cullKey) _sessionManager?.onTurnEnd(cullKey);
@@ -315,6 +301,8 @@ export interface SessionConfig {
   /** Broadcast scope for filtering events to subscribed clients. */
   scope?: BroadcastScope;
   cullKey?: string;
+  /** The port the orchestrator HTTP server is listening on. Passed to MCP children as ORCHESTRATOR_PORT. */
+  orchestratorPort: number;
 }
 
 /** Returns hasContext=true when the agent already has the full conversation
@@ -345,7 +333,7 @@ export async function ensureSession(
     stageId,
     acpSessionId,
     config: { agentId, overrides },
-    orchestratorPort: appConfig.port,
+    orchestratorPort: config.orchestratorPort,
     ...(config.workingDir ? { workingDir: config.workingDir } : {}),
   });
 

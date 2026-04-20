@@ -16,11 +16,9 @@ export const DEFAULT_ACP_PROVIDER = 'kiro';
 
 export const config: {
   port: number;
-  orchestratorUrl: string;
   /** ACP provider env-var fallback. undefined means "not configured via env". */
   acpProvider: string | undefined;
 } = {
   port: parseInt(process.env.PORT || '3001', 10),
-  orchestratorUrl: process.env.ORCHESTRATOR_URL || `http://localhost:${process.env.PORT || '3001'}`,
   acpProvider: process.env.ACP_PROVIDER || undefined,
 };

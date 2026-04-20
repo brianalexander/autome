@@ -82,8 +82,14 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   manualTrigger = new ManualTriggerProvider();
   eventBus.registerProvider(manualTrigger);
 
-  // Initialize workflow runner
-  runner = new WorkflowRunner(db, eventBus);
+  // Initialize workflow runner — derive orchestratorUrl from the resolved runtime
+  // port so agent stage self-calls go to the right address.
+  const selfHost =
+    resolvedConfig.host === '0.0.0.0' || resolvedConfig.host === '::'
+      ? '127.0.0.1'
+      : resolvedConfig.host;
+  const orchestratorUrl = `http://${selfHost}:${resolvedConfig.port}`;
+  runner = new WorkflowRunner(db, eventBus, orchestratorUrl);
 
   // Initialize trigger lifecycle manager with the event bus
   initTriggerLifecycle(eventBus);
@@ -159,7 +165,7 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   await runCrashRecovery(db, acpProvider);
 
   // Start test-run listener (before routes so it's ready when first event fires)
-  stopTestRunListener = startTestRunListener({ db, authorPool });
+  stopTestRunListener = startTestRunListener({ db, authorPool, orchestratorPort: resolvedConfig.port });
 
   // Initial janitor sweep + hourly interval
   try { cleanupOrphanTests(db); } catch (err) { console.error('[janitor] Initial sweep failed:', err); }
@@ -195,7 +201,7 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   await app.register(websocketPlugin);
 
   // Register routes with all dependencies (plugins get routes registered inside)
-  await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins, secretsService });
+  await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins, secretsService, orchestratorPort: resolvedConfig.port });
 
   // Production: serve bundled frontend static files
   if (resolvedConfig.mode === 'production') {

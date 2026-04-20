@@ -91,6 +91,31 @@ export function WorkflowSettings({
         </label>
       </div>
 
+      {/* Instance summary template */}
+      <div className="px-4 py-3 border-b border-[var(--color-border)]">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-tertiary)] mb-2">
+          Instance summary
+        </div>
+        <input
+          type="text"
+          value={(definition as unknown as { instance_summary_template?: string }).instance_summary_template ?? ''}
+          onChange={(e) => {
+            const val = e.target.value;
+            onDefinitionChange?.({
+              ...definition,
+              instance_summary_template: val || undefined,
+            } as WorkflowDefinition & { instance_summary_template?: string });
+          }}
+          placeholder='e.g. PR #{{ output.pr_number }}: {{ output.title }}'
+          className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:border-blue-500 focus:ring-blue-500"
+          disabled={!onDefinitionChange}
+        />
+        <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1.5">
+          Nunjucks template rendered against the trigger payload. Ignored for prompt-trigger workflows
+          (the prompt text is used instead).
+        </p>
+      </div>
+
       {/* Actions */}
       {!isNew && onExport && (
         <div className="px-4 py-3 border-b border-[var(--color-border)]">

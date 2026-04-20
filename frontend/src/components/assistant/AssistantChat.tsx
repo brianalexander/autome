@@ -1,8 +1,8 @@
-import { useMemo, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AcpChatPane } from '../chat/AcpChatPane';
 import { useActiveProvider } from '../../hooks/queries';
-import { segmentsToMessages } from '../../lib/segmentsToMessages';
+import { useChatSegments } from '../../hooks/useChatSegments';
 import { assistantApi } from '../../lib/api';
 
 // The assistant uses a fixed global session
@@ -16,17 +16,10 @@ export function AssistantChat() {
 
   // Load persisted segments via the assistant-specific endpoint
   // (not the instances endpoint — assistant has its own route)
-  const { data: segments } = useQuery({
-    queryKey: ['segments', INSTANCE_ID, STAGE_ID],
-    queryFn: () => assistantApi.getSegments(),
-    staleTime: Infinity,            // Only refetch when explicitly invalidated (clearChat)
-    refetchOnWindowFocus: false,     // Prevent background refetch from wiping live stream
-  });
-
-  const initialMessages = useMemo(() => {
-    if (!segments?.length) return undefined;
-    return segmentsToMessages(segments);
-  }, [segments]);
+  const { initialMessages } = useChatSegments(
+    ['segments', INSTANCE_ID, STAGE_ID],
+    () => assistantApi.getSegments(),
+  );
 
   const sendMessage = useCallback(async (message: string) => {
     await assistantApi.sendMessage(message);

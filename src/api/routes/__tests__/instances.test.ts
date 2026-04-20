@@ -90,6 +90,65 @@ describe('Instance routes', () => {
     expect(body.data[0].definition_id).toBe(wf1Id);
   });
 
+  it('PATCH /api/instances/:id — updates display_summary', async () => {
+    const inst = db.createInstance({
+      definition_id: null,
+      status: 'completed',
+      trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
+      context: { trigger: {}, stages: {} },
+      current_stage_ids: [],
+      is_test: false,
+      initiated_by: 'user',
+      resume_count: 0,
+    });
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/instances/${inst.id}`,
+      payload: { display_summary: 'My custom summary' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.instanceId).toBe(inst.id);
+    expect(body.display_summary).toBe('My custom summary');
+
+    // Verify it was persisted
+    const fetched = db.getInstance(inst.id);
+    expect(fetched?.display_summary).toBe('My custom summary');
+  });
+
+  it('PATCH /api/instances/:id — returns 404 for non-existent', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/instances/nonexistent-id',
+      payload: { display_summary: 'anything' },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('PATCH /api/instances/:id — allows null to clear summary', async () => {
+    const inst = db.createInstance({
+      definition_id: null,
+      status: 'completed',
+      trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
+      context: { trigger: {}, stages: {} },
+      current_stage_ids: [],
+      is_test: false,
+      initiated_by: 'user',
+      resume_count: 0,
+      display_summary: 'existing summary',
+    });
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/instances/${inst.id}`,
+      payload: { display_summary: null },
+    });
+    expect(res.statusCode).toBe(200);
+    const fetched = db.getInstance(inst.id);
+    expect(fetched?.display_summary).toBeNull();
+  });
+
   it('GET /api/instances — excludes test instances by default', async () => {
     const wfRes = await app.inject({
       method: 'POST',

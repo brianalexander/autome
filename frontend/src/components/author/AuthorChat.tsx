@@ -1,9 +1,9 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AcpChatPane } from '../chat/AcpChatPane';
-import { useSegments, useActiveProvider } from '../../hooks/queries';
-import { segmentsToMessages } from '../../lib/segmentsToMessages';
-import { authorChat, authorApi } from '../../lib/api';
+import { useActiveProvider } from '../../hooks/queries';
+import { useChatSegments } from '../../hooks/useChatSegments';
+import { authorChat, authorApi, instances } from '../../lib/api';
 import type { PendingAuthorMessage } from '../../lib/api';
 import { useWebSocket } from '../../hooks/useWebSocket';
 
@@ -23,12 +23,11 @@ export function AuthorChat({ workflowId, currentDefinition, onWorkflowUpdated }:
   const authorFilter = useMemo(() => ({ workflowId }), [workflowId]);
 
   // Load persisted segments (author chat uses instance_id='author', stage_id=workflowId)
-  const { data: segments } = useSegments('author', workflowId);
-
-  const initialMessages = useMemo(() => {
-    if (!segments?.length) return undefined;
-    return segmentsToMessages(segments);
-  }, [segments]);
+  const { initialMessages } = useChatSegments(
+    ['segments', 'author', workflowId],
+    () => instances.getSegments('author', workflowId),
+    { enabled: !!workflowId },
+  );
 
   // Ephemeral system messages: flushed pending messages + live WS system messages
   const [ephemeralSystemMessages, setEphemeralSystemMessages] = useState<

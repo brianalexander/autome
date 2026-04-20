@@ -38,13 +38,13 @@ async function buildApp(): Promise<FastifyInstance> {
   eventBus.registerProvider(manualTrigger);
   const acpPool = new AgentPool();
   const authorPool = new AgentPool();
-  const runner = new WorkflowRunner(db, eventBus);
+  const runner = new WorkflowRunner(db, eventBus, 'http://127.0.0.1:3001');
 
   const app = Fastify({ logger: false });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  const deps = { db, eventBus, runner, manualTrigger, acpPool, authorPool };
+  const deps = { db, eventBus, runner, manualTrigger, acpPool, authorPool, orchestratorPort: 3001 };
   const authorDrafts = new Map<string, WorkflowDefinition>();
   const assistantPool = new AgentPool();
   const state: SharedState = {

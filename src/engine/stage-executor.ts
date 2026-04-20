@@ -2,7 +2,6 @@ import type { WorkflowDefinition, StageDefinition } from '../types/workflow.js';
 import type { WorkflowContext } from '../types/instance.js';
 import { nodeRegistry } from '../nodes/registry.js';
 import type { NodeTypeSpec, StageInput } from '../nodes/types.js';
-import { config as appConfig } from '../config.js';
 import type { ExecutionContext } from './types.js';
 import { TerminalError, isTerminalError } from './types.js';
 import {
@@ -284,7 +283,7 @@ async function executeMapStage(
   spec: NodeTypeSpec,
   input?: StageInput,
 ): Promise<void> {
-  const orchestratorUrl = appConfig.orchestratorUrl;
+  const orchestratorUrl = execCtx.orchestratorUrl;
 
   const rawValue = resolveTemplateValue(stage.map_over!, context);
   if (!Array.isArray(rawValue)) {
@@ -417,7 +416,7 @@ export async function executeStepWithLifecycle(
   spec: NodeTypeSpec,
   input?: StageInput,
 ): Promise<void> {
-  const orchestratorUrl = appConfig.orchestratorUrl;
+  const orchestratorUrl = execCtx.orchestratorUrl;
   const config: Record<string, unknown> = stage.config || {};
   const maxIterations = (config.max_iterations as number) ?? 5;
   let iteration = context.stages[stageId].run_count || 0;
@@ -592,7 +591,7 @@ export async function executeStepWithLifecycle(
   // After the cycle exits: clean up lingering ACP sessions for 'continue' mode.
   const cycleBehavior = (config.cycle_behavior as string) || 'fresh';
   if (cycleBehavior === 'continue' && iteration > 1) {
-    await fetch(`${appConfig.orchestratorUrl}/api/internal/kill-agent`, {
+    await fetch(`${orchestratorUrl}/api/internal/kill-agent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ instanceId: execCtx.instanceId, stageId }),

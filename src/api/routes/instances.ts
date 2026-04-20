@@ -26,6 +26,9 @@ const SegmentsQuerySchema = z.object({
 const PromptQuerySchema = z.object({
   iteration: z.string().optional(),
 });
+const RenameInstanceBody = z.object({
+  display_summary: z.string().max(500).nullable(),
+});
 const GateApproveBody = z.object({ data: z.unknown().optional() });
 const GateRejectBody = z.object({
   reason: z.string().optional(),
@@ -181,6 +184,27 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
         return reply.code(204).send();
       } catch (err) {
         console.error('DELETE /api/instances/:id error:', err);
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // PATCH /api/instances/:id — Update mutable fields (currently: display_summary)
+  typedApp.patch(
+    '/api/instances/:id',
+    {
+      schema: { params: InstanceIdParams, body: RenameInstanceBody },
+    },
+    async (request, reply) => {
+      try {
+        const { id } = request.params;
+        const { display_summary } = request.body;
+        const updated = deps.db.renameInstance(id, display_summary);
+        if (!updated) return reply.code(404).send({ error: 'Instance not found' });
+        broadcast('instance:renamed', { instanceId: id, display_summary }, { instanceId: id });
+        return { instanceId: id, display_summary };
+      } catch (err) {
+        console.error('PATCH /api/instances/:id error:', err);
         return reply.code(500).send({ error: errorMessage(err) });
       }
     },
@@ -536,6 +560,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
               eventPrefix: 'agent',
               filterPayload: { instanceId, stageId },
               scope: { instanceId },
+              orchestratorPort: deps.orchestratorPort,
             },
             message,
           },

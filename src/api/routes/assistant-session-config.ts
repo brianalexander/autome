@@ -6,7 +6,6 @@
  * tools for inspecting workflow runs and taking corrective actions.
  */
 import type { AgentPool } from '../../acp/pool.js';
-import { config as appConfig } from '../../config.js';
 import type { SessionConfig } from './agent-utils.js';
 import { fromPackage } from '../../paths.js';
 
@@ -19,8 +18,7 @@ import { fromPackage } from '../../paths.js';
  *
  * Note: this is a pure factory — it does not touch the pool or DB.
  */
-export function buildAssistantSessionConfig(assistantPool: AgentPool): SessionConfig {
-  const orchestratorPort = appConfig.port;
+export function buildAssistantSessionConfig(assistantPool: AgentPool, orchestratorPort: number): SessionConfig {
   return {
     pool: assistantPool,
     instanceId: 'assistant',
@@ -44,5 +42,6 @@ export function buildAssistantSessionConfig(assistantPool: AgentPool): SessionCo
     filterPayload: {},
     scope: undefined,
     cullKey: 'assistant:global',
+    orchestratorPort,
   };
 }

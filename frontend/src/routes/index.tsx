@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWorkflows, useTriggerWorkflow, useDeleteWorkflow, useActivateWorkflow, useDeactivateWorkflow } from '../hooks/queries';
 import { TriggerDialog } from '../components/TriggerDialog';
+import { PromptTriggerDialog } from '../components/PromptTriggerDialog';
 import { workflows as workflowsApi, isTriggerType, type BundlePreview, type ImportResult } from '../lib/api';
 import { stripMarkdown } from '../lib/format';
 
@@ -21,6 +22,12 @@ function WorkflowsPage() {
   const navigate = useNavigate();
   const [triggerTarget, setTriggerTarget] = useState<{ id: string; name: string } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+
+  const triggerType = useMemo(() => {
+    if (!triggerTarget) return undefined;
+    const wf = workflowList?.data?.find((w) => w.id === triggerTarget.id);
+    return wf?.stages.find((s) => isTriggerType(s.type))?.type;
+  }, [triggerTarget, workflowList]);
 
   const triggerSchema = useMemo(() => {
     if (!triggerTarget) return undefined;
@@ -75,7 +82,9 @@ function WorkflowsPage() {
               triggerStages.length > 0 ? triggerStages[0].type.replace('-trigger', '') : workflow.trigger.provider;
             const isWebhook = triggerStages.some((s) => s.type === 'webhook-trigger');
             const hasManualTrigger =
-              triggerStages.some((s) => s.type === 'manual-trigger') || workflow.trigger.provider === 'manual';
+              triggerStages.some((s) => s.type === 'manual-trigger' || s.type === 'prompt-trigger') ||
+              workflow.trigger.provider === 'manual' ||
+              workflow.trigger.provider === 'prompt';
             const needsActivation = triggerStages.some(
               (s) => s.type === 'cron-trigger' || s.type === 'code-trigger',
             );
@@ -183,16 +192,28 @@ function WorkflowsPage() {
         </button>
       </div>
 
-      <TriggerDialog
-        workflowName={triggerTarget?.name || ''}
-        isOpen={!!triggerTarget}
-        onClose={() => setTriggerTarget(null)}
-        onTrigger={(payload) => {
-          triggerMutation.mutate({ id: triggerTarget!.id, payload }, { onSuccess: () => setTriggerTarget(null) });
-        }}
-        isPending={triggerMutation.isPending}
-        outputSchema={triggerSchema}
-      />
+      {triggerType === 'prompt-trigger' ? (
+        <PromptTriggerDialog
+          workflowName={triggerTarget?.name || ''}
+          isOpen={!!triggerTarget}
+          onClose={() => setTriggerTarget(null)}
+          onTrigger={(payload) => {
+            triggerMutation.mutate({ id: triggerTarget!.id, payload }, { onSuccess: () => setTriggerTarget(null) });
+          }}
+          isPending={triggerMutation.isPending}
+        />
+      ) : (
+        <TriggerDialog
+          workflowName={triggerTarget?.name || ''}
+          isOpen={!!triggerTarget}
+          onClose={() => setTriggerTarget(null)}
+          onTrigger={(payload) => {
+            triggerMutation.mutate({ id: triggerTarget!.id, payload }, { onSuccess: () => setTriggerTarget(null) });
+          }}
+          isPending={triggerMutation.isPending}
+          outputSchema={triggerSchema}
+        />
+      )}
 
       {importOpen && (
         <ImportDialog

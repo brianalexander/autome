@@ -8,6 +8,7 @@ import { broadcast } from '../api/websocket.js';
 export interface AuthorInjectionDeps {
   db: OrchestratorDB;
   authorPool: AgentPool;
+  orchestratorPort: number;
 }
 
 export interface AuthorInjectionResult {
@@ -53,7 +54,7 @@ export async function injectAuthorMessage(
     // ensureSession is idempotent — for a live session it just returns the
     // existing client without re-wiring events. We call it for safety in
     // case the session was spawned via a path that bypassed event wiring.
-    const config = buildAuthorSessionConfig(deps.authorPool, workflowId);
+    const config = buildAuthorSessionConfig(deps.authorPool, workflowId, deps.orchestratorPort);
     const { client } = await ensureSession(config, deps.db);
 
     // Fire-and-forget: the agent will start streaming a response which the
