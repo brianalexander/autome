@@ -235,6 +235,10 @@ export const NodeTypeInfoSchema = z.object({
   inEdgeSchema: z.record(z.string(), z.unknown()).optional(),
   outEdgeSchema: z.record(z.string(), z.unknown()).optional(),
   triggerMode: z.enum(['prompt', 'immediate']).optional(),
+  /** True if this trigger node type has an activate() method (can be activated/deactivated). */
+  hasLifecycle: z.boolean().optional(),
+  /** True if this trigger node type implements sampleEvent() (has a representative test payload). */
+  hasSampleEvent: z.boolean().optional(),
 });
 
 export type NodeTypeInfo = z.infer<typeof NodeTypeInfoSchema>;

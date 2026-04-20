@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useMemo } from 'react';
 import { Boxes } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { useWorkflows, useTriggerWorkflow, useDeleteWorkflow, useActivateWorkflow, useDeactivateWorkflow } from '../hooks/queries';
+import { useWorkflows, useTriggerWorkflow, useDeleteWorkflow, useActivateWorkflow, useDeactivateWorkflow, useNodeTypes } from '../hooks/queries';
 import { TriggerDialog } from '../components/TriggerDialog';
 import { PromptTriggerDialog } from '../components/PromptTriggerDialog';
 import { workflows as workflowsApi, isTriggerType, type BundlePreview, type ImportResult } from '../lib/api';
@@ -15,6 +15,7 @@ export const Route = createFileRoute('/')({
 
 function WorkflowsPage() {
   const { data: workflowList, isLoading, error } = useWorkflows();
+  const { data: nodeTypeList } = useNodeTypes();
   const triggerMutation = useTriggerWorkflow();
   const deleteMutation = useDeleteWorkflow();
   const activateMutation = useActivateWorkflow();
@@ -22,6 +23,15 @@ function WorkflowsPage() {
   const navigate = useNavigate();
   const [triggerTarget, setTriggerTarget] = useState<{ id: string; name: string } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+
+  // Build an id→info lookup map for O(1) access in the render loop below
+  const nodeTypeMap = useMemo(() => {
+    const map: Record<string, { hasLifecycle?: boolean }> = {};
+    for (const nt of nodeTypeList ?? []) {
+      map[nt.id] = nt;
+    }
+    return map;
+  }, [nodeTypeList]);
 
   const triggerType = useMemo(() => {
     if (!triggerTarget) return undefined;
@@ -85,9 +95,10 @@ function WorkflowsPage() {
               triggerStages.some((s) => s.type === 'manual-trigger' || s.type === 'prompt-trigger') ||
               workflow.trigger.provider === 'manual' ||
               workflow.trigger.provider === 'prompt';
-            const needsActivation = triggerStages.some(
-              (s) => s.type === 'cron-trigger' || s.type === 'code-trigger',
-            );
+            // Use registry metadata when loaded; fall back to false (don't flash the button on)
+            const needsActivation = nodeTypeList
+              ? triggerStages.some((s) => nodeTypeMap[s.type]?.hasLifecycle === true)
+              : false;
 
             return (
               <div

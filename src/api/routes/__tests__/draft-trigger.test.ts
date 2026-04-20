@@ -9,7 +9,8 @@ import { WorkflowRunner } from '../../../engine/runner.js';
 import { registerDraftRoutes } from '../draft.js';
 import type { WorkflowDefinition } from '../../../types/workflow.js';
 import type { SharedState } from '../shared.js';
-import { initializeRegistry } from '../../../nodes/registry.js';
+import { initializeRegistry, nodeRegistry } from '../../../nodes/registry.js';
+import type { NodeTypeSpec, TriggerExecutor, StepExecutor } from '../../../nodes/types.js';
 import type { FastifyInstance } from 'fastify';
 
 // ---------------------------------------------------------------------------
@@ -115,9 +116,8 @@ describe('PUT /api/draft/:workflowId/trigger', () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/api/draft/wf-unknown-provider/trigger',
-      // Bypass Zod validation by sending a raw string not in the enum.
-      // fastify-type-provider-zod will reject the enum mismatch with 400 before
-      // the handler runs, which is also the correct observable behaviour.
+      // provider is z.string() so Zod passes; the registry lookup returns
+      // undefined and the handler returns 400 with an error message.
       payload: { provider: 'unknown-provider' },
     });
 
@@ -144,5 +144,53 @@ describe('PUT /api/draft/:workflowId/trigger', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().type).toBe('webhook-trigger');
+  });
+
+  it('accepts full node type IDs (e.g. cron-trigger) without an alias', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/draft/wf-cron-full-id/trigger',
+      payload: { provider: 'cron-trigger' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().type).toBe('cron-trigger');
+  });
+
+  it('accepts plugin-style node type IDs registered at runtime', async () => {
+    // Register a mock plugin trigger type before this test runs
+    const pluginTriggerSpec: NodeTypeSpec = {
+      id: 'my:custom-trigger',
+      name: 'My Custom Trigger',
+      category: 'trigger',
+      description: 'A plugin trigger type',
+      icon: 'zap',
+      color: { bg: '#fff', border: '#000', text: '#000' },
+      configSchema: { type: 'object', properties: {} },
+      defaultConfig: {},
+      executor: { type: 'trigger' } as TriggerExecutor,
+    };
+    nodeRegistry.register(pluginTriggerSpec);
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/draft/wf-plugin-trigger/trigger',
+      payload: { provider: 'my:custom-trigger' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().type).toBe('my:custom-trigger');
+  });
+
+  it('returns 400 when a full node type ID is not a trigger category', async () => {
+    // 'agent' is a step node, not a trigger
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/draft/wf-step-as-trigger/trigger',
+      payload: { provider: 'agent' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/not a trigger/);
   });
 });

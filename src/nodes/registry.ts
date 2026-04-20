@@ -46,7 +46,11 @@ export class NodeTypeRegistry {
   getAllInfo(): NodeTypeInfo[] {
     return this.getAll().map((spec) => {
       const { executor, ...rest } = spec;
-      return { ...rest, executorType: executor.type };
+      const hasLifecycle =
+        executor.type === 'trigger' && typeof (executor as { activate?: unknown }).activate === 'function';
+      const hasSampleEvent =
+        executor.type === 'trigger' && typeof (executor as { sampleEvent?: unknown }).sampleEvent === 'function';
+      return { ...rest, executorType: executor.type, hasLifecycle, hasSampleEvent };
     });
   }
 }

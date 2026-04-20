@@ -254,6 +254,11 @@ export const agents = {
 
 export const nodeTypes = {
   list: () => request<NodeTypeInfo[]>('/node-types'),
+  sampleEvent: (id: string, config?: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/node-types/${encodeURIComponent(id)}/sample-event`, {
+      method: 'POST',
+      body: JSON.stringify({ config }),
+    }),
 };
 
 export interface AcpProvider {

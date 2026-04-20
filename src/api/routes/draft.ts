@@ -550,18 +550,23 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
       const draft = getDraft(db, state.authorDrafts, workflowId);
       const triggerConfig = request.body;
 
-      // Map provider to specific trigger node type
+      // Map short provider aliases to canonical node type IDs.
+      // Plugin-authored trigger types pass through as-is (e.g. 'my:kafka-trigger').
       const triggerTypeMap: Record<string, string> = {
         manual: 'manual-trigger',
         webhook: 'webhook-trigger',
         cron: 'cron-trigger',
         prompt: 'prompt-trigger',
       };
-      const triggerType = triggerTypeMap[triggerConfig.provider];
-      if (!triggerType) {
-        return reply.code(400).send({ error: `Unknown trigger provider: ${triggerConfig.provider}` });
+      const resolvedType = triggerTypeMap[triggerConfig.provider] ?? triggerConfig.provider;
+      const spec = nodeRegistry.get(resolvedType);
+      if (!spec) {
+        return reply.code(400).send({ error: `Unknown trigger type: ${triggerConfig.provider}` });
       }
-      const spec = nodeRegistry.get(triggerType);
+      if (spec.category !== 'trigger') {
+        return reply.code(400).send({ error: `Node type '${resolvedType}' is not a trigger` });
+      }
+      const triggerType = resolvedType;
 
       // Find existing trigger stage (any trigger category)
       const existingIdx = draft.stages.findIndex((s) => nodeRegistry.isTriggerType(s.type));
@@ -569,7 +574,7 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
       const triggerStage: Record<string, unknown> = {
         id: existingIdx >= 0 ? draft.stages[existingIdx].id : `trigger_${triggerConfig.provider}`,
         type: triggerType,
-        label: spec?.name || triggerType,
+        label: spec.name || triggerType,
         config: {
           provider: triggerConfig.provider,
           ...(triggerConfig.filter ? { filter: triggerConfig.filter } : {}),

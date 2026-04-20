@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useDeleteWorkflow, useInstance, useInstanceStatus, useNodeTypes } from './queries';
-import { workflows as workflowsApi, isTriggerType, type WorkflowDefinition } from '../lib/api';
+import { workflows as workflowsApi, nodeTypes as nodeTypesApi, isTriggerType, type WorkflowDefinition } from '../lib/api';
 
 const TEST_RUN_HASH = '#test-run';
 
@@ -124,7 +124,29 @@ export function useTestRun({ definition, effectiveId }: UseTestRunOptions): UseT
     const triggerNodeInfo = nodeTypeList?.find((nt) => nt.id === triggerStage?.type);
     const triggerMode = triggerNodeInfo?.triggerMode ?? 'prompt';
     if (triggerMode === 'immediate') {
-      await handleTriggerSubmit({ source: 'cron', scheduled_at: new Date().toISOString() });
+      // If the trigger type provides a sampleEvent, use it. Otherwise fall back
+      // to the generic dialog path (same as 'prompt' mode).
+      if (triggerNodeInfo?.hasSampleEvent && triggerStage) {
+        try {
+          const config = (triggerStage.config ?? {}) as Record<string, unknown>;
+          const payload = await nodeTypesApi.sampleEvent(triggerStage.type, config);
+          await handleTriggerSubmit(payload);
+          return;
+        } catch {
+          // sampleEvent fetch failed — fall through to dialog
+        }
+      }
+      // No sampleEvent available: open the dialog for manual payload entry
+      try {
+        const res = await fetch(`/api/draft/${effectiveId}/validate`);
+        if (res.ok) {
+          const validation = await res.json();
+          setTestRunValidation(validation);
+        }
+      } catch {
+        // Don't block test run if validation fails to fetch
+      }
+      setTestRunTriggerOpen(true);
     } else {
       // Fetch validation results before opening dialog
       try {

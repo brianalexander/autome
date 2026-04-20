@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { nodeRegistry, initializeRegistry } from '../registry.js';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { nodeRegistry, initializeRegistry, NodeTypeRegistry } from '../registry.js';
+import type { NodeTypeSpec, TriggerExecutor, StepExecutor } from '../types.js';
 
 beforeAll(async () => {
   await initializeRegistry();
@@ -106,6 +107,124 @@ describe('cron-trigger config validation', () => {
     // providing a non-string value should fail
     const result = schema.safeParse({ schedule: 42 });
     expect(result.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasLifecycle / hasSampleEvent projections
+// ---------------------------------------------------------------------------
+
+function makeTriggerSpec(overrides: Partial<TriggerExecutor> = {}): NodeTypeSpec {
+  const executor: TriggerExecutor = { type: 'trigger', ...overrides };
+  return {
+    id: `test-trigger-${Math.random().toString(36).slice(2)}`,
+    name: 'Test Trigger',
+    category: 'trigger',
+    description: 'A test trigger',
+    icon: 'zap',
+    color: { bg: '#fff', border: '#000', text: '#000' },
+    configSchema: { type: 'object', properties: {} },
+    defaultConfig: {},
+    executor,
+  };
+}
+
+function makeStepSpec(): NodeTypeSpec {
+  const executor: StepExecutor = {
+    type: 'step',
+    execute: async () => ({ output: {} }),
+  };
+  return {
+    id: `test-step-${Math.random().toString(36).slice(2)}`,
+    name: 'Test Step',
+    category: 'step',
+    description: 'A test step',
+    icon: 'box',
+    color: { bg: '#fff', border: '#000', text: '#000' },
+    configSchema: { type: 'object', properties: {} },
+    defaultConfig: {},
+    executor,
+  };
+}
+
+describe('NodeTypeInfo hasLifecycle', () => {
+  let reg: NodeTypeRegistry;
+
+  beforeEach(() => {
+    reg = new NodeTypeRegistry();
+  });
+
+  it('hasLifecycle === true when executor has activate()', () => {
+    const spec = makeTriggerSpec({
+      activate: async () => () => {},
+    });
+    reg.register(spec);
+    const info = reg.getAllInfo().find((i) => i.id === spec.id)!;
+    expect(info.hasLifecycle).toBe(true);
+  });
+
+  it('hasLifecycle === false when trigger executor has no activate()', () => {
+    const spec = makeTriggerSpec(); // no activate
+    reg.register(spec);
+    const info = reg.getAllInfo().find((i) => i.id === spec.id)!;
+    expect(info.hasLifecycle).toBe(false);
+  });
+
+  it('hasLifecycle === false for step node types', () => {
+    const spec = makeStepSpec();
+    reg.register(spec);
+    const info = reg.getAllInfo().find((i) => i.id === spec.id)!;
+    expect(info.hasLifecycle).toBe(false);
+  });
+});
+
+describe('NodeTypeInfo hasSampleEvent', () => {
+  let reg: NodeTypeRegistry;
+
+  beforeEach(() => {
+    reg = new NodeTypeRegistry();
+  });
+
+  it('hasSampleEvent === true when executor has sampleEvent()', () => {
+    const spec = makeTriggerSpec({
+      sampleEvent: (_config) => ({ source: 'test' }),
+    });
+    reg.register(spec);
+    const info = reg.getAllInfo().find((i) => i.id === spec.id)!;
+    expect(info.hasSampleEvent).toBe(true);
+  });
+
+  it('hasSampleEvent === false when trigger executor has no sampleEvent()', () => {
+    const spec = makeTriggerSpec(); // no sampleEvent
+    reg.register(spec);
+    const info = reg.getAllInfo().find((i) => i.id === spec.id)!;
+    expect(info.hasSampleEvent).toBe(false);
+  });
+
+  it('hasSampleEvent === false for step node types', () => {
+    const spec = makeStepSpec();
+    reg.register(spec);
+    const info = reg.getAllInfo().find((i) => i.id === spec.id)!;
+    expect(info.hasSampleEvent).toBe(false);
+  });
+});
+
+describe('built-in trigger lifecycle flags', () => {
+  it('cron-trigger has hasLifecycle and hasSampleEvent === true', () => {
+    const info = nodeRegistry.getAllInfo().find((i) => i.id === 'cron-trigger')!;
+    expect(info.hasLifecycle).toBe(true);
+    expect(info.hasSampleEvent).toBe(true);
+  });
+
+  it('code-trigger has hasLifecycle and hasSampleEvent === true', () => {
+    const info = nodeRegistry.getAllInfo().find((i) => i.id === 'code-trigger')!;
+    expect(info.hasLifecycle).toBe(true);
+    expect(info.hasSampleEvent).toBe(true);
+  });
+
+  it('manual-trigger has hasLifecycle === false', () => {
+    const info = nodeRegistry.getAllInfo().find((i) => i.id === 'manual-trigger')!;
+    expect(info.hasLifecycle).toBe(false);
   });
 });
 

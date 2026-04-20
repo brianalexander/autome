@@ -95,6 +95,13 @@ export interface TriggerExecutor {
     emit: (event: Record<string, unknown>) => void,
     secrets?: Record<string, string>,
   ): Promise<() => void>;
+  /**
+   * Optional: return a representative event payload for test runs.
+   * The user's test invocation will be seeded with this shape instead of
+   * the generic `{source:'cron',scheduled_at}` default. If absent, the
+   * frontend falls back to a generic JSON dialog driven by output_schema.
+   */
+  sampleEvent?: (config: Record<string, unknown>) => Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

@@ -48,6 +48,13 @@ try {
 
 const executor: TriggerExecutor = {
   type: 'trigger',
+  sampleEvent: (_config) => ({
+    // Placeholder: code-trigger emits arbitrary payloads defined by the
+    // user's script. We return a minimally-shaped event and include a
+    // _dummy flag so downstream templates can detect test runs.
+    _dummy: true,
+    triggered_at: new Date().toISOString(),
+  }),
 
   async activate(workflowId, stageId, config, emit, secrets?) {
     const code = (config.code as string) || '';

@@ -7,6 +7,7 @@ import { generateAgentConfigs } from '../../agents/adapter.js';
 import { config } from '../../config.js';
 import type { RouteDeps, SharedState } from './shared.js';
 import { errorMessage } from '../../utils/errors.js';
+import { SampleEventBodySchema } from '../../schemas/pipeline.js';
 
 const AgentNameParams = z.object({ name: z.string() });
 
@@ -173,4 +174,38 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps, state
       return reply.code(500).send({ error: errorMessage(err) });
     }
   });
+
+  // Sample event for a trigger node type — used by the frontend to seed test runs
+  typedApp.post(
+    '/api/node-types/:id/sample-event',
+    {
+      schema: {
+        params: z.object({ id: z.string() }),
+        body: SampleEventBodySchema,
+        tags: ['Node Types'],
+        summary: 'Get a representative sample event payload for a trigger node type',
+      },
+    },
+    async (request, reply) => {
+      try {
+        const { nodeRegistry } = await import('../../nodes/registry.js');
+        const spec = nodeRegistry.get(request.params.id);
+        if (!spec) {
+          return reply.code(404).send({ error: `Unknown node type: ${request.params.id}` });
+        }
+        if (spec.category !== 'trigger') {
+          return reply.code(400).send({ error: `Node type '${request.params.id}' is not a trigger` });
+        }
+        const executor = spec.executor as { sampleEvent?: (config: Record<string, unknown>) => Record<string, unknown> };
+        if (typeof executor.sampleEvent !== 'function') {
+          return reply.code(404).send({ error: `Node type '${request.params.id}' does not implement sampleEvent` });
+        }
+        const config = request.body.config ?? {};
+        const payload = executor.sampleEvent(config);
+        return payload;
+      } catch (err) {
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
 }

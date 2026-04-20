@@ -9,6 +9,7 @@ import { useTestRun } from './useTestRun';
 // ---------------------------------------------------------------------------
 // Mock heavy deps that would require a full React Query provider tree
 // ---------------------------------------------------------------------------
+
 vi.mock('./queries', () => ({
   useDeleteWorkflow: () => ({ mutate: vi.fn() }),
   useInstance: () => ({ data: undefined }),
@@ -23,6 +24,10 @@ vi.mock('../lib/api', async (importOriginal) => {
     workflows: {
       ...((actual as Record<string, unknown>).workflows as object),
       testRun: vi.fn(),
+    },
+    nodeTypes: {
+      list: vi.fn(),
+      sampleEvent: vi.fn(),
     },
     isTriggerType: actual.isTriggerType,
   };

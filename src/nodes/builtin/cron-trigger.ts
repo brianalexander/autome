@@ -29,6 +29,11 @@ function parseScheduleMs(schedule: string): number | null {
 
 const executor: TriggerExecutor = {
   type: 'trigger',
+  sampleEvent: (config) => ({
+    type: 'cron',
+    timestamp: new Date().toISOString(),
+    schedule: (config.schedule as string) ?? '5m',
+  }),
   async activate(workflowId, stageId, config, emit) {
     const schedule = (config.schedule as string) || '5m';
     const parsed = parseScheduleMs(schedule);

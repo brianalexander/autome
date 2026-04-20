@@ -295,9 +295,9 @@ export const UpdateEdgeBodySchema = z
   .strict();
 
 export const UpdateTriggerBodySchema = z.object({
-  provider: z.enum(['manual', 'webhook', 'prompt']).meta({
+  provider: z.string().meta({
     description:
-      'Trigger provider type. "manual" = triggered via UI button or API call. "webhook" = triggered by an incoming HTTP POST to the webhook endpoint. "prompt" = chat-style trigger with a fixed { prompt, attachments? } output schema.',
+      'Trigger provider type. Short aliases: "manual", "webhook", "cron", "prompt". Also accepts full node type IDs (e.g. "cron-trigger", "my-plugin:kafka-trigger"). The real validation happens server-side via the node registry.',
   }),
   filter: z.record(z.string(), z.unknown()).optional().meta({ description: 'Optional event filter criteria' }),
   webhook: z
@@ -313,6 +313,10 @@ export const UpdateTriggerBodySchema = z.object({
     })
     .optional()
     .meta({ description: 'Webhook-specific configuration (only for provider="webhook")' }),
+});
+
+export const SampleEventBodySchema = z.object({
+  config: z.record(z.string(), z.unknown()).optional().meta({ description: 'Node config to pass to sampleEvent()' }),
 });
 
 export const UpdateMetadataBodySchema = z
