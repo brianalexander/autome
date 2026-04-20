@@ -17,7 +17,7 @@ export const webhookTriggerSpec: NodeTypeSpec = {
     type: 'object',
     properties: {
       provider: { type: 'string', const: 'webhook', default: 'webhook' },
-      secret: { type: 'string', title: 'Secret', description: 'Optional HMAC secret for signature validation' },
+      secret: { type: 'string', title: 'Secret', description: 'Optional HMAC secret for signature validation', 'x-widget': 'secret' },
       payload_filter: {
         type: 'string',
         title: 'Payload Filter',

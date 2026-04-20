@@ -71,7 +71,7 @@ export const gateNodeSpec: NodeTypeSpec = {
         enum: ['manual', 'conditional', 'auto'],
         default: 'manual',
       },
-      condition: { type: 'string', title: 'Condition', description: 'JS expression for conditional gates. Available variable: context (workflow context). Example: context.stages["review"].latest.approved === true' },
+      condition: { type: 'string', title: 'Condition', description: 'JS expression for conditional gates. Available variable: context (workflow context). Example: context.stages["review"].latest.approved === true', format: 'code' },
       message: { type: 'string', title: 'Message', description: 'Shown to the human reviewer (for manual gates)' },
       timeout_minutes: { type: 'number', title: 'Timeout (minutes)' },
       timeout_action: {

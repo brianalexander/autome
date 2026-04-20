@@ -92,6 +92,47 @@ describe('gate config validation', () => {
     const result = schema.safeParse({ type: 'invalid_type' });
     expect(result.success).toBe(false);
   });
+
+  // Phase 3b retrofit: condition field now has format: 'code' for better UI.
+  // The executor reads condition as a plain string — both a bare JS expression
+  // and a multi-line expression (as the code editor produces) are equivalent.
+  it('condition field accepts a single-line JS expression (old style)', () => {
+    const schema = nodeRegistry.getConfigZodSchema('gate')!;
+    const result = schema.safeParse({ type: 'conditional', condition: 'context.approved === true' });
+    expect(result.success).toBe(true);
+  });
+
+  it('condition field accepts a multi-line JS expression (as code editor produces)', () => {
+    const schema = nodeRegistry.getConfigZodSchema('gate')!;
+    const result = schema.safeParse({
+      type: 'conditional',
+      condition: 'const approved = context.stages.review.latest.approved;\napproved === true',
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('webhook-trigger config validation', () => {
+  // Phase 3b retrofit: secret field now has x-widget: 'secret' for masked input.
+  // The field shape is still a plain string — no executor change.
+  it('accepts a secret string value', () => {
+    const schema = nodeRegistry.getConfigZodSchema('webhook-trigger')!;
+    const result = schema.safeParse({
+      secret: 'my-hmac-secret-key',
+      payload_schema: { type: 'object', properties: {} },
+      output_schema: { type: 'object', properties: {} },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('works without a secret (optional field)', () => {
+    const schema = nodeRegistry.getConfigZodSchema('webhook-trigger')!;
+    const result = schema.safeParse({
+      payload_schema: { type: 'object', properties: {} },
+      output_schema: { type: 'object', properties: {} },
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('cron-trigger config validation', () => {

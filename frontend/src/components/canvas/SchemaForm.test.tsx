@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SchemaForm } from './SchemaForm';
+import { resolveWidget } from './widgets/index';
 
 // CodeEditor uses CodeMirror which doesn't work in jsdom — mock it
 vi.mock('./CodeEditor', () => ({
@@ -8,6 +9,10 @@ vi.mock('./CodeEditor', () => ({
     <textarea data-testid="code-editor" value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
+
+// -----------------------------------------------------------------------
+// SchemaForm rendering tests
+// -----------------------------------------------------------------------
 
 describe('SchemaForm', () => {
   it('renders nothing for empty schema', () => {
@@ -114,7 +119,6 @@ describe('SchemaForm', () => {
         onChange={onChange}
       />,
     );
-    // Should show name but not provider
     expect(screen.getByText('Name')).toBeInTheDocument();
     expect(screen.queryByText('provider')).not.toBeInTheDocument();
   });
@@ -151,5 +155,108 @@ describe('SchemaForm', () => {
       />,
     );
     expect(screen.getByText('*')).toBeInTheDocument();
+  });
+});
+
+// -----------------------------------------------------------------------
+// resolveWidget tests — one per priority branch
+// -----------------------------------------------------------------------
+
+describe('resolveWidget', () => {
+  it('priority 1: x-widget explicit override (registered)', () => {
+    expect(resolveWidget({ 'x-widget': 'slider', type: 'number' }, 'count')).toBe('slider');
+  });
+
+  it('priority 1: x-widget unknown key falls through', () => {
+    // unregistered x-widget → falls through to type-based dispatch
+    expect(resolveWidget({ 'x-widget': 'not-a-widget', type: 'boolean' }, 'flag')).toBe('checkbox');
+  });
+
+  it('priority 2: format date', () => {
+    expect(resolveWidget({ type: 'string', format: 'date' }, 'due_date')).toBe('date');
+  });
+
+  it('priority 2: format date-time', () => {
+    expect(resolveWidget({ type: 'string', format: 'date-time' }, 'created_at')).toBe('date-time');
+  });
+
+  it('priority 2: format color', () => {
+    expect(resolveWidget({ type: 'string', format: 'color' }, 'bg')).toBe('color');
+  });
+
+  it('priority 2: format textarea', () => {
+    expect(resolveWidget({ type: 'string', format: 'textarea' }, 'prompt')).toBe('textarea');
+  });
+
+  it('priority 2: format code', () => {
+    expect(resolveWidget({ type: 'string', format: 'code' }, 'script')).toBe('code');
+  });
+
+  it('priority 2: format json', () => {
+    expect(resolveWidget({ type: 'object', format: 'json' }, 'config')).toBe('code');
+  });
+
+  it('priority 2: format template', () => {
+    expect(resolveWidget({ type: 'string', format: 'template' }, 'body')).toBe('code');
+  });
+
+  it('priority 2: format dependencies', () => {
+    expect(resolveWidget({ type: 'object', format: 'dependencies' }, 'pkgs')).toBe('dependencies');
+  });
+
+  it('priority 3: fieldName === dependencies', () => {
+    expect(resolveWidget({ type: 'object' }, 'dependencies')).toBe('dependencies');
+  });
+
+  it('priority 4: enum → select', () => {
+    expect(resolveWidget({ type: 'string', enum: ['a', 'b'] }, 'mode')).toBe('select');
+  });
+
+  it('priority 5: array with items.enum → multiselect', () => {
+    expect(resolveWidget({ type: 'array', items: { enum: ['x', 'y'] } }, 'tags')).toBe('multiselect');
+  });
+
+  it('priority 5: array with items.type=object → arrayOfObjects', () => {
+    expect(resolveWidget({ type: 'array', items: { type: 'object', properties: {} } }, 'rows')).toBe('arrayOfObjects');
+  });
+
+  it('priority 5: array (strings) → tags', () => {
+    expect(resolveWidget({ type: 'array', items: { type: 'string' } }, 'labels')).toBe('tags');
+  });
+
+  it('priority 6: boolean → checkbox', () => {
+    expect(resolveWidget({ type: 'boolean' }, 'active')).toBe('checkbox');
+  });
+
+  it('priority 7: number → number', () => {
+    expect(resolveWidget({ type: 'number' }, 'count')).toBe('number');
+  });
+
+  it('priority 7: integer → number', () => {
+    expect(resolveWidget({ type: 'integer' }, 'count')).toBe('number');
+  });
+
+  it('priority 8: object with additionalProperties → keyvalue', () => {
+    expect(resolveWidget({ type: 'object', additionalProperties: { type: 'string' } }, 'headers')).toBe('keyvalue');
+  });
+
+  it('priority 9: object with properties → nested', () => {
+    expect(resolveWidget({ type: 'object', properties: { foo: { type: 'string' } } }, 'config')).toBe('nested');
+  });
+
+  it('priority 10: field name contains secret', () => {
+    expect(resolveWidget({ type: 'string' }, 'api_secret')).toBe('secret');
+  });
+
+  it('priority 10: field name contains token', () => {
+    expect(resolveWidget({ type: 'string' }, 'authToken')).toBe('secret');
+  });
+
+  it('priority 10: field name contains api_key', () => {
+    expect(resolveWidget({ type: 'string' }, 'api_key')).toBe('secret');
+  });
+
+  it('priority 11: default → text', () => {
+    expect(resolveWidget({ type: 'string' }, 'name')).toBe('text');
   });
 });
