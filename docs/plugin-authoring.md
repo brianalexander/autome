@@ -139,18 +139,30 @@ async execute({ ctx, stageId }) {
 Trigger nodes start workflows. They implement `TriggerExecutor`:
 
 ```typescript
-import type { TriggerExecutor } from 'autome/plugin';
+import type { TriggerExecutor, TriggerActivateContext } from 'autome/plugin';
 
 const webhookListener: TriggerExecutor = {
   type: 'trigger',
-  async activate(workflowId, stageId, config, emit) {
+  async activate(ctx: TriggerActivateContext) {
+    const { workflowId, stageId, config, emit, secrets, logger } = ctx;
+    logger.info(`Starting webhook listener for ${workflowId}`);
     const server = startListener((payload) => {
+      logger.info(`Received event, forwarding to workflow`);
       emit({ provider: 'my-webhook', payload });
     });
-    return () => server.close(); // cleanup function
+    return () => {
+      server.close();
+      logger.info(`Webhook listener stopped`);
+    };
   },
 };
 ```
+
+> **Breaking change (Phase 4):** The `activate` signature changed from positional arguments
+> `(workflowId, stageId, config, emit, secrets?)` to a single context object
+> `TriggerActivateContext`. The context includes a `logger` for structured, observable logging
+> whose output is stored in a bounded ring buffer and exposed via
+> `GET /api/workflows/:id/triggers/:stageId/logs`.
 
 Set `category: 'trigger'` on the `NodeTypeSpec` and use `triggerMode: 'prompt' | 'immediate'` to control the UI "Run" button behavior.
 

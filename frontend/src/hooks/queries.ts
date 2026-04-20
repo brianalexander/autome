@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { workflows, instances, agents, nodeTypes, acpProviders, settings, approvals, templates, secrets } from '../lib/api';
-import type { PaginatedResponse } from '../lib/api';
+import { workflows, instances, agents, nodeTypes, acpProviders, settings, approvals, templates, secrets, triggersApi } from '../lib/api';
+import type { PaginatedResponse, TriggerStatus } from '../lib/api';
 import type { WorkflowDefinition } from '../lib/api';
 import { useUIStore } from '../stores/uiStore';
 
@@ -362,4 +362,32 @@ export function useApprovals() {
 // Secrets queries
 export function useSecrets() {
   return useQuery({ queryKey: ['secrets'], queryFn: secrets.list });
+}
+
+// Trigger observability queries (Phase 4)
+export function useTriggerStatuses(
+  workflowId: string,
+  options?: { enabled?: boolean },
+): ReturnType<typeof useQuery<{ triggers: Record<string, TriggerStatus> }>> {
+  return useQuery({
+    queryKey: ['triggerStatuses', workflowId],
+    queryFn: () => triggersApi.getStatuses(workflowId),
+    enabled: !!workflowId && (options?.enabled ?? true),
+    refetchInterval: 3000,
+    staleTime: 0,
+  });
+}
+
+export function useTriggerLogs(
+  workflowId: string,
+  stageId: string,
+  options?: { enabled?: boolean; limit?: number },
+): ReturnType<typeof useQuery<{ lines: string[] }>> {
+  return useQuery({
+    queryKey: ['triggerLogs', workflowId, stageId, options?.limit],
+    queryFn: () => triggersApi.getLogs(workflowId, stageId, options?.limit ?? 200),
+    enabled: !!workflowId && !!stageId && (options?.enabled ?? true),
+    refetchInterval: 2000,
+    staleTime: 0,
+  });
 }

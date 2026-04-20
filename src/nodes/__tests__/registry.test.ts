@@ -260,7 +260,9 @@ describe('configCards in getAllInfo()', () => {
     expect(cronInfo.configCards).toBeDefined();
     expect(Array.isArray(cronInfo.configCards)).toBe(true);
     expect(cronInfo.configCards!.length).toBeGreaterThan(0);
-    expect(cronInfo.configCards![0].kind).toBe('help-text');
+    // First card is now 'activation-status' (Phase 4), followed by 'help-text'
+    expect(cronInfo.configCards!.some((c) => c.kind === 'activation-status')).toBe(true);
+    expect(cronInfo.configCards!.some((c) => c.kind === 'help-text')).toBe(true);
   });
 
   it('webhook-trigger has copy-url and curl-snippet cards', () => {

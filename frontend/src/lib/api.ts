@@ -423,3 +423,28 @@ export const assistantApi = {
   clearChat: () =>
     request<{ ok: boolean }>('/assistant/clear-chat', { method: 'POST' }),
 };
+
+// ---------------------------------------------------------------------------
+// Trigger observability API (Phase 4)
+// ---------------------------------------------------------------------------
+
+export interface TriggerStatus {
+  state: 'starting' | 'active' | 'errored' | 'stopped';
+  startedAt: string;
+  lastEventAt: string | null;
+  lastErrorAt: string | null;
+  lastError: string | null;
+  eventCount: number;
+  errorCount: number;
+  logsPreview: string[];
+}
+
+export const triggersApi = {
+  /** Get status + log preview for all active triggers on a workflow. */
+  getStatuses: (workflowId: string): Promise<{ triggers: Record<string, TriggerStatus> }> =>
+    request(`/workflows/${workflowId}/triggers`),
+
+  /** Get full log buffer for a specific trigger stage. */
+  getLogs: (workflowId: string, stageId: string, limit = 200): Promise<{ lines: string[] }> =>
+    request(`/workflows/${workflowId}/triggers/${encodeURIComponent(stageId)}/logs?limit=${limit}`),
+};

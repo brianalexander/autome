@@ -334,6 +334,31 @@ export const UpdateMetadataBodySchema = z
   .strict();
 
 // ---------------------------------------------------------------------------
+// Trigger observability schemas (Phase 4)
+// ---------------------------------------------------------------------------
+
+export const TriggerStatusSchema = z.object({
+  state: z.enum(['starting', 'active', 'errored', 'stopped']).meta({ description: 'Current lifecycle state of the trigger' }),
+  startedAt: z.string().meta({ description: 'ISO timestamp when the trigger was activated' }),
+  lastEventAt: z.string().nullable().meta({ description: 'ISO timestamp of the last emitted event, or null' }),
+  lastErrorAt: z.string().nullable().meta({ description: 'ISO timestamp of the last error, or null' }),
+  lastError: z.string().nullable().meta({ description: 'Last error message, or null' }),
+  eventCount: z.number().int().meta({ description: 'Total number of events emitted' }),
+  errorCount: z.number().int().meta({ description: 'Total number of errors recorded' }),
+  logsPreview: z.array(z.string()).meta({ description: 'Last 10 log lines' }),
+});
+
+export const TriggerStatusesResponseSchema = z.object({
+  triggers: z.record(z.string(), TriggerStatusSchema).meta({ description: 'Map of stageId to trigger status' }),
+});
+
+export const TriggerLogsResponseSchema = z.object({
+  lines: z.array(z.string()).meta({ description: 'Log lines (oldest first, up to limit)' }),
+});
+
+export type TriggerStatusWithLogs = z.infer<typeof TriggerStatusSchema>;
+
+// ---------------------------------------------------------------------------
 // Inferred TypeScript types
 // ---------------------------------------------------------------------------
 

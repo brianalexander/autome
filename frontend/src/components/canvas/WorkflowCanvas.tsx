@@ -33,7 +33,7 @@ import { CycleEdge } from './edges/CycleEdge';
 import { ConnectionLine } from './ConnectionLine';
 import { CanvasControls } from './CanvasControls';
 import { layoutGraph } from '../../lib/layout';
-import { useNodeTypes } from '../../hooks/queries';
+import { useNodeTypes, useTriggerStatuses } from '../../hooks/queries';
 import {
   isTriggerType,
   type WorkflowDefinition,
@@ -41,6 +41,7 @@ import {
   type StageContext,
   type StageDefinition,
   type EdgeDefinition,
+  type TriggerStatus,
 } from '../../lib/api';
 
 const NODE_TYPE_MAP: Record<string, React.ComponentType<NodeProps>> = {
@@ -94,6 +95,7 @@ function buildNodes(
   nodeTypeSpecs?: import('../../lib/api').NodeTypeInfo[],
   isAuthor?: boolean,
   backEdgeIds?: Set<string>,
+  triggerStatuses?: Record<string, TriggerStatus>,
 ): Node[] {
   const nodes: Node[] = [];
   const specMap = new Map(nodeTypeSpecs?.map((s) => [s.id, s]) || []);
@@ -191,6 +193,7 @@ function buildNodes(
           : undefined;
       const startedAt = latestRun?.status === 'running' ? latestRun.started_at : undefined;
 
+      const isTriggerStage = spec?.category === 'trigger';
       nodes.push({
         id: stage.id,
         type: NODE_TYPE_MAP[stage.type] ? stage.type : 'code-executor',
@@ -211,6 +214,8 @@ function buildNodes(
           isAuthor,
           onDelete: callbacks?.onDelete,
           onEdit: callbacks?.onEdit,
+          // Trigger lifecycle status badge (only for active trigger stages)
+          triggerState: isTriggerStage && definition.active ? triggerStatuses?.[stage.id]?.state : undefined,
         },
       });
     }
@@ -435,6 +440,8 @@ export function WorkflowCanvas({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const { data: nodeTypeSpecs } = useNodeTypes();
+  const { data: triggerStatusData } = useTriggerStatuses(definition.id, { enabled: definition.active ?? false });
+  const triggerStatuses = triggerStatusData?.triggers;
 
   // True after the first elkjs layout has been applied. Never reset automatically
   // so that drag positions are not overwritten when the definition changes.
@@ -475,7 +482,7 @@ export function WorkflowCanvas({
   useEffect(() => {
     if (!nodeTypeSpecs) return; // Wait for node type specs before rendering
     const backEdgeIds = findBackEdgeIds(definition);
-    const newNodes = buildNodes(definition, instance, callbacks, nodeTypeSpecs, isAuthor, backEdgeIds);
+    const newNodes = buildNodes(definition, instance, callbacks, nodeTypeSpecs, isAuthor, backEdgeIds, triggerStatuses);
     const newEdges = buildEdges(definition, instance, backEdgeIds);
 
     // Always update edges immediately so they never go stale
@@ -532,7 +539,7 @@ export function WorkflowCanvas({
         }));
       });
     }
-  }, [definition, instance, callbacks, nodeTypeSpecs, setNodes, setEdges]);
+  }, [definition, instance, callbacks, nodeTypeSpecs, triggerStatuses, setNodes, setEdges]);
 
   // Expose a manual re-layout trigger (used by the toolbar Re-layout button).
   // Writes new positions to both React Flow state AND the workflow definition.

@@ -2,19 +2,156 @@
  * Manages trigger activation/deactivation lifecycle.
  * When a workflow is activated, starts any trigger executors (e.g., cron).
  * When deactivated, stops them.
+ *
+ * Phase 4: Tracks per-trigger runtime status + logs for observability.
  */
 import { v4 as uuid } from 'uuid';
 import { nodeRegistry } from '../nodes/registry.js';
-import type { TriggerExecutor } from '../nodes/types.js';
+import type { TriggerExecutor, TriggerActivateContext, TriggerLogger } from '../nodes/types.js';
 import type { WorkflowDefinition } from '../types/workflow.js';
 import type { EventBus, EventSubscription } from '../events/bus.js';
 import { getSecretsSnapshot } from '../secrets/service.js';
 
-/** Map of workflowId -> array of cleanup functions for active triggers */
-const activeTriggers = new Map<string, Array<() => void>>();
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface TriggerStatus {
+  state: 'starting' | 'active' | 'errored' | 'stopped';
+  startedAt: string;
+  lastEventAt: string | null;
+  lastErrorAt: string | null;
+  lastError: string | null;
+  eventCount: number;
+  errorCount: number;
+}
+
+type TriggerCleanup = () => void;
+
+interface TriggerRuntime {
+  workflowId: string;
+  stageId: string;
+  stageType: string;
+  cleanup: TriggerCleanup;
+  status: TriggerStatus;
+  logs: string[];
+}
+
+const LOG_BUFFER_MAX = 200;
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+/** Map of workflowId -> Map<stageId, TriggerRuntime> */
+const activeTriggers = new Map<string, Map<string, TriggerRuntime>>();
 
 /** Reference to the event bus, set via init() */
 let eventBus: EventBus | null = null;
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function getRuntime(workflowId: string, stageId: string): TriggerRuntime | undefined {
+  return activeTriggers.get(workflowId)?.get(stageId);
+}
+
+function appendLog(workflowId: string, stageId: string, line: string): void {
+  const rt = getRuntime(workflowId, stageId);
+  if (!rt) return;
+  rt.logs.push(line);
+  if (rt.logs.length > LOG_BUFFER_MAX) {
+    rt.logs.shift();
+  }
+}
+
+function setState(workflowId: string, stageId: string, state: TriggerStatus['state']): void {
+  const rt = getRuntime(workflowId, stageId);
+  if (!rt) return;
+  rt.status.state = state;
+}
+
+function recordEvent(workflowId: string, stageId: string): void {
+  const rt = getRuntime(workflowId, stageId);
+  if (!rt) return;
+  rt.status.eventCount += 1;
+  rt.status.lastEventAt = new Date().toISOString();
+  if (rt.status.state !== 'errored') {
+    rt.status.state = 'active';
+  }
+}
+
+function recordError(workflowId: string, stageId: string, err: Error | string): void {
+  const rt = getRuntime(workflowId, stageId);
+  if (!rt) return;
+  const msg = typeof err === 'string' ? err : err.message;
+  rt.status.errorCount += 1;
+  rt.status.lastErrorAt = new Date().toISOString();
+  rt.status.lastError = msg;
+  rt.status.state = 'errored';
+}
+
+// ---------------------------------------------------------------------------
+// Logger factory
+// ---------------------------------------------------------------------------
+
+function formatLogLine(level: 'INFO' | 'WARN' | 'ERROR', msg: string): string {
+  const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  return `[${ts}] [${level}] ${msg}`;
+}
+
+export function makeLogger(workflowId: string, stageId: string, stageType: string): TriggerLogger {
+  const prefix = `[trigger:${stageType}:${workflowId}/${stageId}]`;
+  return {
+    info(msg: string): void {
+      const line = formatLogLine('INFO', msg);
+      appendLog(workflowId, stageId, line);
+      console.log(`${prefix} ${msg}`);
+    },
+    warn(msg: string): void {
+      const line = formatLogLine('WARN', msg);
+      appendLog(workflowId, stageId, line);
+      console.warn(`${prefix} ${msg}`);
+    },
+    error(msg: string, err?: Error): void {
+      const fullMsg = err ? `${msg}: ${err.message}` : msg;
+      const line = formatLogLine('ERROR', fullMsg);
+      appendLog(workflowId, stageId, line);
+      console.error(`${prefix} ${fullMsg}`);
+      recordError(workflowId, stageId, fullMsg);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Public read API
+// ---------------------------------------------------------------------------
+
+export function getWorkflowTriggerStatuses(
+  workflowId: string,
+): Record<string, TriggerStatus & { logsPreview: string[] }> {
+  const stageMap = activeTriggers.get(workflowId);
+  if (!stageMap) return {};
+  const result: Record<string, TriggerStatus & { logsPreview: string[] }> = {};
+  for (const [stageId, rt] of stageMap) {
+    result[stageId] = {
+      ...rt.status,
+      logsPreview: rt.logs.slice(-10),
+    };
+  }
+  return result;
+}
+
+export function getTriggerLogs(workflowId: string, stageId: string, limit = 200): string[] {
+  const rt = getRuntime(workflowId, stageId);
+  if (!rt) return [];
+  return rt.logs.slice(-limit);
+}
+
+// ---------------------------------------------------------------------------
+// Subscription helpers (unchanged from original)
+// ---------------------------------------------------------------------------
 
 /**
  * Initialize the trigger lifecycle manager with a reference to the event bus.
@@ -64,6 +201,10 @@ export function createTriggerSubscriptions(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Activate / deactivate
+// ---------------------------------------------------------------------------
+
 /**
  * Activate trigger executors for a workflow definition.
  * Finds all trigger-category stages that have a TriggerExecutor with an activate() method,
@@ -76,7 +217,11 @@ export async function activateWorkflowTriggers(definition: WorkflowDefinition): 
     return;
   }
 
-  const cleanups: Array<() => void> = [];
+  // Ensure we have a stage map for this workflow
+  if (!activeTriggers.has(definition.id)) {
+    activeTriggers.set(definition.id, new Map());
+  }
+  const stageMap = activeTriggers.get(definition.id)!;
 
   for (const stage of definition.stages) {
     const spec = nodeRegistry.get(stage.type);
@@ -89,42 +234,66 @@ export async function activateWorkflowTriggers(definition: WorkflowDefinition): 
     const stageConfig = stage.config || spec.defaultConfig || {};
     const configWithVersion = { ...stageConfig, _workflowVersion: definition.version ?? 1 };
 
+    // Register the runtime entry with 'starting' state before calling activate
+    const now = new Date().toISOString();
+    const runtime: TriggerRuntime = {
+      workflowId: definition.id,
+      stageId: stage.id,
+      stageType: stage.type,
+      cleanup: () => {},
+      status: {
+        state: 'starting',
+        startedAt: now,
+        lastEventAt: null,
+        lastErrorAt: null,
+        lastError: null,
+        eventCount: 0,
+        errorCount: 0,
+      },
+      logs: [],
+    };
+    stageMap.set(stage.id, runtime);
+
+    const logger = makeLogger(definition.id, stage.id, stage.type);
+
     try {
-      const cleanup = await executor.activate(
-        definition.id,
-        stage.id,
-        configWithVersion,
-        (payload: Record<string, unknown>) => {
+      const ctx: TriggerActivateContext = {
+        workflowId: definition.id,
+        stageId: stage.id,
+        config: configWithVersion,
+        emit: (payload: Record<string, unknown>) => {
           // Route trigger events through the event bus, matching the pattern
           // used by ManualTriggerProvider. The event bus will match this to
           // subscriptions and emit 'trigger' events that server.ts handles.
-          eventBus!.handleEvent({
-            id: uuid(),
-            provider: stage.type,
-            type: 'trigger',
-            timestamp: new Date().toISOString(),
-            payload,
-          });
+          try {
+            eventBus!.handleEvent({
+              id: uuid(),
+              provider: stage.type,
+              type: 'trigger',
+              timestamp: new Date().toISOString(),
+              payload,
+            });
+            recordEvent(definition.id, stage.id);
+          } catch (emitErr) {
+            recordError(definition.id, stage.id, emitErr instanceof Error ? emitErr : new Error(String(emitErr)));
+          }
         },
-        getSecretsSnapshot(),
-      );
+        secrets: getSecretsSnapshot(),
+        logger,
+      };
 
-      cleanups.push(cleanup);
-      console.log(
-        `[trigger-lifecycle] Activated trigger "${stage.type}" (stage ${stage.id}) for workflow ${definition.id}`,
-      );
+      const cleanup = await executor.activate(ctx);
+
+      runtime.cleanup = cleanup;
+      // Only move to 'active' if no errors were recorded during activation
+      if (runtime.status.state !== 'errored') {
+        setState(definition.id, stage.id, 'active');
+      }
+      logger.info(`Activated trigger "${stage.type}" (stage ${stage.id}) for workflow ${definition.id}`);
     } catch (err) {
-      console.error(
-        `[trigger-lifecycle] Failed to activate trigger "${stage.type}" (stage ${stage.id}) for workflow ${definition.id}:`,
-        err,
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to activate trigger "${stage.type}" (stage ${stage.id}) for workflow ${definition.id}`, err instanceof Error ? err : new Error(msg));
     }
-  }
-
-  if (cleanups.length > 0) {
-    // Merge with any existing cleanups (shouldn't happen, but be safe)
-    const existing = activeTriggers.get(definition.id) || [];
-    activeTriggers.set(definition.id, [...existing, ...cleanups]);
   }
 }
 
@@ -133,14 +302,15 @@ export async function activateWorkflowTriggers(definition: WorkflowDefinition): 
  * Calls each cleanup function returned by activate().
  */
 export function deactivateWorkflowTriggers(workflowId: string): void {
-  const cleanups = activeTriggers.get(workflowId);
-  if (!cleanups || cleanups.length === 0) return;
+  const stageMap = activeTriggers.get(workflowId);
+  if (!stageMap || stageMap.size === 0) return;
 
-  for (const cleanup of cleanups) {
+  for (const [stageId, rt] of stageMap) {
     try {
-      cleanup();
+      rt.cleanup();
+      rt.status.state = 'stopped';
     } catch (err) {
-      console.error(`[trigger-lifecycle] Error during cleanup for workflow ${workflowId}:`, err);
+      console.error(`[trigger-lifecycle] Error during cleanup for workflow ${workflowId} stage ${stageId}:`, err);
     }
   }
 

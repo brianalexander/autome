@@ -81,20 +81,41 @@ export interface StepExecutor {
 // Trigger Executor — for nodes that start workflows
 // ---------------------------------------------------------------------------
 
+/**
+ * Logger injected into trigger executors for structured, observable logging.
+ * Messages are stored in a bounded ring buffer and exposed via the API.
+ */
+export interface TriggerLogger {
+  info(msg: string): void;
+  warn(msg: string): void;
+  /** Also records the error in trigger status (bumps errorCount, sets lastError). */
+  error(msg: string, err?: Error): void;
+}
+
+/**
+ * Context object passed to TriggerExecutor.activate().
+ * Replaces the old positional parameter signature.
+ */
+export interface TriggerActivateContext {
+  workflowId: string;
+  stageId: string;
+  config: Record<string, unknown>;
+  emit: (payload: Record<string, unknown>) => void;
+  secrets?: Record<string, string>;
+  logger: TriggerLogger;
+}
+
 export interface TriggerExecutor {
   type: 'trigger';
   /**
    * Called when the workflow is activated. Sets up a listener (cron job, WebSocket,
    * polling loop, etc.) that calls emit() when events occur.
    * Returns a cleanup function to tear down the listener.
+   *
+   * Receives a TriggerActivateContext with workflowId, stageId, config, emit,
+   * secrets, and a structured logger.
    */
-  activate?(
-    workflowId: string,
-    stageId: string,
-    config: Record<string, unknown>,
-    emit: (event: Record<string, unknown>) => void,
-    secrets?: Record<string, string>,
-  ): Promise<() => void>;
+  activate?(ctx: TriggerActivateContext): Promise<() => void> | (() => void);
   /**
    * Optional: return a representative event payload for test runs.
    * The user's test invocation will be seeded with this shape instead of

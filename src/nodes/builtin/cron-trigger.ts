@@ -2,7 +2,7 @@
  * Cron Trigger node — triggers workflows on a schedule.
  * Uses setInterval for simplicity (a cron library can be swapped in later).
  */
-import type { NodeTypeSpec, TriggerExecutor, ConfigCard } from '../types.js';
+import type { NodeTypeSpec, TriggerExecutor, TriggerActivateContext, ConfigCard } from '../types.js';
 
 /** Parse a simple cron-like interval string to milliseconds. Returns null if unrecognized. */
 function parseScheduleMs(schedule: string): number | null {
@@ -34,13 +34,14 @@ const executor: TriggerExecutor = {
     timestamp: new Date().toISOString(),
     schedule: (config.schedule as string) ?? '5m',
   }),
-  async activate(workflowId, stageId, config, emit) {
+  activate(ctx: TriggerActivateContext) {
+    const { workflowId, config, emit, logger } = ctx;
     const schedule = (config.schedule as string) || '5m';
     const parsed = parseScheduleMs(schedule);
     let intervalMs: number;
     if (parsed === null) {
-      console.warn(
-        `[cron-trigger] Unrecognized schedule expression "${schedule}" for workflow ${workflowId}. ` +
+      logger.warn(
+        `Unrecognized schedule expression "${schedule}" for workflow ${workflowId}. ` +
         `Falling back to 5 minutes. Supported formats: "30s", "5m", "1h", or "*/N * * * *".`,
       );
       intervalMs = 300_000;
@@ -48,12 +49,14 @@ const executor: TriggerExecutor = {
       intervalMs = parsed;
     }
 
-    console.log(`[cron-trigger] Activated for workflow ${workflowId}, schedule: ${schedule} (${intervalMs}ms)`);
+    logger.info(`Activated for workflow ${workflowId}, schedule: ${schedule} (${intervalMs}ms)`);
 
     const id = setInterval(() => {
+      const ts = new Date().toISOString();
+      logger.info(`Cron fired at ${ts}`);
       emit({
         type: 'cron',
-        timestamp: new Date().toISOString(),
+        timestamp: ts,
         schedule,
       });
     }, intervalMs);
@@ -61,7 +64,7 @@ const executor: TriggerExecutor = {
     // Return cleanup function
     return () => {
       clearInterval(id);
-      console.log(`[cron-trigger] Deactivated for workflow ${workflowId}`);
+      logger.info(`Deactivated for workflow ${workflowId}`);
     };
   },
 };
@@ -105,6 +108,10 @@ export const cronTriggerSpec: NodeTypeSpec = {
   triggerMode: 'immediate',
   executor,
   configCards: [
+    {
+      kind: 'activation-status',
+      title: 'Trigger Status',
+    } satisfies ConfigCard,
     {
       kind: 'help-text',
       title: 'How it works',

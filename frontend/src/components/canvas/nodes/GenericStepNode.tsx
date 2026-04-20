@@ -18,6 +18,8 @@ function resolveIcon(name?: string): ReactNode {
   return <Zap className="w-4 h-4" strokeWidth={1.75} />;
 }
 
+type TriggerLifecycleState = 'starting' | 'active' | 'errored' | 'stopped';
+
 interface GenericNodeData {
   label: string;
   hasReadme?: boolean;
@@ -33,12 +35,21 @@ interface GenericNodeData {
   duration?: string;
   startedAt?: string;
   highlighted?: boolean;
+  /** Trigger lifecycle state — only set when workflow is active and stage is a trigger with lifecycle. */
+  triggerState?: TriggerLifecycleState;
   // Author-mode toolbar callbacks
   onDelete?: (id: string) => void;
   onDuplicate?: (id: string) => void;
   onEdit?: (id: string) => void;
   isAuthor?: boolean;
 }
+
+const TRIGGER_STATE_DOT: Record<TriggerLifecycleState, string> = {
+  active: 'bg-green-500',
+  starting: 'bg-blue-500 status-pulse',
+  errored: 'bg-red-500',
+  stopped: 'bg-slate-400',
+};
 
 const STATUS_CONFIG: Record<string, { dot: string; text: string }> = {
   pending:   { dot: 'bg-slate-400',              text: 'text-slate-400' },
@@ -79,11 +90,26 @@ export const GenericStepNode = memo(function GenericStepNode({ data, selected, i
     </div>
   ) : null;
 
-  const headerRight = d.hasReadme ? (
-    <span title="Has description">
-      <FileText className="w-3 h-3 text-[var(--color-text-tertiary)] flex-shrink-0" />
-    </span>
-  ) : undefined;
+  // Trigger lifecycle badge in top-right corner (only when workflow is active)
+  const triggerBadge = d.triggerState ? (
+    <span
+      className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${TRIGGER_STATE_DOT[d.triggerState]}`}
+      title={`Trigger: ${d.triggerState}`}
+      data-testid="trigger-state-badge"
+      data-trigger-state={d.triggerState}
+    />
+  ) : null;
+
+  const headerRight = (
+    <>
+      {triggerBadge}
+      {d.hasReadme && (
+        <span title="Has description">
+          <FileText className="w-3 h-3 text-[var(--color-text-tertiary)] flex-shrink-0" />
+        </span>
+      )}
+    </>
+  );
 
   return (
     <BaseNode

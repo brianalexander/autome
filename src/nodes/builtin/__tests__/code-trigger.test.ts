@@ -70,13 +70,35 @@ import { codeTriggerSpec } from '../code-trigger.js';
 import { ensureWorkspace } from '../../../nodes/workspace-manager.js';
 import { spawn } from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
-import type { TriggerExecutor } from '../../types.js';
+import type { TriggerExecutor, TriggerActivateContext } from '../../types.js';
 
 const executor = codeTriggerSpec.executor as TriggerExecutor;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Build a minimal TriggerActivateContext for tests. */
+function makeCtx(
+  workflowId: string,
+  stageId: string,
+  config: Record<string, unknown>,
+  emit: (event: Record<string, unknown>) => void,
+  secrets?: Record<string, string>,
+): TriggerActivateContext {
+  return {
+    workflowId,
+    stageId,
+    config,
+    emit,
+    secrets,
+    logger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  };
+}
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
@@ -122,7 +144,7 @@ describe('activate() — spawn and cleanup lifecycle', () => {
   });
 
   it('calls ensureWorkspace with the workflow id and dependencies', async () => {
-    const cleanup = await executor.activate!('wf-1', 'stage-1', makeConfig({ dependencies: { lodash: '^4.0.0' } }), vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-1', 'stage-1', makeConfig({ dependencies: { lodash: '^4.0.0' } }), vi.fn()));
     cleanup();
 
     expect(ensureWorkspace).toHaveBeenCalledWith('wf-1', 1, { lodash: '^4.0.0' });
@@ -130,7 +152,7 @@ describe('activate() — spawn and cleanup lifecycle', () => {
 
   it('writes a user code file and wrapper file to the runs dir', async () => {
     const code = 'export default ({ emit }) => emit({ x: 1 });';
-    const cleanup = await executor.activate!('wf-2', 'stage-2', makeConfig({ code }), vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-2', 'stage-2', makeConfig({ code }), vi.fn()));
     cleanup();
 
     const paths = [...writtenFiles.keys()];
@@ -145,7 +167,7 @@ describe('activate() — spawn and cleanup lifecycle', () => {
   });
 
   it('wrapper script imports from the user code file', async () => {
-    const cleanup = await executor.activate!('wf-3', 'stage-3', makeConfig(), vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-3', 'stage-3', makeConfig(), vi.fn()));
     cleanup();
 
     const wrapperPath = [...writtenFiles.keys()].find((p) => p.endsWith('_wrapper.mjs'))!;
@@ -158,7 +180,7 @@ describe('activate() — spawn and cleanup lifecycle', () => {
   });
 
   it('spawns a child process with the wrapper script', async () => {
-    const cleanup = await executor.activate!('wf-4', 'stage-4', makeConfig(), vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-4', 'stage-4', makeConfig(), vi.fn()));
     cleanup();
 
     expect(spawn).toHaveBeenCalledOnce();
@@ -171,7 +193,7 @@ describe('activate() — spawn and cleanup lifecycle', () => {
 
   it('TRIGGER_CONFIG env var contains serialized config', async () => {
     const config = makeConfig({ pollIntervalMs: 5000 });
-    const cleanup = await executor.activate!('wf-5', 'stage-5', config, vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-5', 'stage-5', config, vi.fn()));
     cleanup();
 
     const [, , opts] = (spawn as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -180,14 +202,14 @@ describe('activate() — spawn and cleanup lifecycle', () => {
   });
 
   it('cleanup function kills the child process with SIGTERM', async () => {
-    const cleanup = await executor.activate!('wf-6', 'stage-6', makeConfig(), vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-6', 'stage-6', makeConfig(), vi.fn()));
     cleanup();
 
     expect(fakeChild.kill).toHaveBeenCalledWith('SIGTERM');
   });
 
   it('cleanup function deletes temp files', async () => {
-    const cleanup = await executor.activate!('wf-7', 'stage-7', makeConfig(), vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-7', 'stage-7', makeConfig(), vi.fn()));
     cleanup();
 
     // Give microtasks a tick to run
@@ -209,7 +231,7 @@ describe('activate() — event parsing from stdout', () => {
 
   it('calls emit callback when a __TRIGGER_EVENT__ line arrives on stdout', async () => {
     const emitCallback = vi.fn();
-    const cleanup = await executor.activate!('wf-emit-1', 'stage-1', makeConfig(), emitCallback);
+    const cleanup = await executor.activate!(makeCtx('wf-emit-1', 'stage-1', makeConfig(), emitCallback));
 
     const event = { payload: { status: 'ready' }, timestamp: '2026-01-01T00:00:00.000Z' };
     fakeChild.stdout.emit('data', Buffer.from(`__TRIGGER_EVENT__:${JSON.stringify(event)}\n`));
@@ -222,7 +244,7 @@ describe('activate() — event parsing from stdout', () => {
 
   it('calls emit for each event in a multi-line stdout chunk', async () => {
     const emitCallback = vi.fn();
-    const cleanup = await executor.activate!('wf-emit-2', 'stage-2', makeConfig(), emitCallback);
+    const cleanup = await executor.activate!(makeCtx('wf-emit-2', 'stage-2', makeConfig(), emitCallback));
 
     const e1 = { seq: 1 };
     const e2 = { seq: 2 };
@@ -238,7 +260,7 @@ describe('activate() — event parsing from stdout', () => {
 
   it('handles partial lines split across multiple data chunks', async () => {
     const emitCallback = vi.fn();
-    const cleanup = await executor.activate!('wf-emit-3', 'stage-3', makeConfig(), emitCallback);
+    const cleanup = await executor.activate!(makeCtx('wf-emit-3', 'stage-3', makeConfig(), emitCallback));
 
     const event = { partial: true };
     const fullLine = `__TRIGGER_EVENT__:${JSON.stringify(event)}\n`;
@@ -254,7 +276,7 @@ describe('activate() — event parsing from stdout', () => {
 
   it('ignores non-sentinel stdout lines (e.g. console.log from user code)', async () => {
     const emitCallback = vi.fn();
-    const cleanup = await executor.activate!('wf-emit-4', 'stage-4', makeConfig(), emitCallback);
+    const cleanup = await executor.activate!(makeCtx('wf-emit-4', 'stage-4', makeConfig(), emitCallback));
 
     fakeChild.stdout.emit('data', Buffer.from('just a log message\n'));
     fakeChild.stdout.emit('data', Buffer.from('another log\n'));
@@ -266,7 +288,7 @@ describe('activate() — event parsing from stdout', () => {
 
   it('does not crash on malformed JSON in a sentinel line', async () => {
     const emitCallback = vi.fn();
-    const cleanup = await executor.activate!('wf-emit-5', 'stage-5', makeConfig(), emitCallback);
+    const cleanup = await executor.activate!(makeCtx('wf-emit-5', 'stage-5', makeConfig(), emitCallback));
 
     fakeChild.stdout.emit('data', Buffer.from('__TRIGGER_EVENT__:{not valid json}\n'));
 
@@ -289,7 +311,7 @@ describe('activate() — timeout', () => {
   });
 
   it('kills the process after timeout_seconds if set', async () => {
-    const cleanup = await executor.activate!('wf-timeout-1', 'stage-1', makeConfig({ timeout_seconds: 10 }), vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-timeout-1', 'stage-1', makeConfig({ timeout_seconds: 10 }), vi.fn()));
 
     // Process should not be killed yet
     expect(fakeChild.kill).not.toHaveBeenCalled();
@@ -303,7 +325,7 @@ describe('activate() — timeout', () => {
   });
 
   it('does not set a timeout when timeout_seconds is 0', async () => {
-    const cleanup = await executor.activate!('wf-timeout-2', 'stage-2', makeConfig({ timeout_seconds: 0 }), vi.fn());
+    const cleanup = await executor.activate!(makeCtx('wf-timeout-2', 'stage-2', makeConfig({ timeout_seconds: 0 }), vi.fn()));
 
     vi.advanceTimersByTime(1_000_000);
 

@@ -13,7 +13,7 @@ import { spawn } from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import type { NodeTypeSpec, TriggerExecutor } from '../types.js';
+import type { NodeTypeSpec, TriggerExecutor, TriggerActivateContext } from '../types.js';
 import { ensureWorkspace } from '../workspace-manager.js';
 
 /** Sentinel prefix used by the wrapper to communicate events to the parent */
@@ -56,7 +56,8 @@ const executor: TriggerExecutor = {
     triggered_at: new Date().toISOString(),
   }),
 
-  async activate(workflowId, stageId, config, emit, secrets?) {
+  async activate(ctx: TriggerActivateContext) {
+    const { workflowId, stageId, config, emit, secrets, logger } = ctx;
     const code = (config.code as string) || '';
     const dependencies = (config.dependencies as Record<string, string>) || {};
     const timeoutSeconds = (config.timeout_seconds as number) || 0;
@@ -76,7 +77,10 @@ const executor: TriggerExecutor = {
     await writeFile(userCodePath, code, 'utf-8');
     await writeFile(wrapperPath, buildWrapperScript(userCodeFile), 'utf-8');
 
-    console.log(`[code-trigger] Spawning trigger process for workflow ${workflowId} (stage ${stageId})`);
+    logger.info(`Spawning trigger process for workflow ${workflowId} (stage ${stageId})`);
+
+    // Track whether cleanup was called so exit handler can distinguish graceful vs unexpected
+    let cleanedUp = false;
 
     // 3. Spawn long-running child process
     const child = spawn(process.execPath, [wrapperPath], {
@@ -102,28 +106,35 @@ const executor: TriggerExecutor = {
 
       for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed.startsWith(EVENT_PREFIX)) continue;
+        if (!trimmed.startsWith(EVENT_PREFIX)) {
+          // Forward non-event stdout lines as info logs
+          if (trimmed) logger.info(`[stdout] ${trimmed.slice(0, 500)}`);
+          continue;
+        }
         const jsonStr = trimmed.slice(EVENT_PREFIX.length);
         try {
           const event = JSON.parse(jsonStr) as Record<string, unknown>;
           emit(event);
         } catch {
-          console.warn(`[code-trigger] Failed to parse trigger event JSON: ${jsonStr.slice(0, 200)}`);
+          logger.warn(`Failed to parse trigger event JSON: ${jsonStr.slice(0, 200)}`);
         }
       }
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
-      console.warn(`[code-trigger] stderr (${workflowId}/${stageId}):`, chunk.toString('utf-8').trim().slice(0, 500));
+      const text = chunk.toString('utf-8').trim().slice(0, 500);
+      if (text) logger.warn(`[stderr] ${text}`);
     });
 
     child.on('error', (err) => {
-      console.error(`[code-trigger] Child process error for workflow ${workflowId}:`, err.message);
+      logger.error(`Child process error for workflow ${workflowId}`, err);
     });
 
     child.on('exit', (code, signal) => {
-      if (code !== 0 && signal !== 'SIGTERM') {
-        console.warn(`[code-trigger] Trigger process exited with code=${code} signal=${signal} (workflow ${workflowId})`);
+      if (!cleanedUp && code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
+        logger.error(`Child exited unexpectedly with code ${code} signal=${signal ?? 'none'} (workflow ${workflowId})`);
+      } else if (cleanedUp || signal === 'SIGTERM' || signal === 'SIGINT') {
+        logger.info(`Child process exited cleanly (code=${code} signal=${signal ?? 'none'})`);
       }
     });
 
@@ -131,17 +142,18 @@ const executor: TriggerExecutor = {
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
     if (timeoutSeconds > 0) {
       timeoutHandle = setTimeout(() => {
-        console.log(`[code-trigger] Timeout reached for workflow ${workflowId}, killing trigger process`);
+        logger.info(`Timeout reached for workflow ${workflowId}, killing trigger process`);
         child.kill('SIGTERM');
       }, timeoutSeconds * 1000);
     }
 
     // 5. Return cleanup function
     return () => {
+      cleanedUp = true;
       if (timeoutHandle) clearTimeout(timeoutHandle);
 
       child.kill('SIGTERM');
-      console.log(`[code-trigger] Deactivated trigger for workflow ${workflowId} (stage ${stageId})`);
+      logger.info(`Deactivated trigger for workflow ${workflowId} (stage ${stageId})`);
 
       // Best-effort cleanup of temp files
       Promise.all([unlink(userCodePath), unlink(wrapperPath)]).catch(() => {});
@@ -201,4 +213,7 @@ export const codeTriggerSpec: NodeTypeSpec = {
   },
   triggerMode: 'immediate',
   executor,
+  configCards: [
+    { kind: 'activation-status', title: 'Trigger Status' },
+  ],
 };
