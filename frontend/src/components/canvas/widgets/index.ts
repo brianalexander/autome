@@ -22,6 +22,10 @@ import { KeyValueWidget } from './KeyValueWidget';
 import { ArrayOfObjectsWidget } from './ArrayOfObjectsWidget';
 import { ColorWidget } from './ColorWidget';
 
+// Specialized live-data widgets
+import { AgentSelectWidget } from './AgentSelectWidget';
+import { AgentOverridesWidget } from './AgentOverridesWidget';
+
 export type { WidgetProps, JSONSchemaFragment } from './types';
 export { CheckboxWidget } from './CheckboxWidget';
 export { SelectWidget } from './SelectWidget';
@@ -40,6 +44,8 @@ export { SliderWidget } from './SliderWidget';
 export { KeyValueWidget } from './KeyValueWidget';
 export { ArrayOfObjectsWidget } from './ArrayOfObjectsWidget';
 export { ColorWidget } from './ColorWidget';
+export { AgentSelectWidget } from './AgentSelectWidget';
+export { AgentOverridesWidget } from './AgentOverridesWidget';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const WIDGET_REGISTRY: Record<string, ComponentType<WidgetProps<any>>> = {
@@ -60,6 +66,8 @@ export const WIDGET_REGISTRY: Record<string, ComponentType<WidgetProps<any>>> = 
   slider: SliderWidget,
   keyvalue: KeyValueWidget,
   arrayOfObjects: ArrayOfObjectsWidget,
+  'agent-select': AgentSelectWidget,
+  'agent-overrides': AgentOverridesWidget,
 };
 
 /**

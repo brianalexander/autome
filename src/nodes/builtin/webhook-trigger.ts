@@ -2,7 +2,7 @@
  * Webhook Trigger — entry point for workflows triggered by an incoming HTTP POST.
  * Metadata-only spec; actual webhook handling is in the API endpoints.
  */
-import type { NodeTypeSpec, TriggerExecutor } from '../types.js';
+import type { NodeTypeSpec, TriggerExecutor, ConfigCard } from '../types.js';
 
 const executor: TriggerExecutor = { type: 'trigger' };
 
@@ -48,4 +48,23 @@ export const webhookTriggerSpec: NodeTypeSpec = {
   },
   triggerMode: 'prompt',
   executor,
+  configCards: [
+    {
+      kind: 'copy-url',
+      title: 'Webhook URL',
+      urlTemplate: '{apiOrigin}/api/webhooks/{workflowId}',
+    } satisfies ConfigCard,
+    {
+      kind: 'curl-snippet',
+      title: 'How it works',
+      template: `POST any JSON body to the webhook URL. The entire body becomes the trigger's output. Downstream edges reference fields via \`{{ output.field }}\`
+
+\`\`\`
+curl -X POST {apiOrigin}/api/webhooks/{workflowId} \\
+  -H 'Content-Type: application/json' \\
+  -d '{"prompt": "Analyze this ticket"}'
+\`\`\``,
+      description: 'If a secret is configured, include x-webhook-secret header with every request.',
+    } satisfies ConfigCard,
+  ],
 };

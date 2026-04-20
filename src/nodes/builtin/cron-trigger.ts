@@ -2,7 +2,7 @@
  * Cron Trigger node — triggers workflows on a schedule.
  * Uses setInterval for simplicity (a cron library can be swapped in later).
  */
-import type { NodeTypeSpec, TriggerExecutor } from '../types.js';
+import type { NodeTypeSpec, TriggerExecutor, ConfigCard } from '../types.js';
 
 /** Parse a simple cron-like interval string to milliseconds. Returns null if unrecognized. */
 function parseScheduleMs(schedule: string): number | null {
@@ -104,4 +104,13 @@ export const cronTriggerSpec: NodeTypeSpec = {
   },
   triggerMode: 'immediate',
   executor,
+  configCards: [
+    {
+      kind: 'help-text',
+      title: 'How it works',
+      markdown: `When the workflow is active, it will be triggered automatically on the specified schedule. Each trigger creates a new workflow instance.
+
+The trigger payload includes the schedule and timestamp. Access via \`{{ output.schedule }}\``,
+    } satisfies ConfigCard,
+  ],
 };

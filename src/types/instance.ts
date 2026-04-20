@@ -215,6 +215,21 @@ export const DiscoveredAgentSchema = z.object({
 export type DiscoveredAgent = z.infer<typeof DiscoveredAgentSchema>;
 
 // ---------------------------------------------------------------------------
+// ConfigCard Zod schemas
+// ---------------------------------------------------------------------------
+
+export const ConfigCardSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('help-text'), title: z.string().optional(), markdown: z.string() }),
+  z.object({ kind: z.literal('copy-url'), title: z.string(), urlTemplate: z.string(), description: z.string().optional() }),
+  z.object({ kind: z.literal('curl-snippet'), title: z.string(), template: z.string(), description: z.string().optional() }),
+  z.object({ kind: z.literal('preview-template'), title: z.string(), field: z.string(), description: z.string().optional() }),
+  z.object({ kind: z.literal('activation-status'), title: z.string().optional() }),
+  z.object({ kind: z.literal('cycle-behavior'), title: z.string().optional() }),
+]);
+
+export type ConfigCard = z.infer<typeof ConfigCardSchema>;
+
+// ---------------------------------------------------------------------------
 // NodeTypeInfo (frontend-safe subset of NodeTypeSpec)
 // ---------------------------------------------------------------------------
 
@@ -239,6 +254,8 @@ export const NodeTypeInfoSchema = z.object({
   hasLifecycle: z.boolean().optional(),
   /** True if this trigger node type implements sampleEvent() (has a representative test payload). */
   hasSampleEvent: z.boolean().optional(),
+  /** Declarative page-level affordances rendered above SchemaForm in StageConfigForm. */
+  configCards: z.array(ConfigCardSchema).optional(),
 });
 
 export type NodeTypeInfo = z.infer<typeof NodeTypeInfoSchema>;

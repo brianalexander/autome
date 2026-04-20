@@ -2,7 +2,7 @@
  * Manual Trigger — entry point for workflows triggered via UI button or API call.
  * Metadata-only spec; actual trigger logic is in the API endpoints.
  */
-import type { NodeTypeSpec, TriggerExecutor } from '../types.js';
+import type { NodeTypeSpec, TriggerExecutor, ConfigCard } from '../types.js';
 
 const executor: TriggerExecutor = { type: 'trigger' };
 
@@ -37,4 +37,18 @@ export const manualTriggerSpec: NodeTypeSpec = {
   },
   triggerMode: 'prompt',
   executor,
+  configCards: [
+    {
+      kind: 'curl-snippet',
+      title: 'Usage',
+      template: `Click **Run** on the workflow page, or use the API:
+
+\`\`\`
+POST {apiOrigin}/api/workflows/{workflowId}/trigger
+{ "payload": { "your_field": "your_value" } }
+\`\`\`
+
+Downstream edges reference trigger output via \`{{ output.your_field }}\` in prompt templates.`,
+    } satisfies ConfigCard,
+  ],
 };

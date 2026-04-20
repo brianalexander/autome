@@ -50,6 +50,7 @@ export class NodeTypeRegistry {
         executor.type === 'trigger' && typeof (executor as { activate?: unknown }).activate === 'function';
       const hasSampleEvent =
         executor.type === 'trigger' && typeof (executor as { sampleEvent?: unknown }).sampleEvent === 'function';
+      // configCards passes through via ...rest — no executor-stripping needed
       return { ...rest, executorType: executor.type, hasLifecycle, hasSampleEvent };
     });
   }

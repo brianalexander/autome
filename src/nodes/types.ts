@@ -105,6 +105,22 @@ export interface TriggerExecutor {
 }
 
 // ---------------------------------------------------------------------------
+// ConfigCard — declarative page-level affordances rendered above SchemaForm
+// ---------------------------------------------------------------------------
+
+export type ConfigCard =
+  | { kind: 'help-text'; title?: string; markdown: string }
+  | { kind: 'copy-url'; title: string; urlTemplate: string; description?: string }
+  | { kind: 'curl-snippet'; title: string; template: string; description?: string }
+  | { kind: 'preview-template'; title: string; field: string; description?: string }
+  | { kind: 'activation-status'; title?: string }
+  /** Renders the cycle-behavior select only when this stage is actually in a cycle edge. */
+  | { kind: 'cycle-behavior'; title?: string };
+
+// Re-export so downstream consumers (frontend) can import from this module
+export type { ConfigCard as ConfigCardType };
+
+// ---------------------------------------------------------------------------
 // Node Type Spec — the complete definition of a node type
 // ---------------------------------------------------------------------------
 
@@ -147,6 +163,18 @@ export interface NodeTypeSpec {
    *   - 'immediate': Launch immediately with a generated default payload (e.g. cron)
    */
   triggerMode?: 'prompt' | 'immediate';
+
+  /**
+   * Declarative page-level affordances rendered above SchemaForm in StageConfigForm.
+   * Cards are rendered in declaration order.
+   *
+   * Template substitution in urlTemplate / curl-snippet.template:
+   *   {workflowId}  → current workflow ID
+   *   {stageId}     → current stage ID
+   *   {apiOrigin}   → window.location.origin
+   *   {config.FIELD} → value of config[FIELD] (e.g. {config.secret})
+   */
+  configCards?: ConfigCard[];
 }
 
 // NodeTypeInfo is now defined as a Zod schema in src/types/instance.ts

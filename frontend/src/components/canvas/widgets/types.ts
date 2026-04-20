@@ -23,6 +23,11 @@ export interface JSONSchemaFragment {
     notEquals?: unknown;
   };
   /**
+   * Human-readable labels for enum values, in the same order as `enum`.
+   * If provided, SelectWidget renders these labels while storing the raw enum values.
+   */
+  'x-enum-labels'?: string[];
+  /**
    * Injected at runtime by SchemaForm into nested/arrayOfObjects schemas so
    * those widgets can recursively render sub-forms without a circular import.
    * Not part of the JSON Schema spec — internal use only.

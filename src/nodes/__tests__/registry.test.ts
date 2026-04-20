@@ -250,6 +250,61 @@ describe('NodeTypeInfo hasSampleEvent', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// configCards pass-through
+// ---------------------------------------------------------------------------
+
+describe('configCards in getAllInfo()', () => {
+  it('passes configCards through for specs that declare them', () => {
+    const cronInfo = nodeRegistry.getAllInfo().find((i) => i.id === 'cron-trigger')!;
+    expect(cronInfo.configCards).toBeDefined();
+    expect(Array.isArray(cronInfo.configCards)).toBe(true);
+    expect(cronInfo.configCards!.length).toBeGreaterThan(0);
+    expect(cronInfo.configCards![0].kind).toBe('help-text');
+  });
+
+  it('webhook-trigger has copy-url and curl-snippet cards', () => {
+    const info = nodeRegistry.getAllInfo().find((i) => i.id === 'webhook-trigger')!;
+    expect(info.configCards).toBeDefined();
+    const kinds = info.configCards!.map((c) => c.kind);
+    expect(kinds).toContain('copy-url');
+    expect(kinds).toContain('curl-snippet');
+  });
+
+  it('manual-trigger has a curl-snippet card', () => {
+    const info = nodeRegistry.getAllInfo().find((i) => i.id === 'manual-trigger')!;
+    expect(info.configCards).toBeDefined();
+    expect(info.configCards!.some((c) => c.kind === 'curl-snippet')).toBe(true);
+  });
+
+  it('agent has a cycle-behavior card', () => {
+    const info = nodeRegistry.getAllInfo().find((i) => i.id === 'agent')!;
+    expect(info.configCards).toBeDefined();
+    expect(info.configCards!.some((c) => c.kind === 'cycle-behavior')).toBe(true);
+  });
+
+  it('spec without configCards returns undefined configCards', () => {
+    const reg = new NodeTypeRegistry();
+    const spec = makeStepSpec();
+    // No configCards declared
+    reg.register(spec);
+    const info = reg.getAllInfo().find((i) => i.id === spec.id)!;
+    expect(info.configCards).toBeUndefined();
+  });
+
+  it('spec with configCards has cards in getAllInfo()', () => {
+    const reg = new NodeTypeRegistry();
+    const spec: NodeTypeSpec = {
+      ...makeStepSpec(),
+      configCards: [{ kind: 'help-text', title: 'Test', markdown: 'Hello world' }],
+    };
+    reg.register(spec);
+    const info = reg.getAllInfo().find((i) => i.id === spec.id)!;
+    expect(info.configCards).toHaveLength(1);
+    expect(info.configCards![0].kind).toBe('help-text');
+  });
+});
+
 describe('built-in trigger lifecycle flags', () => {
   it('cron-trigger has hasLifecycle and hasSampleEvent === true', () => {
     const info = nodeRegistry.getAllInfo().find((i) => i.id === 'cron-trigger')!;

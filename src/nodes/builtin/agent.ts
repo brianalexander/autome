@@ -3,7 +3,7 @@
  * the agent to call workflow_signal with completion output.
  */
 import { buildAgentPrompt } from '../../engine/context-resolver.js';
-import type { NodeTypeSpec, StepExecutor, StepExecutorContext, StageOutput } from '../types.js';
+import type { NodeTypeSpec, StepExecutor, StepExecutorContext, StageOutput, ConfigCard } from '../types.js';
 import type { AgentOverrides } from '../../types/workflow.js';
 import type { WorkflowDefinition } from '../../schemas/pipeline.js';
 import { stageIsInCycle } from '../../utils/graph.js';
@@ -87,7 +87,12 @@ export const agentNodeSpec: NodeTypeSpec = {
   configSchema: {
     type: 'object',
     properties: {
-      agentId: { type: 'string', title: 'Agent', description: 'Agent ID (discovered from provider agent directory)' },
+      agentId: {
+        type: 'string',
+        title: 'Agent',
+        description: 'Agent ID (discovered from provider agent directory)',
+        'x-widget': 'agent-select',
+      },
       max_iterations: {
         type: 'number',
         title: 'Max Iterations',
@@ -95,29 +100,28 @@ export const agentNodeSpec: NodeTypeSpec = {
       },
       max_turns: { type: 'number', title: 'Max Turns', description: 'Safety limit on agent conversation turns' },
       timeout_minutes: { type: 'number', title: 'Timeout (minutes)' },
-      cycle_behavior: {
-        type: 'string',
-        title: 'Cycle Behavior',
-        description: 'How this agent handles re-entry via cycle edges. "fresh" = new session each cycle. "continue" = resume prior session.',
-        enum: ['fresh', 'continue'],
-      },
+      // cycle_behavior is rendered by the cycle-behavior configCard (conditionally, based on graph topology)
+      // — NOT via SchemaForm, so it is intentionally absent from configSchema properties.
       output_schema: {
         type: 'object',
         title: 'Output Schema',
         description: "JSON Schema (draft 7) defining the required structure of this agent's output. Injected into the agent prompt at runtime.",
+        format: 'json',
       },
       overrides: {
         type: 'object',
         title: 'Overrides',
-        properties: {
-          model: { type: 'string', title: 'Model Override' },
-          additional_prompt: { type: 'string', title: 'Additional Prompt', format: 'textarea' },
-        },
+        'x-widget': 'agent-overrides',
       },
     },
     required: ['agentId', 'output_schema'],
   },
   defaultConfig: { agentId: '', max_iterations: 5 },
+  configCards: [
+    {
+      kind: 'cycle-behavior',
+    } satisfies ConfigCard,
+  ],
   executor,
   inEdgeSchema: {
     type: 'object',
