@@ -365,6 +365,40 @@ describe('slider widget schema annotations', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Fixed output_schema visibility and readOnly annotations
+// ---------------------------------------------------------------------------
+
+describe('trigger output_schema annotations', () => {
+  it('prompt-trigger configSchema has output_schema with readOnly: true and format: json', () => {
+    const field = getSchemaField('prompt-trigger', 'output_schema');
+    expect(field).toBeDefined();
+    expect(field['readOnly']).toBe(true);
+    expect(field['format']).toBe('json');
+  });
+
+  it('cron-trigger configSchema has output_schema with readOnly: true', () => {
+    const field = getSchemaField('cron-trigger', 'output_schema');
+    expect(field).toBeDefined();
+    expect(field['readOnly']).toBe(true);
+  });
+
+  it('manual-trigger defaultConfig.output_schema has no properties.prompt', () => {
+    const spec = nodeRegistry.getAll().find((s) => s.id === 'manual-trigger')!;
+    const outputSchema = (spec.defaultConfig as Record<string, unknown>)['output_schema'] as Record<string, unknown>;
+    expect(outputSchema).toBeDefined();
+    const properties = outputSchema['properties'] as Record<string, unknown>;
+    expect(properties).toBeDefined();
+    expect(properties['prompt']).toBeUndefined();
+  });
+
+  it('manual-trigger configSchema.output_schema does NOT have readOnly (user-defined)', () => {
+    const field = getSchemaField('manual-trigger', 'output_schema');
+    expect(field).toBeDefined();
+    expect(field['readOnly']).toBeUndefined();
+  });
+});
+
 describe('built-in trigger lifecycle flags', () => {
   it('cron-trigger has hasLifecycle and hasSampleEvent === true', () => {
     const info = nodeRegistry.getAllInfo().find((i) => i.id === 'cron-trigger')!;

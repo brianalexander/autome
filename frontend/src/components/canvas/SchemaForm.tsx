@@ -85,6 +85,13 @@ function SchemaField({
   const widgetKey = resolveWidget(prop, name);
   const Widget = WIDGET_REGISTRY[widgetKey];
 
+  // Field-level readOnly (JSON Schema standard) is additive with panel-level readonly.
+  const isDisabled = readonly || prop.readOnly === true;
+
+  // Guard: no-op if disabled so widgets that don't fully honour disabled prop
+  // (e.g. jsdom in tests) still can't mutate state.
+  const guardedOnChange = isDisabled ? () => undefined : onChange;
+
   // Inject SchemaForm reference into schemas that need recursive rendering,
   // avoiding a circular module import. This is the only coupling point.
   const enrichedProp: JSONSchemaFragment =
@@ -99,11 +106,11 @@ function SchemaField({
         <legend className="text-[10px] text-text-tertiary uppercase tracking-wider px-1">{label}</legend>
         <Widget
           value={value as Record<string, unknown>}
-          onChange={onChange}
+          onChange={guardedOnChange}
           schema={enrichedProp}
           fieldName={name}
           required={required}
-          disabled={readonly}
+          disabled={isDisabled}
         />
       </fieldset>
     );
@@ -116,11 +123,11 @@ function SchemaField({
     <Field label={label} description={prop.description} required={required} inline={isInline}>
       <Widget
         value={value}
-        onChange={onChange}
+        onChange={guardedOnChange}
         schema={enrichedProp}
         fieldName={name}
         required={required}
-        disabled={readonly}
+        disabled={isDisabled}
       />
     </Field>
   );

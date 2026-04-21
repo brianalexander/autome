@@ -28,6 +28,11 @@ export interface JSONSchemaFragment {
    */
   'x-enum-labels'?: string[];
   /**
+   * JSON Schema standard keyword — when true, the field is rendered read-only.
+   * SchemaForm treats this as additive: disabled = panelReadonly || readOnly.
+   */
+  readOnly?: boolean;
+  /**
    * Injected at runtime by SchemaForm into nested/arrayOfObjects schemas so
    * those widgets can recursively render sub-forms without a circular import.
    * Not part of the JSON Schema spec — internal use only.

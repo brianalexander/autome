@@ -88,8 +88,9 @@ export const cronTriggerSpec: NodeTypeSpec = {
       output_schema: {
         type: 'object',
         title: 'Output Schema',
-        description: 'JSON Schema describing this node\'s output. Used for design-time validation of downstream references.',
+        description: 'Fixed by the runtime. Cron triggers always emit { type, timestamp, schedule }. Reference downstream via {{ output.timestamp }}.',
         format: 'json',
+        readOnly: true,
       },
     },
     required: ['schedule', 'output_schema'],

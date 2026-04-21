@@ -23,22 +23,29 @@ export function CodeWidget({
 
   return (
     <>
-      <CodeEditor
-        value={String(displayValue)}
-        editorMode={editorContext}
-        readOnly={disabled}
-        onChange={(raw) => {
-          if (disabled) return;
-          if (raw.startsWith('[') || raw.startsWith('{')) {
-            try {
-              onChange(JSON.parse(raw));
-              return;
-            } catch {}
-          }
-          onChange(raw || undefined);
-        }}
-        minHeight={fieldName === 'code' ? '160px' : fmt === 'template' ? '120px' : '80px'}
-      />
+      <div className={disabled ? 'relative opacity-60 cursor-not-allowed' : 'relative'}>
+        {disabled && (
+          <span className="absolute top-1.5 right-1.5 z-10 text-[9px] text-text-tertiary uppercase tracking-wider bg-surface-secondary/80 px-1.5 py-0.5 rounded pointer-events-none">
+            READ ONLY
+          </span>
+        )}
+        <CodeEditor
+          value={String(displayValue)}
+          editorMode={editorContext}
+          readOnly={disabled}
+          onChange={(raw) => {
+            if (disabled) return;
+            if (raw.startsWith('[') || raw.startsWith('{')) {
+              try {
+                onChange(JSON.parse(raw));
+                return;
+              } catch {}
+            }
+            onChange(raw || undefined);
+          }}
+          minHeight={fieldName === 'code' ? '160px' : fmt === 'template' ? '120px' : '80px'}
+        />
+      </div>
       {fmt === 'json' && typeof value === 'string' && value.trim() && (() => {
         try { JSON.parse(value); return null; } catch (e) {
           return <p className="text-[10px] text-red-500 mt-1">Invalid JSON: {(e as Error).message}</p>;

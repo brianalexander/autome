@@ -19,8 +19,13 @@ export const promptTriggerSpec: NodeTypeSpec = {
     type: 'object',
     properties: {
       provider: { type: 'string', const: 'prompt', default: 'prompt' },
-      // output_schema intentionally omitted — it is fixed and not user-configurable.
-      // The generic StageConfigForm must not render it.
+      output_schema: {
+        type: 'object',
+        title: 'Output Schema',
+        description: 'Fixed by the runtime. Prompt triggers always emit { prompt, attachments? }. Reference downstream via {{ output.prompt }}.',
+        format: 'json',
+        readOnly: true,
+      },
     },
     required: [],
   },

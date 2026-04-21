@@ -156,6 +156,60 @@ describe('SchemaForm', () => {
     );
     expect(screen.getByText('*')).toBeInTheDocument();
   });
+
+  it('disables a field when prop.readOnly is true', () => {
+    const onChange = vi.fn();
+    render(
+      <SchemaForm
+        schema={{
+          properties: {
+            fixed: { type: 'string', title: 'Fixed Field', readOnly: true },
+          },
+        }}
+        value={{ fixed: 'baked' }}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByDisplayValue('baked');
+    expect(input).toBeDisabled();
+  });
+
+  it('disables a field when panel readonly is true (field has no readOnly)', () => {
+    const onChange = vi.fn();
+    render(
+      <SchemaForm
+        schema={{
+          properties: {
+            name: { type: 'string', title: 'Name' },
+          },
+        }}
+        value={{ name: 'hello' }}
+        onChange={onChange}
+        readonly={true}
+      />,
+    );
+    const input = screen.getByDisplayValue('hello');
+    expect(input).toBeDisabled();
+  });
+
+  it('does NOT call onChange when a readOnly field changes', () => {
+    const onChange = vi.fn();
+    render(
+      <SchemaForm
+        schema={{
+          properties: {
+            fixed: { type: 'string', title: 'Fixed', readOnly: true },
+          },
+        }}
+        value={{ fixed: 'immutable' }}
+        onChange={onChange}
+      />,
+    );
+    // The input is disabled so firing change won't go through, but guard via onChange check
+    const input = screen.getByDisplayValue('immutable');
+    fireEvent.change(input, { target: { value: 'changed' } });
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
 
 // -----------------------------------------------------------------------
