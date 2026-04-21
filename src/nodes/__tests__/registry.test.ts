@@ -307,6 +307,64 @@ describe('configCards in getAllInfo()', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Phase 3 slider widget dogfooding — verify x-widget and bounds on retrofitted fields
+// ---------------------------------------------------------------------------
+
+/** Helper: reach into a configSchema's properties bag and return the named field. */
+function getSchemaField(nodeId: string, fieldName: string): Record<string, unknown> {
+  const spec = nodeRegistry.getAll().find((s) => s.id === nodeId)!;
+  const props = (spec.configSchema as Record<string, unknown>)['properties'] as Record<string, Record<string, unknown>>;
+  return props[fieldName];
+}
+
+describe('slider widget schema annotations', () => {
+  it('agent max_iterations has x-widget slider with correct bounds', () => {
+    const field = getSchemaField('agent', 'max_iterations');
+    expect(field['x-widget']).toBe('slider');
+    expect(field.minimum).toBe(1);
+    expect(field.maximum).toBe(20);
+    expect(field.multipleOf).toBe(1);
+  });
+
+  it('agent max_turns has x-widget slider with correct bounds', () => {
+    const field = getSchemaField('agent', 'max_turns');
+    expect(field['x-widget']).toBe('slider');
+    expect(field.minimum).toBe(1);
+    expect(field.maximum).toBe(100);
+    expect(field.multipleOf).toBe(1);
+  });
+
+  it('agent timeout_minutes has x-widget slider with correct bounds', () => {
+    const field = getSchemaField('agent', 'timeout_minutes');
+    expect(field['x-widget']).toBe('slider');
+    expect(field.minimum).toBe(1);
+    expect(field.maximum).toBe(120);
+    expect(field.multipleOf).toBe(1);
+  });
+
+  it('gate timeout_minutes has x-widget slider with correct bounds', () => {
+    const field = getSchemaField('gate', 'timeout_minutes');
+    expect(field['x-widget']).toBe('slider');
+    expect(field.minimum).toBe(1);
+    expect(field.maximum).toBe(1440);
+    expect(field.multipleOf).toBe(5);
+  });
+
+  it('code-executor timeout_seconds has x-widget slider with correct bounds', () => {
+    const field = getSchemaField('code-executor', 'timeout_seconds');
+    expect(field['x-widget']).toBe('slider');
+    expect(field.minimum).toBe(5);
+    expect(field.maximum).toBe(300);
+    expect(field.multipleOf).toBe(5);
+  });
+
+  it('code-trigger timeout_seconds does NOT have x-widget slider (0 = no timeout sentinel)', () => {
+    const field = getSchemaField('code-trigger', 'timeout_seconds');
+    expect(field['x-widget']).toBeUndefined();
+  });
+});
+
 describe('built-in trigger lifecycle flags', () => {
   it('cron-trigger has hasLifecycle and hasSampleEvent === true', () => {
     const info = nodeRegistry.getAllInfo().find((i) => i.id === 'cron-trigger')!;

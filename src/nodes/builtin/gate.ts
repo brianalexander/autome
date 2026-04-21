@@ -80,7 +80,14 @@ export const gateNodeSpec: NodeTypeSpec = {
         'x-show-if': { field: 'type', equals: 'conditional' },
       },
       message: { type: 'string', title: 'Message', description: 'Shown to the human reviewer (for manual gates)' },
-      timeout_minutes: { type: 'number', title: 'Timeout (minutes)' },
+      timeout_minutes: {
+        type: 'number',
+        title: 'Timeout (minutes)',
+        'x-widget': 'slider',
+        minimum: 1,
+        maximum: 1440,
+        multipleOf: 5,
+      },
       timeout_action: {
         type: 'string',
         title: 'Timeout Action',

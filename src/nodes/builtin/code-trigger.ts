@@ -187,6 +187,10 @@ export const codeTriggerSpec: NodeTypeSpec = {
         format: 'dependencies',
         additionalProperties: { type: 'string' },
       },
+      // NOTE: timeout_seconds intentionally NOT retrofitted with x-widget: 'slider'.
+      // 0 means "no timeout, run indefinitely" — a sentinel that doesn't map onto a
+      // bounded range slider. Leave as a free-text number input so users can still
+      // enter 0 explicitly.
       timeout_seconds: {
         type: 'number',
         title: 'Timeout (seconds)',
