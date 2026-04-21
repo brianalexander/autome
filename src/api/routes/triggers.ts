@@ -20,6 +20,8 @@ import {
   TriggerLogsResponseSchema,
 } from '../../schemas/pipeline.js';
 
+const ErrorResponseSchema = z.object({ error: z.string() });
+
 const WorkflowIdParams = z.object({ id: z.string() });
 const TriggerStageParams = z.object({ id: z.string(), stageId: z.string() });
 const LogsQuerySchema = z.object({
@@ -36,13 +38,13 @@ export function registerTriggerObservabilityRoutes(app: FastifyInstance, deps: R
     {
       schema: {
         params: WorkflowIdParams,
-        response: { 200: TriggerStatusesResponseSchema },
+        response: { 200: TriggerStatusesResponseSchema, 404: ErrorResponseSchema },
       },
     },
     async (request, reply) => {
       const { id } = request.params;
       const workflow = db.getWorkflow(id);
-      if (!workflow) return reply.code(404).send({ error: 'Workflow not found' } as never);
+      if (!workflow) return reply.code(404).send({ error: 'Workflow not found' });
 
       const triggers = getWorkflowTriggerStatuses(id);
       return { triggers };
@@ -56,13 +58,13 @@ export function registerTriggerObservabilityRoutes(app: FastifyInstance, deps: R
       schema: {
         params: TriggerStageParams,
         querystring: LogsQuerySchema,
-        response: { 200: TriggerLogsResponseSchema },
+        response: { 200: TriggerLogsResponseSchema, 404: ErrorResponseSchema },
       },
     },
     async (request, reply) => {
       const { id, stageId } = request.params;
       const workflow = db.getWorkflow(id);
-      if (!workflow) return reply.code(404).send({ error: 'Workflow not found' } as never);
+      if (!workflow) return reply.code(404).send({ error: 'Workflow not found' });
 
       const limit = request.query.limit ?? 200;
       const lines = getTriggerLogs(id, stageId, limit);
