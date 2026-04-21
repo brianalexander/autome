@@ -30,7 +30,7 @@ const services: Service[] = [
     name: 'api',
     color: '\x1b[34m', // blue
     command: 'npx',
-    args: ['tsx', 'watch', 'src/server.ts'],
+    args: ['tsx', 'watch', 'src/dev-server.ts'],
     readyUrl: 'http://localhost:3001/api/health',
   },
   {

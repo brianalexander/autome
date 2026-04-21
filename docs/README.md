@@ -20,8 +20,28 @@ Both plugins and templates can be:
 
 ## Documentation
 
-- **[Plugin Authoring Guide](./plugin-authoring.md)** — write custom node types, bundle templates, plugin structure
+- **[Plugin Authoring Guide](./plugin-authoring.md)** — write custom node types, bundle templates, custom providers, plugin structure
+- **[Wrapping Autome](./wrapping-autome.md)** — publish your own branded npm package built on autome (`createCli`, `startServer`, bundled plugins)
 - **[Bootstrapping Guide](./bootstrapping.md)** — install autome as a dependency and run your own branded instance
+
+## Building a Wrapper
+
+To publish `my-product` as a branded CLI with bundled node types, see **[Wrapping Autome](./wrapping-autome.md)**.
+
+The short version:
+
+```typescript
+// bin/my-product.ts
+import { createCli } from 'autome/cli';
+import { definePlugin } from 'autome/plugin';
+import slackNode from '../dist/nodes/slack.js';
+
+await createCli({
+  name: 'my-product',
+  version: '1.0.0',
+  plugins: [definePlugin({ id: 'slack', name: 'Slack' }, { nodeTypes: [slackNode] })],
+}).run(process.argv);
+```
 
 ## Quick Reference
 
@@ -94,7 +114,10 @@ Autome's extensibility is built on a small number of stable interfaces:
 - **`StepExecutor`** / **`TriggerExecutor`** — the runtime behavior
 - **`ExecutionContext`** — durable execution primitives (wait for signals, sleep, abort)
 - **`PluginManifest`** — the manifest shape declared in `autome-plugin.json`
-- **`LoadedPlugin`** — a fully resolved plugin (manifest + loaded node types + loaded templates)
+- **`LoadedPlugin`** — a fully resolved plugin (manifest + loaded node types + templates + providers)
 - **`NodeTemplate`** — a preconfigured node snapshot
+- **`AcpProvider`** — interface for a custom ACP-compatible agent CLI
+
+Runtime authoring helpers (`definePlugin`, `defineNodeType`, `defineTemplate`, `defineProvider`) are also exported from `autome/plugin`.
 
 All are exported from `autome/plugin`. See [Plugin Authoring](./plugin-authoring.md) for full reference.

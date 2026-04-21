@@ -8,6 +8,10 @@
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
     },
+    "./cli": {
+      "types": "./dist/cli/create.d.ts",
+      "default": "./dist/cli/create.js"
+    },
     "./plugin": {
       "types": "./dist/plugin/index.d.ts",
       "default": "./dist/plugin/index.js"
@@ -26,7 +30,7 @@
   "scripts": {
     "start": "tsx scripts/start.ts",
     "cli": "tsx src/cli/index.ts",
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch src/dev-server.ts",
     "build": "tsc -p tsconfig.backend.json",
     "build:frontend": "npm run build -w frontend",
     "build:all": "npm run build && npm run build:frontend",

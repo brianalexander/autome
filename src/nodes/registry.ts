@@ -62,6 +62,9 @@ export const nodeRegistry = new NodeTypeRegistry();
 /**
  * Initialize the registry with all built-in node types.
  * Called once at server startup.
+ *
+ * Custom node types are now registered via plugins (manifest-driven) or
+ * programmatically via the `nodeTypes` option to `startServer()`.
  */
 export async function initializeRegistry(): Promise<void> {
   const { allBuiltinSpecs } = await import('./builtin/index.js');
@@ -69,22 +72,4 @@ export async function initializeRegistry(): Promise<void> {
     nodeRegistry.register(spec);
   }
   console.log(`[node-registry] Registered ${allBuiltinSpecs.length} built-in node type(s)`);
-
-  // Discover and register custom nodes — failures are non-fatal
-  try {
-    const { discoverCustomNodes } = await import('./custom/loader.js');
-    const customSpecs = await discoverCustomNodes();
-    for (const spec of customSpecs) {
-      if (nodeRegistry.get(spec.id)) {
-        console.warn(`[node-registry] Custom node "${spec.id}" conflicts with existing type — skipping`);
-        continue;
-      }
-      nodeRegistry.register(spec);
-    }
-    if (customSpecs.length > 0) {
-      console.log(`[node-registry] Registered ${customSpecs.length} custom node type(s)`);
-    }
-  } catch (err) {
-    console.warn('[node-registry] Custom node discovery failed (non-fatal):', err);
-  }
 }

@@ -39,7 +39,8 @@ Each plugin is a subdirectory of `./plugins/` (or `~/.autome/plugins/` for user-
   "version": "1.0.0",
   "description": "Custom Jira node types and templates",
   "nodeTypes": ["./nodes/create-ticket.ts", "./nodes/search.ts"],
-  "templates": ["./templates/*.json"]
+  "templates": ["./templates/*.json"],
+  "providers": ["./providers/my-provider.ts"]
 }
 ```
 
@@ -51,18 +52,20 @@ Each plugin is a subdirectory of `./plugins/` (or `~/.autome/plugins/` for user-
 | `description` | no | Short description |
 | `nodeTypes` | no | Array of paths to files that default-export a `NodeTypeSpec`. Relative to the plugin directory. |
 | `templates` | no | Array of paths or globs to JSON template files. Relative to the plugin directory. Supports `*.json` style globs. |
+| `providers` | no | Array of paths to files that default-export an `AcpProvider`. Relative to the plugin directory. |
 
-All paths in `nodeTypes` and `templates` are resolved relative to the directory containing `autome-plugin.json`.
+All paths in `nodeTypes`, `templates`, and `providers` are resolved relative to the directory containing `autome-plugin.json`.
 
 ---
 
 ## Writing a Node Type
 
-A node type file must **default-export** a `NodeTypeSpec`. No wrapper, no `definePlugin()` — just the spec.
+A node type file must **default-export** a `NodeTypeSpec`. Use the `defineNodeType` helper for TypeScript inference, or just write the spec directly.
 
 ```typescript
 // plugins/jira/nodes/create-ticket.ts
-import type { NodeTypeSpec, StepExecutor } from 'autome/plugin';
+import { defineNodeType } from 'autome/plugin';
+import type { StepExecutor } from 'autome/plugin';
 
 const executor: StepExecutor = {
   type: 'step',
@@ -80,7 +83,7 @@ const executor: StepExecutor = {
   },
 };
 
-const spec: NodeTypeSpec = {
+export default defineNodeType({
   id: 'jira-create-ticket',
   name: 'Jira: Create Ticket',
   category: 'step',
@@ -98,9 +101,7 @@ const spec: NodeTypeSpec = {
   },
   defaultConfig: { baseUrl: '', apiToken: '', projectKey: '' },
   executor,
-};
-
-export default spec;
+});
 ```
 
 ### Executor Contract
@@ -177,6 +178,46 @@ The `configSchema` is a JSON Schema object. Autome auto-generates forms from it.
 
 ---
 
+## Writing a Provider
+
+An ACP provider file must **default-export** an object (or class instance) satisfying the `AcpProvider` interface. Use the `defineProvider` helper for TypeScript inference.
+
+```typescript
+// plugins/my-provider/providers/acme-cli.ts
+import { defineProvider } from 'autome/plugin';
+
+export default defineProvider({
+  name: 'acme',
+  displayName: 'Acme CLI',
+  supportsSessionResume: false,
+  tracksMcpReadiness: false,
+
+  getCommand() { return 'acme'; },
+  getSpawnArgs({ agent }) { return agent ? ['--agent', agent] : []; },
+  getSpawnEnv() { return {}; },
+
+  async discoverAgents() { return []; },
+  async getAgentSpec() { return null; },
+  getLocalAgentDir(workingDir) { return `${workingDir}/.acme/agents`; },
+  getGlobalAgentDir() { return `${process.env.HOME}/.acme/agents`; },
+  handleVendorNotification() { return null; },
+});
+```
+
+Declare it in `autome-plugin.json`:
+
+```json
+{
+  "id": "my-acme-plugin",
+  "name": "Acme Provider Plugin",
+  "providers": ["./providers/acme-cli.ts"]
+}
+```
+
+Providers can also be registered programmatically without a filesystem plugin — see `docs/wrapping-autome.md`.
+
+---
+
 ## Writing a Template
 
 A template is a **named, preconfigured snapshot** of an existing node type. Templates are JSON files — no TypeScript needed.
@@ -234,10 +275,17 @@ On boot, autome scans for plugins in this order:
 
 1. **`./plugins/*/autome-plugin.json`** in `process.cwd()` — project-local
 2. **`~/.autome/plugins/*/autome-plugin.json`** — user-global
-3. **Loose `.ts`/`.js` files** in `./plugins/` (not inside subdirectories) — legacy fallback for quick scripts that default-export an object with a `name` field
-4. **`AUTOME_PLUGINS_DIR` env var** — overrides the project-local plugins directory path (instead of `./plugins/`)
+3. **`AUTOME_PLUGINS_DIR` env var** — overrides the project-local plugins directory path (instead of `./plugins/`)
 
 Each plugin directory is only loaded once. Plugins from both project-local and user-global directories are merged (project-local first).
+
+**Programmatic plugins** (passed via `createCli` or `startServer` options) are registered before filesystem discovery and take priority on ID collision.
+
+> **Note:** Loose `.ts`/`.js` files dropped directly into `./plugins/` are no longer supported. Each plugin must be a subdirectory containing `autome-plugin.json`.
+
+> **Note:** The `./nodes/` filesystem scanner has been removed. Custom node types must be delivered via a plugin manifest's `nodeTypes` field or programmatically via `startServer({ nodeTypes: [...] })`.
+
+> **Note:** The `./providers/` filesystem scanner has been removed. Custom ACP providers must be declared in a plugin manifest's `providers` field or programmatically via `startServer({ providers: [...] })`.
 
 ---
 
@@ -349,7 +397,7 @@ npx tsx src/cli/index.ts doctor
 
 ## Type Reference
 
-All types are exported from `autome/plugin`:
+All types and runtime helpers are exported from `autome/plugin`:
 
 ```typescript
 import type {
@@ -370,6 +418,17 @@ import type {
   WorkflowDefinition,
   EdgeDefinition,
   NodeTypeInfo,
+
+  // Provider type
+  AcpProvider,
+} from 'autome/plugin';
+
+// Runtime authoring helpers (values, not just types)
+import {
+  definePlugin,
+  defineNodeType,
+  defineTemplate,
+  defineProvider,
 } from 'autome/plugin';
 ```
 
@@ -377,13 +436,39 @@ import type {
 
 ```typescript
 interface PluginManifest {
-  id: string;           // required, unique plugin identifier
-  name: string;         // required, human-readable name
-  version?: string;     // semver
-  description?: string; // short description
-  nodeTypes?: string[]; // paths to NodeTypeSpec files (relative to plugin dir)
-  templates?: string[]; // paths/globs to JSON template files (relative to plugin dir)
+  id: string;            // required, unique plugin identifier
+  name: string;          // required, human-readable name
+  version?: string;      // semver
+  description?: string;  // short description
+  nodeTypes?: string[];  // paths to NodeTypeSpec files (relative to plugin dir)
+  templates?: string[];  // paths/globs to JSON template files (relative to plugin dir)
+  providers?: string[];  // paths to AcpProvider files (relative to plugin dir)
 }
+```
+
+### Authoring helpers
+
+| Helper | Purpose |
+|---|---|
+| `defineNodeType(spec)` | Identity function — enables TypeScript inference for node types |
+| `defineTemplate(tpl)` | Identity function — enables TypeScript inference for templates |
+| `defineProvider(provider)` | Identity function — enables TypeScript inference for providers |
+| `definePlugin(manifest, assets?)` | Constructs a `LoadedPlugin` for programmatic registration |
+
+`definePlugin` is primarily used by wrappers that want to bundle plugins into a binary rather than discover them from the filesystem:
+
+```typescript
+import { definePlugin, defineNodeType } from 'autome/plugin';
+
+const myNode = defineNodeType({ id: 'my-node', ... });
+
+const myPlugin = definePlugin(
+  { id: 'my-plugin', name: 'My Plugin', version: '1.0.0' },
+  { nodeTypes: [myNode] },
+);
+
+// Then pass to createCli or startServer:
+// createCli({ plugins: [myPlugin] }).run(process.argv);
 ```
 
 ### Stability

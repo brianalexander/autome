@@ -7,6 +7,7 @@ import type { WorkflowDefinition } from '../../types/workflow.js';
 import type { LoadedPlugin } from '../../plugin/types.js';
 import type { WorkflowRunner } from '../../engine/runner.js';
 import type { SecretsService } from '../../secrets/service.js';
+import type { AcpProvider } from '../../acp/provider/types.js';
 
 // ---------------------------------------------------------------------------
 // Route dependency injection
@@ -25,6 +26,11 @@ export interface RouteDeps {
   secretsService?: SecretsService;
   /** The port this server is actually listening on — must be threaded from resolvedConfig.port. */
   orchestratorPort: number;
+  /**
+   * Programmatic ACP providers passed to startServer() — merged with built-ins
+   * in GET /api/acp-providers.  Custom provider wins on name collision.
+   */
+  programmaticProviders?: Map<string, AcpProvider>;
 }
 
 // ---------------------------------------------------------------------------

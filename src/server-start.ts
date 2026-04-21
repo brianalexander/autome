@@ -19,7 +19,7 @@ import { EventBus } from './events/bus.js';
 import { ManualTriggerProvider } from './events/providers/manual.js';
 import { AgentPool } from './acp/pool.js';
 import { WorkflowRunner } from './engine/runner.js';
-import { createProvider, initializeProviders } from './acp/provider/registry.js';
+import { createProvider } from './acp/provider/registry.js';
 import { setDefaultProvider } from './agents/discovery.js';
 import { runCrashRecovery } from './recovery.js';
 import { launchWorkflow } from './workflow/launch.js';
@@ -36,6 +36,21 @@ import {
 } from './engine/trigger-lifecycle.js';
 import { DEFAULT_ACP_PROVIDER } from './config.js';
 import type { ResolvedConfig } from './config/types.js';
+import type { LoadedPlugin, NodeTemplate } from './plugin/types.js';
+import type { NodeTypeSpec } from './nodes/types.js';
+import type { AcpProvider } from './acp/provider/types.js';
+
+/** Options for programmatic registrations — applied before filesystem discovery. */
+export interface StartServerOptions {
+  /** Pre-registered plugins (node types + templates from each are applied before FS discovery). */
+  plugins?: LoadedPlugin[];
+  /** Direct node type specs to register before FS discovery. */
+  nodeTypes?: NodeTypeSpec[];
+  /** Direct template objects to sync into the DB before FS discovery. */
+  templates?: NodeTemplate[];
+  /** Direct ACP provider instances to register before FS discovery. */
+  providers?: AcpProvider[];
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -48,8 +63,12 @@ function resolveFrontendDistPath(): string {
 /**
  * Start the Fastify server with the given resolved configuration.
  * Returns the Fastify instance (useful for graceful shutdown).
+ *
+ * Programmatic registrations in `options` are applied BEFORE filesystem discovery,
+ * so filesystem plugins see an already-populated registry.
+ * On ID collision, the first registration wins and a warning is logged.
  */
-export async function startServer(resolvedConfig: ResolvedConfig) {
+export async function startServer(resolvedConfig: ResolvedConfig, options: StartServerOptions = {}) {
   // Declared at function scope so signal handlers share references.
   let db: OrchestratorDB;
   let eventBus: EventBus;
@@ -121,25 +140,87 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   // Initialize node type registry before accepting connections
   await initializeRegistry();
 
+  // ---- Programmatic registrations (applied before filesystem discovery) ----
+
+  // Register directly-supplied node types (first-wins on ID collision)
+  if (options.nodeTypes?.length) {
+    for (const spec of options.nodeTypes) {
+      if (nodeRegistry.get(spec.id)) {
+        console.warn(`[server] Programmatic node type "${spec.id}" conflicts with an existing type — skipping`);
+        continue;
+      }
+      nodeRegistry.register(spec);
+    }
+    console.log(`[server] Registered ${options.nodeTypes.length} programmatic node type(s)`);
+  }
+
+  // Register programmatic providers (these can later be resolved by name)
+  const programmaticProviders = new Map<string, AcpProvider>();
+  if (options.providers?.length) {
+    for (const provider of options.providers) {
+      if (programmaticProviders.has(provider.name)) {
+        console.warn(`[server] Programmatic provider "${provider.name}" already registered — skipping duplicate`);
+        continue;
+      }
+      programmaticProviders.set(provider.name, provider);
+    }
+    console.log(`[server] Registered ${options.providers.length} programmatic provider(s): ${options.providers.map((p) => p.name).join(', ')}`);
+  }
+
+  // ---- Filesystem discovery (plugins only — ./plugins/ and ~/.autome/plugins/) ----
+
   // Discover plugins early so node types are available before any other setup
-  const { loaded: plugins, failures: pluginFailures } = await loadPlugins();
+  // Apply any pre-supplied programmatic plugins first, then filesystem plugins
+  const programmaticPlugins: LoadedPlugin[] = options.plugins ?? [];
+
+  // Apply programmatic plugins (before FS so FS plugins see a populated registry)
+  if (programmaticPlugins.length > 0) {
+    const pluginProviders = await applyPlugins(programmaticPlugins, nodeRegistry, db);
+    for (const p of pluginProviders) {
+      if (!programmaticProviders.has(p.name)) {
+        programmaticProviders.set(p.name, p);
+      }
+    }
+    console.log(`[server] Applied ${programmaticPlugins.length} programmatic plugin(s)`);
+  }
+
+  // Apply directly-supplied templates (after programmatic plugins so plugins can define node types first)
+  if (options.templates?.length) {
+    const { applyTemplates } = await import('./plugin/apply.js');
+    await applyTemplates(options.templates, 'programmatic', nodeRegistry, db);
+  }
+
+  const { loaded: fsPlugins, failures: pluginFailures } = await loadPlugins();
   if (pluginFailures.length > 0) {
     for (const f of pluginFailures) {
       console.warn(`[plugins] Failed to load ${f.path}: ${f.error.message}`);
     }
   }
-  await applyPlugins(plugins, nodeRegistry, db);
+  // De-duplicate FS plugins against programmatic ones (first-wins: programmatic wins)
+  const programmaticPluginIds = new Set(programmaticPlugins.map((p) => p.manifest.id));
+  const deduplicatedFsPlugins = fsPlugins.filter((p) => {
+    if (programmaticPluginIds.has(p.manifest.id)) {
+      console.warn(`[plugins] FS plugin "${p.manifest.id}" conflicts with a programmatic plugin — skipping`);
+      return false;
+    }
+    return true;
+  });
+  const fsPluginProviders = await applyPlugins(deduplicatedFsPlugins, nodeRegistry, db);
+  for (const p of fsPluginProviders) {
+    if (!programmaticProviders.has(p.name)) {
+      programmaticProviders.set(p.name, p);
+    }
+  }
 
-  // Discover and register custom ACP providers from ./providers/ and ~/.autome/providers/
-  await initializeProviders();
+  const plugins = [...programmaticPlugins, ...deduplicatedFsPlugins];
 
   // Resolve the effective provider: DB setting takes priority, config/env is fallback.
   // If neither is set, default to 'kiro' so the server starts up in a usable state.
   const dbProviderName = db.getSetting('acpProvider');
   const effectiveProviderName = dbProviderName || resolvedConfig.acpProvider || DEFAULT_ACP_PROVIDER;
 
-  // Initialize ACP provider and configure discovery
-  const acpProvider = createProvider(effectiveProviderName);
+  // Initialize ACP provider — check programmatic providers first, then built-ins
+  const acpProvider = programmaticProviders.get(effectiveProviderName) ?? createProvider(effectiveProviderName);
   setDefaultProvider(acpProvider);
 
   // Regenerate per-provider agent files from canonical (agents/<name>/) on every boot.
@@ -201,7 +282,7 @@ export async function startServer(resolvedConfig: ResolvedConfig) {
   await app.register(websocketPlugin);
 
   // Register routes with all dependencies (plugins get routes registered inside)
-  await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins, secretsService, orchestratorPort: resolvedConfig.port });
+  await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins, secretsService, orchestratorPort: resolvedConfig.port, programmaticProviders });
 
   // Production: serve bundled frontend static files
   if (resolvedConfig.mode === 'production') {

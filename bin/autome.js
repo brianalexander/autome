@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // Wrapper that re-execs with the tsx ESM loader so the CLI can
-// dynamically import .ts plugin files (autome.plugins.ts).
-// The actual CLI lives in dist/cli/index.js (compiled from src/).
+// dynamically import .ts plugin files (e.g. autome.config.ts).
+// The actual CLI entry lives in dist/cli/index.js (compiled from src/).
 
 import { execFileSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';

@@ -144,9 +144,9 @@ export function registerAgentRoutes(app: FastifyInstance, deps: RouteDeps, state
     }
   });
 
-  // ACP providers — list all available (built-in + plugins)
+  // ACP providers — list all available (built-in + programmatic)
   typedApp.get('/api/acp-providers', async (_request, _reply) => {
-    const providers = await listProviders();
+    const providers = listProviders(deps.programmaticProviders);
     return providers;
   });
 

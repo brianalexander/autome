@@ -5,6 +5,7 @@ import { homedir } from 'os';
 import { glob } from 'glob';
 import type { LoadedPlugin, PluginManifest, NodeTemplate } from './types.js';
 import type { NodeTypeSpec } from '../nodes/types.js';
+import type { AcpProvider } from '../acp/provider/types.js';
 import { fromProject, PROJECT_ROOT } from '../paths.js';
 
 export interface PluginLoadResult {
@@ -41,9 +42,7 @@ export async function loadPlugins(): Promise<PluginLoadResult> {
 }
 
 /**
- * Scan a plugins directory for:
- * 1. Subdirectories with autome-plugin.json (manifest-driven)
- * 2. Loose .ts/.js files (legacy single-file fallback)
+ * Scan a plugins directory for subdirectories with autome-plugin.json (manifest-driven).
  */
 async function scanPluginsDir(pluginsDir: string): Promise<PluginLoadResult> {
   const loaded: LoadedPlugin[] = [];
@@ -60,7 +59,7 @@ async function scanPluginsDir(pluginsDir: string): Promise<PluginLoadResult> {
   for (const entry of entries.sort()) {
     const entryPath = join(pluginsDir, entry);
 
-    // Check if this entry is a subdirectory with a manifest
+    // Only recognise subdirectories with an autome-plugin.json manifest
     const manifestPath = join(entryPath, 'autome-plugin.json');
     if (existsSync(manifestPath)) {
       const result = await loadManifestPlugin(entryPath, manifestPath);
@@ -68,18 +67,8 @@ async function scanPluginsDir(pluginsDir: string): Promise<PluginLoadResult> {
         loaded.push(result.plugin);
       }
       failures.push(...result.failures);
-      continue;
     }
-
-    // Legacy fallback: loose .ts or .js files directly in the plugins dir
-    if (entry.endsWith('.ts') || entry.endsWith('.js') || entry.endsWith('.mjs')) {
-      const result = await loadLegacyFile(entryPath);
-      if (result.plugin) {
-        loaded.push(result.plugin);
-      } else if (result.error) {
-        failures.push({ path: entryPath, error: result.error });
-      }
-    }
+    // Loose .ts/.js files are no longer supported — use a plugin subdirectory instead
   }
 
   return { loaded, failures };
@@ -173,56 +162,56 @@ async function loadManifestPlugin(
     }
   }
 
+  // Load providers
+  const providers: AcpProvider[] = [];
+  if (manifest.providers?.length) {
+    for (const relPath of manifest.providers) {
+      const absPath = resolve(pluginDir, relPath);
+      try {
+        const mod = await import(absPath);
+        const Export = mod.default ?? mod;
+
+        // Support class exports (instantiate) or object exports (use directly)
+        const provider: unknown =
+          typeof Export === 'function' ? new (Export as new () => unknown)() : Export;
+
+        if (
+          !provider ||
+          typeof provider !== 'object' ||
+          typeof (provider as Record<string, unknown>)['name'] !== 'string' ||
+          typeof (provider as Record<string, unknown>)['getCommand'] !== 'function'
+        ) {
+          failures.push({
+            path: absPath,
+            error: new Error(`Provider file does not export a valid AcpProvider (missing name or getCommand)`),
+          });
+        } else {
+          providers.push(provider as AcpProvider);
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        failures.push({ path: absPath, error });
+      }
+    }
+
+    if (failures.length > 0) {
+      return { failures };
+    }
+  }
+
   const plugin: LoadedPlugin = {
     manifest,
     dir: pluginDir,
     nodeTypes,
     templates,
+    providers,
   };
 
   console.log(
     `[plugins] Loaded "${manifest.name}"${manifest.version ? ` v${manifest.version}` : ''} ` +
-    `(${nodeTypes.length} node type(s), ${templates.length} template(s))`,
+    `(${nodeTypes.length} node type(s), ${templates.length} template(s), ${providers.length} provider(s))`,
   );
 
   return { plugin, failures };
 }
 
-/**
- * Legacy fallback: a loose .ts/.js file that default-exports an object with at least a `name` field.
- */
-async function loadLegacyFile(
-  filePath: string,
-): Promise<{ plugin?: LoadedPlugin; error?: Error }> {
-  try {
-    const mod = await import(filePath);
-    const exported = mod.default ?? mod;
-
-    if (!exported || typeof exported !== 'object' || !('name' in exported)) {
-      console.warn(`[plugins] Skipping ${filePath}: does not default-export an object with a 'name' field`);
-      return {};
-    }
-
-    const legacy = exported as { name: string; version?: string; nodeTypes?: NodeTypeSpec[]; templates?: NodeTemplate[] };
-
-    const manifest: PluginManifest = {
-      id: legacy.name,
-      name: legacy.name,
-      version: legacy.version,
-    };
-
-    const plugin: LoadedPlugin = {
-      manifest,
-      dir: filePath,
-      nodeTypes: legacy.nodeTypes ?? [],
-      templates: legacy.templates ?? [],
-    };
-
-    console.log(`[plugins] Loaded legacy plugin "${manifest.name}" from ${filePath}`);
-    return { plugin };
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    console.error(`[plugins] Failed to import ${filePath}:`, error);
-    return { error };
-  }
-}

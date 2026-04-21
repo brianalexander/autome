@@ -2,7 +2,6 @@ import type { AcpProvider } from './types.js';
 import { KiroProvider } from './kiro.js';
 import { OpenCodeProvider } from './opencode.js';
 import { ClaudeCodeProvider } from './claude-code.js';
-import { discoverCustomProviders } from './loader.js';
 
 /** Built-in providers */
 const BUILTIN_FACTORIES: Record<string, () => AcpProvider> = {
@@ -11,51 +10,44 @@ const BUILTIN_FACTORIES: Record<string, () => AcpProvider> = {
   'claude-code': () => new ClaudeCodeProvider(),
 };
 
-/** Custom providers discovered at startup — keyed by name for O(1) lookup */
-const customProviders = new Map<string, AcpProvider>();
-
 /**
- * Discover custom providers from the filesystem and register them.
- * Custom providers with the same name as a built-in override the built-in.
- * Safe to call multiple times — re-runs discovery each call (cache lives in loader).
+ * Create a provider by name from the built-in set.
+ * Custom/programmatic providers are registered via the `providers` option to `startServer()`
+ * and resolved in server-start.ts before this function is called.
  */
-export async function initializeProviders(dirs?: string[]): Promise<void> {
-  const discovered = await discoverCustomProviders(dirs);
-  for (const provider of discovered) {
-    customProviders.set(provider.name, provider);
-  }
-  if (discovered.length > 0) {
-    console.log(`[providers] Discovered ${discovered.length} custom provider(s): ${discovered.map((p) => p.name).join(', ')}`);
-  } else {
-    console.log('[providers] No custom providers found');
-  }
-}
-
-/** Create a provider by name — checks custom providers first, then built-ins */
 export function createProvider(name: string): AcpProvider {
-  const custom = customProviders.get(name);
-  if (custom) return custom;
   if (BUILTIN_FACTORIES[name]) return BUILTIN_FACTORIES[name]();
-  const allNames = [...customProviders.keys(), ...Object.keys(BUILTIN_FACTORIES)];
   throw new Error(
-    `Unknown ACP provider: "${name}". Available providers: ${allNames.join(', ')}.`,
+    `Unknown ACP provider: "${name}". Built-in providers: ${Object.keys(BUILTIN_FACTORIES).join(', ')}. ` +
+    'Custom providers must be passed via the `providers` option to startServer().',
   );
 }
 
-/** List all available providers — custom providers appear first, then built-ins */
-export function listProviders(): Array<{ name: string; displayName: string; source: 'builtin' | 'custom' }> {
+/**
+ * List available providers.
+ *
+ * Built-in providers are always included.  Pass `extra` (the programmatic
+ * providers map from startServer options) to merge custom providers into the
+ * result.  When a name appears in both built-ins and `extra`, the entry in
+ * `extra` wins (override semantics match the runtime resolver in server-start.ts).
+ */
+export function listProviders(
+  extra?: Map<string, AcpProvider>,
+): Array<{ name: string; displayName: string; source: 'builtin' | 'custom' }> {
   const results: Array<{ name: string; displayName: string; source: 'builtin' | 'custom' }> = [];
 
-  // Custom providers first (they may shadow built-ins)
-  for (const [name, provider] of customProviders) {
-    results.push({ name, displayName: provider.displayName, source: 'custom' });
-  }
-
-  // Built-ins, skipping any that are shadowed by a custom provider
+  // Start with built-ins, skipping any that are overridden by a custom provider.
   for (const [name, factory] of Object.entries(BUILTIN_FACTORIES)) {
-    if (customProviders.has(name)) continue;
+    if (extra?.has(name)) continue; // custom wins
     const p = factory();
     results.push({ name, displayName: p.displayName, source: 'builtin' });
+  }
+
+  // Append custom (programmatic) providers.
+  if (extra) {
+    for (const [name, provider] of extra) {
+      results.push({ name, displayName: provider.displayName, source: 'custom' });
+    }
   }
 
   return results;
