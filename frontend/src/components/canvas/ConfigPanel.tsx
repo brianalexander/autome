@@ -40,6 +40,23 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
   // The debounced flush receives the latest value via a ref so the closure never goes stale.
   const pendingValueRef = useRef<StageDefinition>(stage);
 
+  // ID editing state
+  const [idDraft, setIdDraft] = useState<string>(stage.id);
+  const [lastStageId, setLastStageId] = useState<string>(stage.id);
+  const ID_FORMAT_RE = /^[a-z][a-z0-9_]*$/;
+
+  // Synchronously reset local state when a different stage is selected.
+  // Using React's "storing information from previous renders" pattern to avoid
+  // a one-frame flash of stale idDraft causing the "ID already used" error to
+  // appear briefly on the newly-selected stage.
+  // See: https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  if (lastStageId !== stage.id) {
+    setLastStageId(stage.id);
+    setEditState(stage);
+    setIdDraft(stage.id);
+    pendingValueRef.current = stage;
+  }
+
   // Copy config state
   const [copied, setCopied] = useState(false);
   const handleCopyConfig = useCallback(() => {
@@ -67,17 +84,6 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
     }
   }, [editState, specs, queryClient]);
 
-  // ID editing state
-  const [idDraft, setIdDraft] = useState<string>(stage.id);
-  const ID_FORMAT_RE = /^[a-z][a-z0-9_]*$/;
-
-  // Reset local edit state when a different stage is selected.
-  useEffect(() => {
-    setEditState(stage);
-    pendingValueRef.current = stage;
-    setIdDraft(stage.id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage.id]);
 
   const debouncedFlush = useCallback(() => {
     if (readonly) return;

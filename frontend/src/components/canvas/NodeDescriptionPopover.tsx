@@ -73,7 +73,7 @@ export function NodeDescriptionPopover({ nodeTypeInfo }: NodeDescriptionPopoverP
       {open && (
         <div
           className="
-            absolute left-0 top-full mt-1 z-50
+            absolute right-0 top-full mt-1 z-50
             w-72 max-h-80 overflow-y-auto
             bg-surface border border-border rounded-lg shadow-lg p-3
           "
