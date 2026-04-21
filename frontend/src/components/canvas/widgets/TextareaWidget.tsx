@@ -3,7 +3,7 @@ import { Maximize2, Minimize2 } from 'lucide-react';
 import type { WidgetProps } from './types';
 
 /** Textarea with expand-to-modal for prompt templates and other long-form text. */
-export function TextareaWidget({ value, onChange, schema: _schema, fieldName: _fieldName, disabled }: WidgetProps<string | undefined>) {
+export function TextareaWidget({ value, onChange, schema, fieldName: _fieldName, disabled }: WidgetProps<string | undefined>) {
   const [expanded, setExpanded] = useState(false);
   const textareaRef = useCallback((node: HTMLTextAreaElement | null) => {
     if (node && expanded) node.focus();
@@ -63,7 +63,7 @@ export function TextareaWidget({ value, onChange, schema: _schema, fieldName: _f
               disabled={disabled}
               className={`w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary font-mono resize-y${disabled ? ' opacity-60 cursor-default' : ''}`}
               spellCheck={false}
-              placeholder="Enter prompt template... Use {{ output.field }} for interpolation"
+              placeholder={schema['x-placeholder'] ?? 'Enter prompt template... Use {{ output.field }} for interpolation'}
             />
           </div>
         </div>

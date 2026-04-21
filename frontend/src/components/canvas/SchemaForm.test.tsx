@@ -212,6 +212,40 @@ describe('SchemaForm', () => {
   });
 });
 
+  it('renders x-placeholder on a number input', () => {
+    const onChange = vi.fn();
+    render(
+      <SchemaForm
+        schema={{
+          properties: {
+            max_iterations: { type: 'number', title: 'Max Iterations', 'x-placeholder': '∞' },
+          },
+        }}
+        value={{}}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole('spinbutton');
+    expect(input).toHaveAttribute('placeholder', '∞');
+  });
+
+  it('renders x-placeholder on a text input', () => {
+    const onChange = vi.fn();
+    render(
+      <SchemaForm
+        schema={{
+          properties: {
+            name: { type: 'string', title: 'Name', 'x-placeholder': 'foo' },
+          },
+        }}
+        value={{}}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveAttribute('placeholder', 'foo');
+  });
+
 // -----------------------------------------------------------------------
 // resolveWidget tests — one per priority branch
 // -----------------------------------------------------------------------

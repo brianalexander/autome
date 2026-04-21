@@ -7,6 +7,7 @@ export function TextWidget({ value, onChange, schema, fieldName: _fieldName, dis
     <input
       type={schema.format === 'url' ? 'url' : 'text'}
       value={String(stringValue)}
+      placeholder={schema['x-placeholder']}
       onChange={(e) => onChange(e.target.value || undefined)}
       disabled={disabled}
       className={`w-full bg-surface-secondary border border-border rounded px-2 py-1.5 text-sm text-text-primary${disabledCls}`}

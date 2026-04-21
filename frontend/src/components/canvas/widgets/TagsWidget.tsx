@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import type { WidgetProps } from './types';
 
 /** Chip input — Enter to add, Backspace on empty removes last, x on chip removes it. */
-export function TagsWidget({ value, onChange, disabled }: WidgetProps<string[] | undefined>) {
+export function TagsWidget({ value, onChange, schema, disabled }: WidgetProps<string[] | undefined>) {
   const tags = Array.isArray(value) ? value : [];
   const [input, setInput] = useState('');
 
@@ -53,7 +53,7 @@ export function TagsWidget({ value, onChange, disabled }: WidgetProps<string[] |
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           onBlur={() => { if (input.trim()) addTag(input); }}
-          placeholder={tags.length === 0 ? 'Type and press Enter…' : ''}
+          placeholder={schema['x-placeholder'] ?? (tags.length === 0 ? 'Type and press Enter…' : '')}
           className="flex-1 min-w-[80px] bg-transparent text-sm text-text-primary outline-none"
         />
       )}

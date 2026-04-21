@@ -398,6 +398,37 @@ describe('trigger output_schema annotations', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// x-placeholder on "Empty = unlimited" number fields
+// ---------------------------------------------------------------------------
+
+describe('x-placeholder on unlimited number fields', () => {
+  it('agent max_iterations has x-placeholder: ∞', () => {
+    const field = getSchemaField('agent', 'max_iterations');
+    expect(field['x-placeholder']).toBe('∞');
+  });
+
+  it('agent max_turns has x-placeholder: ∞', () => {
+    const field = getSchemaField('agent', 'max_turns');
+    expect(field['x-placeholder']).toBe('∞');
+  });
+
+  it('agent timeout_minutes has x-placeholder: ∞', () => {
+    const field = getSchemaField('agent', 'timeout_minutes');
+    expect(field['x-placeholder']).toBe('∞');
+  });
+
+  it('gate timeout_minutes has x-placeholder: ∞', () => {
+    const field = getSchemaField('gate', 'timeout_minutes');
+    expect(field['x-placeholder']).toBe('∞');
+  });
+
+  it('code-executor timeout_seconds does NOT have x-placeholder (has non-null default)', () => {
+    const field = getSchemaField('code-executor', 'timeout_seconds');
+    expect(field['x-placeholder']).toBeUndefined();
+  });
+});
+
 describe('built-in trigger lifecycle flags', () => {
   it('cron-trigger has hasLifecycle and hasSampleEvent === true', () => {
     const info = nodeRegistry.getAllInfo().find((i) => i.id === 'cron-trigger')!;

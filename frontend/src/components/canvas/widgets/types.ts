@@ -28,6 +28,11 @@ export interface JSONSchemaFragment {
    */
   'x-enum-labels'?: string[];
   /**
+   * Placeholder text for text/number/textarea inputs. Overrides any widget-level default.
+   * Example: 'x-placeholder': '∞' on a number field with "Empty = unlimited" semantics.
+   */
+  'x-placeholder'?: string;
+  /**
    * JSON Schema standard keyword — when true, the field is rendered read-only.
    * SchemaForm treats this as additive: disabled = panelReadonly || readOnly.
    */

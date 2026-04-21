@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import type { WidgetProps } from './types';
 
-export function SecretWidget({ value, onChange, disabled }: WidgetProps<string | undefined>) {
+export function SecretWidget({ value, onChange, schema, disabled }: WidgetProps<string | undefined>) {
   const [show, setShow] = useState(false);
   const disabledCls = disabled ? ' opacity-60 cursor-default' : '';
   return (
@@ -10,6 +10,7 @@ export function SecretWidget({ value, onChange, disabled }: WidgetProps<string |
       <input
         type={show ? 'text' : 'password'}
         value={typeof value === 'string' ? value : ''}
+        placeholder={schema['x-placeholder']}
         onChange={(e) => onChange(e.target.value || undefined)}
         disabled={disabled}
         className={`w-full bg-surface-secondary border border-border rounded px-2 py-1.5 pr-8 text-sm text-text-primary font-mono${disabledCls}`}

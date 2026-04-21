@@ -97,16 +97,19 @@ export const agentNodeSpec: NodeTypeSpec = {
         type: 'number',
         title: 'Max Iterations',
         description: 'Max re-executions in cycles. Empty = unlimited.',
+        'x-placeholder': '∞',
       },
       max_turns: {
         type: 'number',
         title: 'Max Turns',
         description: 'Safety limit on agent conversation turns (not currently enforced — reserved for future providers).',
+        'x-placeholder': '∞',
       },
       timeout_minutes: {
         type: 'number',
         title: 'Timeout (minutes)',
         description: 'Time limit for this agent stage. Empty = unlimited.',
+        'x-placeholder': '∞',
       },
       // cycle_behavior is rendered by the cycle-behavior configCard (conditionally, based on graph topology)
       // — NOT via SchemaForm, so it is intentionally absent from configSchema properties.
