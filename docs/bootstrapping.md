@@ -17,6 +17,8 @@ This guide walks through installing autome as a dependency and running your own 
 
 Autome is designed to be embedded. You install it, create a `plugins/` directory next to it, and run the server. Your plugins get discovered and registered at boot — the rest behaves identically to a stock autome.
 
+> **Looking for the programmatic API?** If you're publishing a branded npm package that bundles plugins as part of its dist, see [Wrapping Autome](./wrapping-autome.md) — that guide covers `createCli` and `startServer`.
+
 ```
 ┌─────────────────────────────────────────────┐
 │  Your Project                               │
@@ -161,11 +163,12 @@ The manifest declares everything autome needs to load your plugin:
   "version": "1.0.0",
   "description": "Custom Jira node types and templates",
   "nodeTypes": ["./nodes/create-ticket.ts", "./nodes/search.ts"],
-  "templates": ["./templates/*.json"]
+  "templates": ["./templates/*.json"],
+  "providers": ["./providers/jira-provider.ts"]
 }
 ```
 
-Node type files must default-export a `NodeTypeSpec`. Template files are plain JSON.
+Node type files must default-export a `NodeTypeSpec`. Template files are plain JSON. Provider files must default-export a class or object implementing `AcpProvider` (with `name` and `getCommand`). The `providers` field is optional — omit it if your plugin has no custom ACP providers.
 
 ---
 
@@ -178,8 +181,12 @@ Autome reads config from environment variables. Create a `.env` file or pass the
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `3001` | HTTP API port |
-| `DATABASE_PATH` | `./data/orchestrator.db` | SQLite file location |
+| `HOST` | `127.0.0.1` | Interface to bind to; use `0.0.0.0` to expose on LAN |
+| `DATA_DIR` | `./data` | Root data directory (DB, workspaces, etc.) |
+| `DATABASE_PATH` | `./data/orchestrator.db` | SQLite file location (overrides DATA_DIR for DB only) |
 | `NODE_ENV` | `development` | `production` enables caching/logging changes |
+
+You can also configure autome via a `autome.config.ts` (or `.js` / `.json`) file in your project root. It is merged with env vars (env takes precedence). See `src/config/types.ts` for all available keys.
 
 ### Plugin discovery
 
@@ -191,9 +198,8 @@ Plugin discovery order:
 
 1. `./plugins/*/autome-plugin.json` (or `$AUTOME_PLUGINS_DIR/*/autome-plugin.json`)
 2. `~/.autome/plugins/*/autome-plugin.json` (user-global, always scanned)
-3. Loose `.ts`/`.js` files directly in the plugins directories (legacy fallback)
 
-Plugins from all sources are merged (project-local first).
+Plugins from both sources are merged (project-local first). Each plugin must live in its own subdirectory and have an `autome-plugin.json` manifest — loose `.ts`/`.js` files at the top of the plugins directory are not picked up.
 
 ### ACP provider settings
 
@@ -202,8 +208,8 @@ Autome supports multiple LLM backends via ACP providers. Configure via env vars 
 | Variable | Purpose |
 |---|---|
 | `ACP_PROVIDER` | Default provider: `kiro`, `opencode`, or `claude-code` |
-| `OPENAI_API_KEY` | If using opencode |
-| `ANTHROPIC_API_KEY` | If using claude-code |
+
+Any API keys required by the underlying ACP provider (e.g. `ANTHROPIC_API_KEY` for claude-code) should be set in your environment before starting the server — autome passes them through to the provider process.
 
 ---
 
@@ -310,12 +316,12 @@ Your users' local (non-plugin) templates are never overwritten.
 Check the boot logs for:
 
 ```
-[plugins] Loaded "your-plugin-name" v1.0.0 (1 node type(s), 2 template(s))
+[plugins] Loaded "your-plugin-name" v1.0.0 (1 node type(s), 2 template(s), 0 provider(s))
 ```
 
 If the load message is missing:
 - Confirm `plugins/your-plugin/autome-plugin.json` exists in `process.cwd()`
-- Run `npx tsx src/cli/index.ts doctor` to see load failures
+- Run `npx autome doctor` to see load failures
 - Ensure the `autome-plugin.json` has both `id` and `name` fields
 
 ### `Failed to parse autome-plugin.json`
