@@ -154,8 +154,9 @@ describe('Instance routes', () => {
   // GET /api/approvals — gate message rendering
   // ---------------------------------------------------------------------------
 
-  it('GET /api/approvals — renders gateMessage template against workflow context', async () => {
-    // Create a workflow with a trigger and a manual gate
+  it('GET /api/approvals — renders gateMessage template using narrowed trigger scope', async () => {
+    // Create a workflow with a trigger and a manual gate.
+    // Templates use the narrowed scope: {{ trigger.FIELD }} only (no stages.* reach-back).
     const wfRes = await app.inject({
       method: 'POST',
       url: '/api/workflows',
@@ -170,7 +171,7 @@ describe('Instance routes', () => {
             type: 'gate',
             config: {
               type: 'manual',
-              message: 'Review: {{ trigger.subject }} — category: {{ stages.trigger.latest.category }}',
+              message: 'Review: {{ trigger.subject }} — category: {{ trigger.category }}',
             },
           },
         ],
@@ -180,15 +181,15 @@ describe('Instance routes', () => {
     expect(wfRes.statusCode).toBe(201);
     const wfId = wfRes.json().id;
 
-    // Build a context with trigger + trigger stage output
+    // Build a context with trigger payload that includes both fields
     const context: WorkflowContext = {
-      trigger: { subject: 'Hello World' },
+      trigger: { subject: 'Hello World', category: 'urgent' },
       stages: {
         trigger: {
           status: 'completed',
           run_count: 1,
           runs: [],
-          latest: { category: 'urgent' },
+          latest: { subject: 'Hello World', category: 'urgent' },
         },
         gate1: {
           status: 'running',
@@ -216,7 +217,7 @@ describe('Instance routes', () => {
     const approvals = res.json() as Array<{ stageId: string; gateMessage: string | null }>;
     expect(approvals).toHaveLength(1);
     expect(approvals[0].stageId).toBe('gate1');
-    // Template should be rendered with context values
+    // Template should be rendered with trigger context values
     expect(approvals[0].gateMessage).toBe('Review: Hello World — category: urgent');
   });
 

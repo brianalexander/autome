@@ -15,16 +15,14 @@ import { ReviewGateDecisionSchema } from '../../schemas/pipeline.js';
 /**
  * Render a gate message template against the instance's workflow context.
  * Falls back to the raw string if rendering fails (e.g. malformed template).
+ *
+ * Narrowed scope: only `trigger` is available (workflow-level payload).
+ * `stages.*` is not exposed — use {{ trigger.FIELD }} in gate message templates.
  */
 function renderGateMessage(raw: string | null | undefined, context: WorkflowContext): string | null {
   if (!raw) return null;
   try {
-    // Build scope matching the pattern gates use: trigger + stages.<id>.latest
-    const stagesScope: Record<string, { latest: unknown }> = {};
-    for (const [stageId, stageCtx] of Object.entries(context.stages)) {
-      stagesScope[stageId] = { latest: stageCtx.latest };
-    }
-    return resolveTemplate(raw, { trigger: context.trigger, stages: stagesScope });
+    return resolveTemplate(raw, { trigger: context.trigger });
   } catch (err) {
     console.warn('[gate-message] Template render failed, using raw string:', err instanceof Error ? err.message : err);
     return raw;

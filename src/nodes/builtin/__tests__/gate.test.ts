@@ -131,11 +131,12 @@ describe('gate executor — manual', () => {
 });
 
 describe('gate executor — conditional', () => {
-  it('returns { approved: true, input: passthrough } when condition passes', async () => {
+  it('returns { approved: true, input: passthrough } when condition passes using narrowed input scope', async () => {
     const upstream = { score: 99 };
+    // Condition uses `input.score` — the narrowed scope exposed to user conditions
     const ctx = buildCtx(
       'cond_gate',
-      { type: 'conditional', condition: 'context.trigger.score > 50' },
+      { type: 'conditional', condition: 'input.score > 50' },
       undefined,
       upstream,
       { trigger: { score: 99 }, stages: {} },
@@ -147,18 +148,51 @@ describe('gate executor — conditional', () => {
     expect(result).toEqual({ output: { approved: true, input: upstream } });
   });
 
-  it('throws TerminalError when condition fails', async () => {
+  it('can also reference trigger in condition using narrowed scope', async () => {
+    const upstream = { score: 10 };
+    // Condition uses `trigger.minScore` — also available in narrowed scope
     const ctx = buildCtx(
       'cond_gate',
-      { type: 'conditional', condition: 'context.trigger.score > 50' },
+      { type: 'conditional', condition: 'trigger.minScore <= input.score' },
       undefined,
+      upstream,
+      { trigger: { minScore: 5 }, stages: {} },
+    );
+    const executor = gateNodeSpec.executor as StepExecutor;
+
+    const result = await executor.execute(ctx);
+
+    expect(result).toEqual({ output: { approved: true, input: upstream } });
+  });
+
+  it('throws TerminalError when condition fails using narrowed input scope', async () => {
+    const ctx = buildCtx(
+      'cond_gate',
+      { type: 'conditional', condition: 'input.score > 50' },
       undefined,
-      { trigger: { score: 10 }, stages: {} },
+      { score: 10 },
+      { trigger: {}, stages: {} },
     );
     const executor = gateNodeSpec.executor as StepExecutor;
 
     await expect(executor.execute(ctx)).rejects.toThrowError(TerminalError);
     await expect(executor.execute(ctx)).rejects.toThrow('Gate condition failed for "cond_gate"');
+  });
+
+  it('context is not exposed in the condition sandbox — accessing context returns undefined', async () => {
+    // context.stages is the old pattern — it should now be undefined in the sandbox,
+    // so the condition evaluates to false (not an error) and throws TerminalError.
+    const ctx = buildCtx(
+      'cond_gate',
+      { type: 'conditional', condition: 'context?.stages?.review?.latest?.approved === true' },
+      undefined,
+      { approved: true },
+      { trigger: {}, stages: { review: { latest: { approved: true } } } },
+    );
+    const executor = gateNodeSpec.executor as StepExecutor;
+
+    // context is not in scope → condition evaluates to false → TerminalError
+    await expect(executor.execute(ctx)).rejects.toThrowError(TerminalError);
   });
 });
 

@@ -67,6 +67,25 @@ All paths in `nodeTypes`, `templates`, and `providers` are resolved relative to 
 
 ---
 
+## Data flow rules
+
+Templates and JS expressions in workflow definitions may only reference these variables:
+
+| Variable | Available in | Description |
+|---|---|---|
+| `trigger` | All templates and conditions | The workflow-level trigger payload (always available) |
+| `input` | Stage config templates, gate conditions | Data delivered to this stage by its inbound edge |
+| `output` | Outbound-edge `prompt_template` and `condition` | The source stage's completed output |
+| `secret('NAME')` | Nunjucks templates | Decrypted secret value by name |
+
+**Cross-stage reach-back is not allowed.** Expressions like `{{ stages.draft.latest.content }}` or `context.stages["review"].latest.approved` will be rejected at save time and will not work at runtime.
+
+**Why?** Templates that reach across the graph by stage ID create hidden coupling — renaming a stage silently breaks references, and the data flow becomes invisible on the canvas. The explicit edge model keeps data flow visible and refactorable.
+
+**The pattern to use instead:** connect the upstream stage to the downstream stage with an explicit edge, then reference the data via `{{ input.FIELD }}` in the downstream stage's incoming-edge `prompt_template`, or `{{ output.FIELD }}` in the source stage's outbound-edge template.
+
+---
+
 ## Writing a Node Type
 
 A node type file must **default-export** a `NodeTypeSpec`. Use the `defineNodeType` helper for TypeScript inference, or just write the spec directly.
@@ -176,7 +195,7 @@ stages:
   - id: review
     type: review-gate
     config:
-      message: "Please review the content draft: {{ stages.draft_content.latest.content }}"
+      message: "Please review the content draft: {{ input.content }}"
       timeout_minutes: 60
       timeout_action: rejected
 
@@ -194,7 +213,7 @@ edges:
     target: publish
     condition: "output.decision === 'approved'"
 
-  # Loop back to draft on revision request — reviewer notes are available downstream
+  # Loop back to draft on revision request — reviewer notes flow through this edge
   - id: e_revise
     source: review
     target: draft_content
@@ -202,12 +221,12 @@ edges:
     max_traversals: 3
     prompt_template: |
       Please revise your draft based on this feedback:
-      {{ stages.review.latest.notes }}
+      {{ output.notes }}
 
   # No edge needed for 'rejected' — the gate throws a TerminalError automatically
 ```
 
-The `review-gate` output shape is `{ decision, notes?, input }`. The `input` field is a passthrough of the upstream stage's output — downstream stages can reference `{{ output.input.FIELD }}` directly instead of reaching back via `{{ stages.<upstream>.latest.FIELD }}`. When the decision is `approved` or `revised`, the output flows to downstream stages. When `rejected`, the gate throws a `TerminalError` and marks the instance failed.
+The `review-gate` output shape is `{ decision, notes?, input }`. The `input` field is a passthrough of the upstream stage's output — downstream stages can reference `{{ output.input.FIELD }}` directly. The reviewer's notes flow from this gate's output through outbound edges — reference them as `{{ output.notes }}` in an outbound-edge `prompt_template`, or as `{{ input.notes }}` in the receiving stage's own incoming-edge template. When the decision is `approved` or `revised`, the output flows to downstream stages. When `rejected`, the gate throws a `TerminalError` and marks the instance failed.
 
 ### Trigger Executors
 

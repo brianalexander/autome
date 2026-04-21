@@ -131,7 +131,7 @@ export function AdvancedStageConfig({
           onChange={(e) => onUpdate('map_over', e.target.value || undefined)}
           disabled={readonly}
           className={`input-field text-xs font-mono${disabledCls}`}
-          placeholder="{{ stages.splitter.output.items }}"
+          placeholder="{{ trigger.items }}"
         />
         <div className="text-[10px] text-text-tertiary mt-0.5">
           Template expression resolving to an array. Stage runs once per element.

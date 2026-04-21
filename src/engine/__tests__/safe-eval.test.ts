@@ -97,6 +97,13 @@ describe('safeEvalCondition', () => {
     expect(safeEvalCondition('process.env', {})).toBe(false);
   });
 
+  it('returns undefined/false when accessing context.stages — context is not provided by the narrowed scope', () => {
+    // The narrowed scope passes { input, trigger } or { output, trigger } — never raw `context`.
+    // Accessing `context` in the sandbox should return undefined (no variable defined).
+    expect(safeEvalCondition('typeof context === "undefined"', {})).toBe(true);
+    expect(safeEvalCondition('context?.stages?.review?.latest?.approved', {})).toBe(false);
+  });
+
   it('returns false (not throw) when accessing require', () => {
     expect(safeEvalCondition('require("fs")', {})).toBe(false);
   });

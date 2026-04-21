@@ -24,9 +24,8 @@ function getEdgePromptTemplate(edge: EdgeDefinition): string | undefined {
  *
  * Supported syntax:
  *   output.plan                              → scope.output.plan
- *   stages.planner.output.plan               → scope.stages.planner.output.plan
- *   stages['plan-reviewer'].output.feedback  → scope.stages['plan-reviewer'].output.feedback
- *   trigger.prompt                           → scope.trigger.prompt  (legacy alias — prefer output.prompt)
+ *   trigger.prompt                           → scope.trigger.prompt
+ *   input.field                              → scope.input.field
  */
 function resolvePath(expression: string, scope: Record<string, unknown>): unknown {
   const tokens: string[] = [];
@@ -47,38 +46,51 @@ function resolvePath(expression: string, scope: Record<string, unknown>): unknow
 }
 
 /**
- * Builds the scope object that template expressions resolve against.
+ * Builds the narrowed scope object for edge/prompt template rendering.
  *
- * Available paths:
- *   output.<field>                  — source stage's output (through this edge); primary pattern
- *   stages.<id>.output.<field>      — any upstream stage's latest output
- *   stages['id'].output.<field>     — bracket notation for hyphenated IDs
- *   trigger.<field>                 — legacy alias for the trigger's output; prefer output.<field> on trigger edges
+ * User-visible template variables (enforced boundary):
+ *   output.<field>                  — source stage's output (through this edge); primary pattern for outbound edges
+ *   input.<field>                   — data delivered to this stage by the inbound edge
+ *   trigger.<field>                 — workflow-level trigger payload
  *   sourceOutputs.<stageId>.<field> — fan-in: each upstream stage's output by ID
+ *
+ * Intentionally NOT exposed: stages.*, context.*  (engine-internal bookkeeping only)
  */
-function buildScope(
+function buildEdgeScope(
   sourceOutput: unknown,
   context: WorkflowContext,
   mergedInputs?: Record<string, unknown>,
 ): Record<string, unknown> {
-  const stagesScope: Record<string, { output: unknown; runs: unknown[] }> = {};
-  for (const [stageId, stageCtx] of Object.entries(context.stages)) {
-    stagesScope[stageId] = {
-      output: stageCtx.latest,
-      runs: stageCtx.runs || [],
-    };
-  }
   const scope: Record<string, unknown> = {
+    // `output` is the source stage's completed output — the primary variable in outbound-edge templates
     output: sourceOutput,
-    stages: stagesScope,
-    // `trigger` kept for backward compatibility — new templates should use `output.*` instead.
-    // For trigger-sourced edges, `output` IS the trigger payload, so both paths resolve identically.
+    // `input` mirrors output for edge templates — consumers use whichever reads more naturally
+    input: sourceOutput,
+    // `trigger` provides workflow-level trigger payload access
     trigger: context.trigger,
   };
   if (mergedInputs) {
+    // Fan-in: expose each upstream stage's output keyed by stage ID
     scope['sourceOutputs'] = mergedInputs;
   }
   return scope;
+}
+
+/**
+ * Builds the narrowed scope for agent-prompt rendering (no outbound-edge `output`).
+ *
+ * User-visible template variables:
+ *   input.<field>    — data delivered to this stage by the inbound edge (or merged fan-in map)
+ *   trigger.<field>  — workflow-level trigger payload
+ */
+function buildPromptScope(
+  input: unknown,
+  context: WorkflowContext,
+): Record<string, unknown> {
+  return {
+    input,
+    trigger: context.trigger,
+  };
 }
 
 /**
@@ -124,12 +136,11 @@ function renderTemplate(template: string, scope: Record<string, unknown>): strin
  * Resolves an edge prompt template against the workflow context.
  *
  * Template variables:
- *   {{ output.field }}                         — source stage's output (primary pattern)
- *   {{ stages.planner.output.plan }}           — any stage's output by ID
- *   {{ stages['plan-reviewer'].output.feedback }} — bracket notation for hyphens
- *   {{ trigger.prompt }}                       — legacy alias for trigger output; prefer {{ output.prompt }}
- *   {{ sourceOutputs.stageId.field }}          — fan-in: a specific upstream stage's output
- *   {% if output.approved %}...{% endif %}     — conditionals
+ *   {{ output.field }}                    — source stage's output (primary pattern for outbound-edge templates)
+ *   {{ input.field }}                     — alias for output (same data, alternative name)
+ *   {{ trigger.field }}                   — workflow-level trigger payload
+ *   {{ sourceOutputs.stageId.field }}     — fan-in: a specific upstream stage's output
+ *   {% if output.approved %}...{% endif %} — conditionals
  */
 function resolveEdgeTemplate(
   template: string,
@@ -137,7 +148,7 @@ function resolveEdgeTemplate(
   context: WorkflowContext,
   mergedInputs?: Record<string, unknown>,
 ): string {
-  const scope = buildScope(sourceOutput, context, mergedInputs);
+  const scope = buildEdgeScope(sourceOutput, context, mergedInputs);
   return renderTemplate(template, scope);
 }
 
@@ -154,20 +165,9 @@ function collectOutputRequirements(stageId: string, definition: WorkflowDefiniti
   for (const edge of outgoing) {
     const pt = getEdgePromptTemplate(edge);
     if (pt) {
-      // Match {{ output.field }} pattern
+      // Match {{ output.field }} pattern — the canonical way downstream edges reference this stage's output
       const outputMatches = pt.matchAll(/\{\{\s*output\.(\w+)\s*\}\}/g);
       for (const m of outputMatches) {
-        if (!allFields.has(m[1])) {
-          allFields.set(m[1], {});
-        }
-      }
-      // Also match {{ stages.THIS_STAGE.output.field }} referencing this stage from downstream
-      const stagesPattern = new RegExp(
-        `\\{\\{\\s*stages(?:\\['${stageId}'\\]|\\.${stageId.replace(/[^a-zA-Z0-9]/g, '\\$&')})\\.output\\.(\\w+)\\s*\\}\\}`,
-        'g',
-      );
-      const stagesMatches = pt.matchAll(stagesPattern);
-      for (const m of stagesMatches) {
         if (!allFields.has(m[1])) {
           allFields.set(m[1], {});
         }
@@ -203,9 +203,13 @@ export function resolveTemplate(template: string, variables: Record<string, unkn
  * Resolves a single `{{ expression }}` template to its raw value (not stringified).
  * Used for map_over to extract arrays from workflow context.
  * Falls back to the raw string if the expression has no `{{ }}` wrappers.
+ *
+ * Scope exposed for map_over expressions: trigger + input (the current stage input).
+ * Internal engine usage only — does not expose stages.* to user templates.
  */
 export function resolveTemplateValue(template: string, context: WorkflowContext): unknown {
-  const scope = buildScope(undefined, context);
+  // map_over expressions resolve against trigger data (the scope available at the trigger boundary)
+  const scope = buildPromptScope(context.trigger, context);
   // If it's a simple {{ expr }} wrapper, resolve to raw value
   const singleExpr = template.trim().match(/^\{\{\s*(.+?)\s*\}\}$/);
   if (singleExpr) {
@@ -241,17 +245,18 @@ export function buildAgentPrompt(
   const max_iterations = config.max_iterations as number | undefined;
   const overrides = config.overrides as Record<string, unknown> | undefined;
 
-  // For fan-in stages, use the merged map as the effective sourceOutput so that
-  // {{ output.<stageId>.<field> }} still works as a fallback, and expose
-  // {{ sourceOutputs.<stageId>.<field> }} for explicit per-source access.
-  const effectiveSourceOutput = options?.mergedInputs ?? options?.sourceOutput;
+  // For fan-in stages, use the merged map as the effective input so that
+  // {{ input.<stageId>.<field> }} works, and expose {{ sourceOutputs.<stageId>.<field> }} for
+  // explicit per-source access in edge prompt_templates.
+  const effectiveInput = options?.mergedInputs ?? options?.sourceOutput;
 
   // Determine the prompt content from the incoming edge
   let resolvedContext: string;
   const incomingPT = options?.incomingEdge ? getEdgePromptTemplate(options.incomingEdge) : undefined;
-  if (incomingPT && effectiveSourceOutput !== undefined) {
-    // Edge-specific prompt template — resolve with source output (or merged map)
-    resolvedContext = resolveEdgeTemplate(incomingPT, effectiveSourceOutput, context, options?.mergedInputs);
+  if (incomingPT && effectiveInput !== undefined) {
+    // Edge-specific prompt template — resolve with source output (or merged map).
+    // Edge templates use buildEdgeScope: `output` = source stage output, `input` = same, `trigger` = trigger payload.
+    resolvedContext = resolveEdgeTemplate(incomingPT, effectiveInput, context, options?.mergedInputs);
   } else if (options?.mergedInputs) {
     // Fan-in with no edge template — show all upstream outputs as context
     resolvedContext = JSON.stringify(options.mergedInputs, null, 2);

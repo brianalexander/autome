@@ -96,17 +96,17 @@ describe('gate config validation', () => {
   // Phase 3b retrofit: condition field now has format: 'code' for better UI.
   // The executor reads condition as a plain string — both a bare JS expression
   // and a multi-line expression (as the code editor produces) are equivalent.
-  it('condition field accepts a single-line JS expression (old style)', () => {
+  it('condition field accepts a single-line JS expression using narrowed scope', () => {
     const schema = nodeRegistry.getConfigZodSchema('gate')!;
-    const result = schema.safeParse({ type: 'conditional', condition: 'context.approved === true' });
+    const result = schema.safeParse({ type: 'conditional', condition: 'input.approved === true' });
     expect(result.success).toBe(true);
   });
 
-  it('condition field accepts a multi-line JS expression (as code editor produces)', () => {
+  it('condition field accepts a multi-line JS expression using narrowed scope', () => {
     const schema = nodeRegistry.getConfigZodSchema('gate')!;
     const result = schema.safeParse({
       type: 'conditional',
-      condition: 'const approved = context.stages.review.latest.approved;\napproved === true',
+      condition: 'input.approved === true',
     });
     expect(result.success).toBe(true);
   });

@@ -2,10 +2,16 @@
  * mockContext — synthesizes a fake workflow context for template preview.
  *
  * Walks the workflow graph upstream from a given stage, samples each node's
- * output_schema to generate plausible dummy values, and builds a context object
- * that mirrors what gates and agents see at runtime:
+ * output_schema to generate plausible dummy values, and builds a narrowed context
+ * object matching the template scope policy:
  *
- *   { trigger: { ... }, stages: { [stageId]: { latest: { ... } } } }
+ *   { trigger: { ... }, input: { ... }, output: { ... } }
+ *
+ * - `trigger` — sampled from the trigger node's output_schema
+ * - `input`   — sampled from the immediate upstream stage's output_schema (edge-delivered data)
+ * - `output`  — alias for input (used in outbound-edge templates)
+ *
+ * `stages.*` is intentionally NOT included — user templates cannot reach across stages.
  *
  * Used by PreviewTemplateCard to render live Nunjucks previews in the canvas.
  */
@@ -76,23 +82,44 @@ function findUpstreamStageIds(stageId: string, definition: WorkflowDefinition): 
   return upstream;
 }
 
+/**
+ * Find the immediate parent stage ID (closest upstream, non-trigger) for a given stage.
+ * Returns undefined if no non-trigger upstream exists.
+ */
+function findImmediateUpstream(stageId: string, definition: WorkflowDefinition): string | undefined {
+  // Direct incoming edges from non-trigger stages
+  const incomingEdges = definition.edges.filter((e) => e.target === stageId);
+  for (const edge of incomingEdges) {
+    const srcStage = definition.stages.find((s) => s.id === edge.source);
+    if (srcStage && !srcStage.type.endsWith('-trigger') && srcStage.type !== 'trigger') {
+      return edge.source;
+    }
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Mock context synthesis
 // ---------------------------------------------------------------------------
 
 export interface MockWorkflowContext {
+  /** Workflow-level trigger payload */
   trigger: Record<string, unknown>;
-  stages: Record<string, { latest: unknown }>;
+  /** Edge-delivered upstream data (for incoming-edge templates and stage config templates) */
+  input: Record<string, unknown>;
+  /** Alias for input — used in outbound-edge templates where source stage output is `output` */
+  output: Record<string, unknown>;
 }
 
 /**
- * Build a mock workflow context for template preview.
+ * Build a narrowed mock workflow context for template preview.
  *
- * Strategy:
- * 1. Walk upstream from the target stage to find all ancestor stage IDs.
- * 2. For each ancestor that is a trigger, sample its output_schema → becomes `trigger`.
- * 3. For each non-trigger ancestor, sample its output_schema → becomes `stages.<id>.latest`.
- * 4. If no trigger found upstream, use a generic fallback trigger payload.
+ * Exposed variables match the runtime policy:
+ *   - `trigger` — sampled from the trigger node's output_schema
+ *   - `input`   — sampled from the immediate upstream stage's output_schema
+ *   - `output`  — alias of input (for outbound-edge templates)
+ *
+ * `stages.*` is intentionally excluded — templates cannot reach across stages.
  */
 export function buildMockContext(
   stageId: string,
@@ -100,9 +127,8 @@ export function buildMockContext(
 ): MockWorkflowContext {
   const upstreamIds = findUpstreamStageIds(stageId, definition);
 
-  const stagesScope: Record<string, { latest: unknown }> = {};
   let trigger: Record<string, unknown> = { prompt: 'Sample prompt', data: 'Sample data' };
-  let foundTrigger = false;
+  let input: Record<string, unknown> = {};
 
   for (const upId of upstreamIds) {
     const stageDef = definition.stages.find((s) => s.id === upId);
@@ -113,17 +139,27 @@ export function buildMockContext(
     const outputSchema = config['output_schema'] as Record<string, unknown> | undefined;
     const sampled = outputSchema ? sampleFromSchema(outputSchema, upId) : {};
 
-    if (isTrigger && !foundTrigger) {
+    if (isTrigger) {
       // Use the trigger's sampled output as the trigger context
       trigger = (typeof sampled === 'object' && sampled !== null && !Array.isArray(sampled))
         ? (sampled as Record<string, unknown>)
         : { payload: sampled };
-      foundTrigger = true;
     }
-
-    // All upstream stages (including triggers) get entries in stages scope
-    stagesScope[upId] = { latest: sampled };
   }
 
-  return { trigger, stages: stagesScope };
+  // input = the immediate upstream non-trigger stage's sampled output
+  const immediateUpstreamId = findImmediateUpstream(stageId, definition);
+  if (immediateUpstreamId) {
+    const stageDef = definition.stages.find((s) => s.id === immediateUpstreamId);
+    if (stageDef) {
+      const config = (stageDef.config || {}) as Record<string, unknown>;
+      const outputSchema = config['output_schema'] as Record<string, unknown> | undefined;
+      const sampled = outputSchema ? sampleFromSchema(outputSchema, immediateUpstreamId) : {};
+      input = (typeof sampled === 'object' && sampled !== null && !Array.isArray(sampled))
+        ? (sampled as Record<string, unknown>)
+        : { data: sampled };
+    }
+  }
+
+  return { trigger, input, output: input };
 }

@@ -130,7 +130,9 @@ describe('edge template resolution', () => {
     expect(result).toContain('Approved: true');
   });
 
-  it('resolves {{ stages.planner.output.plan }} for cross-stage reference', () => {
+  it('renders empty string for {{ stages.* }} — cross-stage reach-back is not exposed in template scope', () => {
+    // stages.* is intentionally NOT in the template scope.
+    // The correct pattern is to pass data via an edge with output.FIELD / input.FIELD.
     const edge: EdgeDefinition = {
       id: 'e1',
       source: 'plan-reviewer',
@@ -142,10 +144,12 @@ describe('edge template resolution', () => {
       incomingEdge: edge,
       sourceOutput: { approved: true },
     });
-    expect(result).toContain('Plan:\nStep 1: Do the thing');
+    // stages.* not in scope — renders empty string (nunjucks throwOnUndefined: false)
+    expect(result).toContain('Plan:\n');
+    expect(result).not.toContain('Step 1: Do the thing');
   });
 
-  it('resolves bracket notation for hyphenated stage IDs', () => {
+  it('renders empty string for bracket notation {{ stages["id"].* }} — not in template scope', () => {
     const edge: EdgeDefinition = {
       id: 'e1',
       source: 'planner',
@@ -157,7 +161,9 @@ describe('edge template resolution', () => {
       incomingEdge: edge,
       sourceOutput: { plan: 'some plan' },
     });
-    expect(result).toContain('Feedback: Looks good');
+    // stages.* not in scope — renders empty string
+    expect(result).toContain('Feedback: ');
+    expect(result).not.toContain('Looks good');
   });
 
   it('resolves {{ trigger.field }} for trigger payload access', () => {
@@ -175,12 +181,12 @@ describe('edge template resolution', () => {
     expect(result).toContain('Task: Fix the bug');
   });
 
-  it('renders empty string for missing paths', () => {
+  it('renders empty string for missing paths on allowed variables', () => {
     const edge: EdgeDefinition = {
       id: 'e1',
       source: 'planner',
       target: 'code-gen',
-      prompt_template: 'Value: [{{ stages.nonexistent.output.field }}]',
+      prompt_template: 'Value: [{{ output.nonexistent_field }}]',
     };
 
     const result = buildAgentPrompt(codeGenStage, baseContext, 1, {

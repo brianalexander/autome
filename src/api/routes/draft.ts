@@ -69,6 +69,7 @@ import { slugifyLabel } from '../../utils/slugify.js';
 import { nodeRegistry } from '../../nodes/registry.js';
 import { validateCode } from '../../api/validate-code.js';
 import { validateWorkflow } from '../validate-workflow.js';
+import { validateWorkflowTemplates } from '../../engine/validate-templates.js';
 
 // Schemas for test-run
 const TestRunBody = z.object({
@@ -695,7 +696,16 @@ export function registerDraftRoutes(app: FastifyInstance, deps: RouteDeps, state
     async (request) => {
       const workflowId = resolveDraftId(request.params.workflowId);
       const draft = getDraft(db, state.authorDrafts, workflowId);
-      return validateWorkflow(draft);
+      const result = validateWorkflow(draft);
+      // Also run template/expression scope validation and surface as errors
+      const templateErrors = validateWorkflowTemplates(draft);
+      if (templateErrors.length > 0) {
+        result.valid = false;
+        for (const te of templateErrors) {
+          result.errors.push(`[template] ${te.field}: ${te.error} — ${te.suggestion}`);
+        }
+      }
+      return result;
     },
   );
 }

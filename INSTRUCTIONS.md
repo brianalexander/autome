@@ -36,27 +36,24 @@ Each pipeline instance maintains a **context object** — a JSON document that a
 - `context.stages[stageId].latest` — Shortcut alias for the most recent run's output.
 - `context.stages[stageId].run_count` — How many times this stage has executed.
 
-When a stage completes, its output is appended to the `runs` array and `latest` is updated. When the next stage starts, it receives the full context. Templates can reference `{{ stages.code-gen.latest }}` to get the most recent output, or `{{ stages.code-reviewer.runs[0].output }}` to get a specific iteration.
+When a stage completes, its output is appended to the `runs` array and `latest` is updated. When the next stage starts, it receives data via its incoming edge. User-authored templates reference `{{ input.FIELD }}` (data delivered by the inbound edge) or `{{ trigger.FIELD }}` (workflow trigger payload). Cross-stage reach-back (`stages.*`) is not available in user templates — data flows explicitly through edges.
 
 **How cycles work — the code-gen/review example:**
 
 ```
 code-gen agent
   → produces { code: "...", tests: "..." }
-  → edge to: code-reviewer
+  → edge to: code-reviewer (prompt_template uses {{ output.code }})
 
 code-reviewer agent
-  → reviews the code from context.stages.code-gen.latest
+  → receives the code via {{ input.code }} in its incoming edge prompt_template
   → calls workflow_complete({ decision: "revise", notes: "..." })
   → edge conditions:
       output.decision === "revise"  → back to code-gen
       output.decision === "approved" → forward to code-pusher
 
 code-gen agent (2nd iteration)
-  → receives context showing:
-      - its own prior output (context.stages.code-gen.latest)
-      - the reviewer's notes (context.stages.code-reviewer.latest)
-      - run_count: 2 (so it knows this is a revision)
+  → receives reviewer feedback via {{ input.notes }} in its incoming edge prompt_template
   → produces improved { code: "...", tests: "..." }
   → edge to: code-reviewer (again)
 ```
@@ -105,7 +102,7 @@ Deep dive agent (output_schema: { requirements: string[], acceptance_criteria: s
   → calls workflow_complete({ requirements: [...], acceptance_criteria: [...] })
   → orchestrator validates, writes to context
   → Implementer agent receives context including the requirements
-  → Its system prompt says: "You will receive requirements in context.stages.deep-dive.latest"
+  → Its system prompt says: "You will receive requirements in {{ input.requirements }}" (delivered via the incoming edge's prompt_template)
 ```
 
 ### Jumping into a running agent session
@@ -255,7 +252,7 @@ interface EdgeDefinition {
                        // Examples:
                        //   "output.decision === 'approved'"
                        //   "output.decision === 'revise'"
-                       //   "context.stages['code-gen'].run_count < 3"
+                       //   "output.run_count < 3"  (if the source stage includes run_count in its output)
                        // If omitted, edge is unconditional (always taken).
                        // If multiple edges from same source match, all targets execute (fan-out).
                        // If no edges match, pipeline fails with routing error.
@@ -1015,9 +1012,9 @@ Build the core plumbing that everything else depends on.
 Build the state machine that orchestrates pipeline execution.
 
 1. **Pipeline engine** — The core `PipelineEngine` class. Given a pipeline definition and a trigger event, it: creates an instance, resolves the first stage, spawns the agent, handles `workflow_complete` callbacks, evaluates outgoing edge conditions, and routes to the next stage(s).
-2. **Context accumulator** — Handles template resolution with iteration awareness: `{{ stages.deep-dive.latest }}` gets replaced with actual data. Tracks `run_count` and `runs[]` per stage for cycle support.
-3. **Edge router** — Evaluates edge conditions against `{ output, context }`. Handles fan-out (multiple edges match) and cycles (target is a previously-executed stage). Enforces `max_iterations` safety limit.
-4. **Gate handling** — Manual gates pause and wait for API call. Conditional gates evaluate JS expressions against context.
+2. **Context accumulator** — Handles template resolution: edge prompt_templates see `{{ output.FIELD }}` / `{{ input.FIELD }}` / `{{ trigger.FIELD }}`; the internal `context.stages` bookkeeping is not exposed to user templates. Tracks `run_count` and `runs[]` per stage for cycle support.
+3. **Edge router** — Evaluates edge conditions against `{ output, trigger }`. Handles fan-out (multiple edges match) and cycles (target is a previously-executed stage). Enforces `max_iterations` safety limit.
+4. **Gate handling** — Manual gates pause and wait for API call. Conditional gates evaluate JS expressions against `{ input, trigger }` (not raw context).
 5. **Event bus + manual trigger** — The EventBus that routes events to pipeline triggers. Start with just ManualTriggerProvider so pipelines can be kicked off from the API.
 6. **WebSocket broadcasting** — Real-time state change events pushed to connected clients, including cycle/iteration events.
 
@@ -1178,7 +1175,7 @@ This is the concrete definition for a Jira-to-merged pipeline with an iterative 
           { "name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"] }
         ],
         "tool_approval": "all_trusted",
-        "context_template": "Requirements:\n{{ stages.deep-dive.latest }}\n\n{% if stages.code-reviewer.latest %}Reviewer feedback (address ALL points):\n{{ stages.code-reviewer.latest }}\n\nYour previous implementation:\n{{ stages.code-gen.latest }}{% endif %}\n\nThis is iteration {{ stages.code-gen.run_count + 1 }}.",
+        "context_template": "Requirements:\n{{ input.requirements }}\n\n{% if input.reviewer_notes %}Reviewer feedback (address ALL points):\n{{ input.reviewer_notes }}\n{% endif %}",
         "output_schema": {
           "type": "object",
           "properties": {
@@ -1212,7 +1209,7 @@ This is the concrete definition for a Jira-to-merged pipeline with an iterative 
           { "name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"] }
         ],
         "tool_approval": "all_trusted",
-        "context_template": "Requirements:\n{{ stages.deep-dive.latest }}\n\nImplementation:\n{{ stages.code-gen.latest }}\n\nThis is review iteration {{ stages.code-reviewer.run_count + 1 }}. {% if stages.code-reviewer.run_count > 0 %}Your prior review feedback was:\n{{ stages.code-reviewer.latest.notes }}\nCheck whether the developer addressed your points.{% endif %}",
+        "context_template": "Requirements:\n{{ input.requirements }}\n\nImplementation:\n{{ input.code }}",
         "output_schema": {
           "type": "object",
           "properties": {
@@ -1246,7 +1243,7 @@ This is the concrete definition for a Jira-to-merged pipeline with an iterative 
           { "name": "github", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] }
         ],
         "tool_approval": "all_trusted",
-        "context_template": "Jira ticket: {{ trigger.payload.key }}\nImplementation summary: {{ stages.code-gen.latest.summary }}\nReview: {{ stages.code-reviewer.latest.decision }}\nFiles changed: {{ stages.code-gen.latest.files_changed }}",
+        "context_template": "Jira ticket: {{ trigger.key }}\nImplementation summary: {{ input.summary }}\nFiles changed: {{ input.files_changed }}",
         "output_schema": {
           "type": "object",
           "properties": {

@@ -113,7 +113,7 @@ export const StageDefinitionSchema = z.object({
   // --- Dynamic map (fan-out over array) ---
   map_over: z.string().optional().meta({
     description:
-      'Template expression resolving to an array (e.g. "{{ stages.splitter.output.items }}"). When set, the stage executes once per array element. Each execution receives the element as input. Results are collected into an output array.',
+      'Template expression resolving to an array (e.g. "{{ trigger.items }}"). When set, the stage executes once per array element. Each execution receives the element as input. Results are collected into an output array.',
   }),
   concurrency: z.number().int().min(1).optional().meta({
     description: 'Maximum number of parallel map executions (only applies when map_over is set). Default: unlimited.',

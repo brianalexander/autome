@@ -68,7 +68,7 @@ export const reviewGateNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Review Instructions',
         description:
-          "Shown to the reviewer. Supports Nunjucks — reference {{ trigger.FIELD }} or {{ stages.STAGE_ID.latest.FIELD }}.",
+          "Shown to the reviewer. Supports Nunjucks — reference {{ trigger.FIELD }} for the trigger payload or {{ input.FIELD }} for the upstream stage's output.",
         format: 'template',
       },
       timeout_minutes: {
@@ -131,7 +131,7 @@ export const reviewGateNodeSpec: NodeTypeSpec = {
     {
       kind: 'help-text',
       title: 'Routing decisions',
-      markdown: `Wire three outgoing edges (any can be omitted):\n\n- **Approve**: \`output.decision === 'approved'\` → next stage\n- **Revise**: \`output.decision === 'revised'\` → loop back to upstream stage for another pass (the reviewer's notes are available as \`{{ stages.<review_gate_id>.latest.notes }}\`)\n- **Reject**: no edge needed — the gate throws a TerminalError and marks the instance failed`,
+      markdown: `Wire three outgoing edges (any can be omitted):\n\n- **Approve**: \`output.decision === 'approved'\` → next stage\n- **Revise**: \`output.decision === 'revised'\` → loop back to upstream stage for another pass. The reviewer's notes flow through the edge to the upstream stage — reference them as \`{{ input.notes }}\` in the upstream stage's incoming edge prompt_template.\n- **Reject**: no edge needed — the gate throws a TerminalError and marks the instance failed`,
     },
   ],
 };

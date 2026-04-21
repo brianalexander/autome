@@ -15,6 +15,7 @@ import { importWorkflow, previewBundle } from '../../bundle/import.js';
 import { BUNDLE_EXTENSION } from '../../bundle/types.js';
 import { checkWorkflowHealth } from '../../bundle/health.js';
 import { activateWorkflowTriggers, createTriggerSubscriptions, deactivateWorkflowTriggers } from '../../engine/trigger-lifecycle.js';
+import { validateWorkflowTemplates } from '../../engine/validate-templates.js';
 
 // Zod schemas for workflow routes
 const WorkflowIdParams = z.object({ id: z.string() });
@@ -97,6 +98,11 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
             warnings: graphResult.warnings,
           });
         }
+        // Validate templates and JS expressions for forbidden patterns (stages.*, context.*)
+        const templateErrors = validateWorkflowTemplates(body as Parameters<typeof validateWorkflowTemplates>[0]);
+        if (templateErrors.length > 0) {
+          return reply.code(400).send({ error: 'Template validation failed', templateErrors });
+        }
         // Default active to false if not provided
         const workflowData = { ...body, active: body.active ?? false };
         const workflow = db.createWorkflow(workflowData as Parameters<typeof db.createWorkflow>[0]);
@@ -149,6 +155,16 @@ export function registerWorkflowRoutes(app: FastifyInstance, deps: RouteDeps, st
           }
         }
         if (body.stages || body.edges) {
+          // Validate templates/expressions for forbidden patterns whenever stages or edges are updated
+          const mergedForTemplate = {
+            ...existing,
+            stages: (body.stages as unknown[] | undefined) ?? existing.stages ?? [],
+            edges: (body.edges as unknown[] | undefined) ?? existing.edges ?? [],
+          };
+          const templateErrors = validateWorkflowTemplates(mergedForTemplate as Parameters<typeof validateWorkflowTemplates>[0]);
+          if (templateErrors.length > 0) {
+            return reply.code(400).send({ error: 'Template validation failed', templateErrors });
+          }
           // Validate graph structure whenever stages or edges are updated
           const stages = (body.stages as Array<{ id: string; type: string }> | undefined) ?? existing.stages ?? [];
           const edges = (body.edges as unknown[] | undefined) ?? existing.edges ?? [];

@@ -24,6 +24,7 @@ const triggerStage: StageDefinition = {
       properties: {
         subject: { type: 'string', title: 'Subject' },
         amount: { type: 'number', title: 'Amount' },
+        category: { type: 'string', title: 'Category' },
       },
     },
   },
@@ -44,7 +45,7 @@ const classifierStage: StageDefinition = {
 } as StageDefinition;
 
 const gateStageWithMessage = makeGateStage(
-  'Please review: {{ trigger.subject }} — category: {{ stages.classifier.latest.category }}',
+  'Please review: {{ trigger.subject }} — category: {{ trigger.category }}',
 );
 
 const definition: WorkflowDefinition = {
@@ -77,7 +78,7 @@ describe('PreviewTemplateCard', () => {
 
   it('renders Nunjucks template output using sampled upstream schema values', () => {
     render(<PreviewTemplateCard {...baseProps} />);
-    // The mock context samples: trigger.subject = "Sample Subject", classifier.latest.category = "Sample Category"
+    // The mock context samples: trigger.subject = "Sample Subject", trigger.category = "Sample Category"
     const pre = document.querySelector('pre');
     expect(pre).not.toBeNull();
     const text = pre!.textContent ?? '';

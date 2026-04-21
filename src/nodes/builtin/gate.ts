@@ -46,7 +46,10 @@ const executor: StepExecutor = {
       return { output: { approved: true, input: passthrough } };
     } else if (gateType === 'conditional') {
       const condition = config.condition as string;
-      const passed = safeEvalCondition(condition, { context: workflowContext });
+      // Narrowed sandbox: `input` is the edge-delivered upstream output, `trigger` is the workflow trigger payload.
+      // No raw `context` or `stages.*` exposure in user-authored expressions.
+      const gateInput = input?.sourceOutput ?? input?.mergedInputs ?? null;
+      const passed = safeEvalCondition(condition, { input: gateInput, trigger: workflowContext.trigger });
 
       if (!passed) {
         throw new TerminalError(`Gate condition failed for "${stageId}": ${condition}`);
@@ -80,7 +83,7 @@ export const gateNodeSpec: NodeTypeSpec = {
       condition: {
         type: 'string',
         title: 'Condition',
-        description: 'JS expression for conditional gates. Available variable: context (workflow context). Example: context.stages["review"].latest.approved === true',
+        description: 'JS expression for conditional gates. Available variables: input (edge-delivered upstream output), trigger (workflow trigger payload). Example: input.approved === true',
         format: 'code',
         'x-show-if': { field: 'type', equals: 'conditional' },
       },
@@ -88,7 +91,7 @@ export const gateNodeSpec: NodeTypeSpec = {
         type: 'string',
         title: 'Message',
         format: 'template',
-        description: "Shown to the human reviewer (for manual gates). Supports Nunjucks templates — reference the trigger payload via {{ trigger.FIELD }} or upstream outputs via {{ stages.STAGE_ID.latest.FIELD }}.",
+        description: "Shown to the human reviewer (for manual gates). Supports Nunjucks templates — reference the trigger payload via {{ trigger.FIELD }} or the upstream stage's output via {{ input.FIELD }}.",
       },
       timeout_minutes: {
         type: 'number',

@@ -195,7 +195,9 @@ export function evaluateEdges(
       taken = true;
     } else {
       try {
-        if (safeEvalCondition(edge.condition, { output })) {
+        // Narrowed sandbox: `output` is the source stage's completed output, `trigger` is the workflow trigger payload.
+        // No raw `context` or `stages.*` exposure in user-authored edge conditions.
+        if (safeEvalCondition(edge.condition, { output, trigger: context.trigger })) {
           taken = true;
         }
       } catch (err) {
