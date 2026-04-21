@@ -311,7 +311,6 @@ export type ReviewDecision = 'approved' | 'revised' | 'rejected';
 export interface ReviewGateDecisionBody {
   decision: ReviewDecision;
   notes?: string;
-  data?: unknown;
 }
 
 export const approvals = {

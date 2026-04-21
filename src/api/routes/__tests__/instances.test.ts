@@ -341,6 +341,15 @@ describe('Instance routes', () => {
     expect(res.statusCode).not.toBe(400);
   });
 
+  it('POST /review — rejects body that includes the retired data field', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/instances/fake-inst/stages/review1/review',
+      payload: { decision: 'approved', data: { foo: 'bar' } },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   // ---------------------------------------------------------------------------
   // GET /api/approvals — gateKind field
   // ---------------------------------------------------------------------------

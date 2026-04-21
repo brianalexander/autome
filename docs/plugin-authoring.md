@@ -183,6 +183,9 @@ stages:
   - id: publish
     type: agent
     # ... agent config ...
+    config:
+      prompt: |
+        Publish this approved content: {{ output.input.content }}
 
 edges:
   # Proceed to publish on approval
@@ -204,7 +207,7 @@ edges:
   # No edge needed for 'rejected' — the gate throws a TerminalError automatically
 ```
 
-The `review-gate` output shape is `{ decision, notes?, data? }`. When the decision is `approved` or `revised`, the output flows to downstream stages. When `rejected`, the gate throws a `TerminalError` and marks the instance failed.
+The `review-gate` output shape is `{ decision, notes?, input }`. The `input` field is a passthrough of the upstream stage's output — downstream stages can reference `{{ output.input.FIELD }}` directly instead of reaching back via `{{ stages.<upstream>.latest.FIELD }}`. When the decision is `approved` or `revised`, the output flows to downstream stages. When `rejected`, the gate throws a `TerminalError` and marks the instance failed.
 
 ### Trigger Executors
 

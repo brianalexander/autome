@@ -11,6 +11,7 @@ function buildCtx(
   stageId: string,
   waitForValue: unknown,
   fetchMock: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue({}),
+  upstreamInput?: unknown,
 ): StepExecutorContext {
   return {
     ctx: {
@@ -25,34 +26,59 @@ function buildCtx(
     orchestratorUrl: 'http://localhost:3001',
     definition: { id: 'wf-1', name: 'Test', active: true, trigger: { provider: 'manual' }, stages: [], edges: [] },
     workflowContext: { trigger: {}, stages: {} },
-    input: undefined,
+    input: upstreamInput !== undefined ? { sourceOutput: upstreamInput } : undefined,
     iteration: 1,
     _fetch: fetchMock,
   } as unknown as StepExecutorContext;
 }
 
 describe('review-gate executor', () => {
-  it('returns output with decision=approved when reviewer approves', async () => {
+  it('returns output with decision=approved and input passthrough when reviewer approves', async () => {
     const decision = { decision: 'approved', notes: 'Looks good' };
-    const ctx = buildCtx('review_stage', decision);
+    const upstream = { content: 'draft text', score: 42 };
+    const ctx = buildCtx('review_stage', decision, vi.fn().mockResolvedValue({}), upstream);
     const executor = reviewGateNodeSpec.executor as StepExecutor;
 
     const result = await executor.execute(ctx);
 
-    expect(result).toEqual({ output: decision });
+    expect(result).toEqual({ output: { decision: 'approved', notes: 'Looks good', input: upstream } });
     expect(ctx.ctx.setStatus).toHaveBeenCalledWith('waiting_gate');
     expect(ctx.ctx.setStatus).toHaveBeenCalledWith('running');
   });
 
-  it('returns output with decision=revised when reviewer requests revision', async () => {
+  it('returns output with decision=revised and input passthrough when reviewer requests revision', async () => {
     const decision = { decision: 'revised', notes: 'Please fix section 2' };
+    const upstream = { content: 'first draft' };
+    const ctx = buildCtx('review_stage', decision, vi.fn().mockResolvedValue({}), upstream);
+    const executor = reviewGateNodeSpec.executor as StepExecutor;
+
+    const result = await executor.execute(ctx);
+
+    expect(result).toEqual({ output: { decision: 'revised', notes: 'Please fix section 2', input: upstream } });
+    expect(ctx.ctx.setStatus).toHaveBeenCalledWith('running');
+  });
+
+  it('sets input to null when no upstream input is provided', async () => {
+    const decision = { decision: 'approved' };
     const ctx = buildCtx('review_stage', decision);
     const executor = reviewGateNodeSpec.executor as StepExecutor;
 
     const result = await executor.execute(ctx);
 
-    expect(result).toEqual({ output: decision });
-    expect(ctx.ctx.setStatus).toHaveBeenCalledWith('running');
+    expect(result).toEqual({ output: { decision: 'approved', notes: undefined, input: null } });
+  });
+
+  it('uses mergedInputs as passthrough when sourceOutput is absent', async () => {
+    const decision = { decision: 'approved' };
+    const merged = { stage_a: { foo: 1 }, stage_b: { bar: 2 } };
+    const ctx = buildCtx('review_stage', decision);
+    // Override input to use mergedInputs
+    (ctx as unknown as { input: unknown }).input = { mergedInputs: merged };
+    const executor = reviewGateNodeSpec.executor as StepExecutor;
+
+    const result = await executor.execute(ctx);
+
+    expect((result.output as { input: unknown }).input).toEqual(merged);
   });
 
   it('throws TerminalError with notes when reviewer rejects', async () => {
@@ -111,5 +137,14 @@ describe('review-gate executor', () => {
     expect(reviewGateNodeSpec.id).toBe('review-gate');
     expect(reviewGateNodeSpec.category).toBe('step');
     expect(reviewGateNodeSpec.name).toBe('Review Gate');
+  });
+
+  it('spec defaultConfig output_schema does not include a data property', () => {
+    const schema = reviewGateNodeSpec.defaultConfig?.output_schema as {
+      properties?: Record<string, unknown>;
+    };
+    expect(schema?.properties).toBeDefined();
+    expect(schema?.properties?.data).toBeUndefined();
+    expect(schema?.properties?.input).toBeDefined();
   });
 });

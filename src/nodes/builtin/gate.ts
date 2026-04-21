@@ -9,9 +9,12 @@ import { safeEvalCondition } from '../../engine/safe-eval.js';
 const executor: StepExecutor = {
   type: 'step',
   async execute(execCtx: StepExecutorContext): Promise<{ output: unknown }> {
-    const { ctx, stageId, config, orchestratorUrl, workflowContext } = execCtx;
+    const { ctx, stageId, config, orchestratorUrl, workflowContext, input } = execCtx;
     const gateType = (config.type as string) || 'auto';
-    let gateData: unknown | undefined;
+
+    // Pass upstream input through to the output so downstream stages can reference
+    // {{ output.input.FIELD }} instead of reaching back via stages.<upstream>.latest.FIELD
+    const passthrough = input?.sourceOutput ?? input?.mergedInputs ?? null;
 
     if (gateType === 'manual') {
       ctx.setStatus('waiting_gate');
@@ -32,15 +35,15 @@ const executor: StepExecutor = {
 
       // Wait for approval via durable wait.
       // Accept both the legacy boolean shape (in-flight workflows) and the new object shape.
-      const raw = await ctx.waitFor<{ approved: boolean; data?: unknown } | boolean>(`gate-${stageId}`);
+      const raw = await ctx.waitFor<{ approved: boolean } | boolean>(`gate-${stageId}`);
       const result = typeof raw === 'boolean' ? { approved: raw } : raw;
 
       if (!result.approved) {
         throw new TerminalError(`Gate "${stageId}" was rejected`);
       }
 
-      gateData = result.data;
       ctx.setStatus('running');
+      return { output: { approved: true, input: passthrough } };
     } else if (gateType === 'conditional') {
       const condition = config.condition as string;
       const passed = safeEvalCondition(condition, { context: workflowContext });
@@ -48,10 +51,12 @@ const executor: StepExecutor = {
       if (!passed) {
         throw new TerminalError(`Gate condition failed for "${stageId}": ${condition}`);
       }
-    }
-    // Auto gates just pass through
 
-    return { output: gateData ?? { approved: true } };
+      return { output: { approved: true, input: passthrough } };
+    }
+
+    // Auto gates just pass through
+    return { output: { approved: true, input: passthrough } };
   },
 };
 
@@ -100,8 +105,9 @@ export const gateNodeSpec: NodeTypeSpec = {
       output_schema: {
         type: 'object',
         title: 'Output Schema',
-        description: 'JSON Schema describing the expected shape of edited gate data. Used for design-time documentation of downstream references.',
+        description: 'Fixed shape: { approved: true, input: <upstream data> }. The input field is a passthrough of the upstream stage output — reference it downstream as {{ output.input.FIELD }}.',
         format: 'json',
+        readOnly: true,
       },
     },
   },

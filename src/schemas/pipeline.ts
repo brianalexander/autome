@@ -365,8 +365,7 @@ export type TriggerStatusWithLogs = z.infer<typeof TriggerStatusSchema>;
 export const ReviewGateDecisionSchema = z.object({
   decision: z.enum(['approved', 'revised', 'rejected']),
   notes: z.string().optional(),
-  data: z.unknown().optional(),
-});
+}).strict();
 
 export type ReviewGateDecision = z.infer<typeof ReviewGateDecisionSchema>;
 

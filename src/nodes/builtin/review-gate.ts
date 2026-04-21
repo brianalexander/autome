@@ -9,13 +9,12 @@ import type { NodeTypeSpec, StepExecutor, StepExecutorContext } from '../types.j
 interface ReviewDecision {
   decision: 'approved' | 'revised' | 'rejected';
   notes?: string;
-  data?: unknown;
 }
 
 const executor: StepExecutor = {
   type: 'step',
-  async execute(execCtx: StepExecutorContext): Promise<{ output: ReviewDecision }> {
-    const { ctx, stageId, config, orchestratorUrl } = execCtx;
+  async execute(execCtx: StepExecutorContext): Promise<{ output: unknown }> {
+    const { ctx, stageId, config, orchestratorUrl, input } = execCtx;
     ctx.setStatus('waiting_gate');
 
     await fetch(`${orchestratorUrl}/api/internal/workflow-status`, {
@@ -40,8 +39,18 @@ const executor: StepExecutor = {
       );
     }
 
+    // Pass upstream input through to the output so downstream stages can reference
+    // {{ output.input.FIELD }} instead of reaching back via stages.<upstream>.latest.FIELD
+    const passthrough = input?.sourceOutput ?? input?.mergedInputs ?? null;
+
     ctx.setStatus('running');
-    return { output: result };
+    return {
+      output: {
+        decision: result.decision,
+        notes: result.notes,
+        input: passthrough,
+      },
+    };
   },
 };
 
@@ -82,7 +91,7 @@ export const reviewGateNodeSpec: NodeTypeSpec = {
       output_schema: {
         type: 'object',
         title: 'Output Schema',
-        description: 'Fixed shape: { decision, notes?, data? }.',
+        description: 'Fixed shape: { decision, notes?, input }. The input field is a passthrough of the upstream stage output — reference it downstream as {{ output.input.FIELD }}.',
         format: 'json',
         readOnly: true,
       },
@@ -94,7 +103,7 @@ export const reviewGateNodeSpec: NodeTypeSpec = {
       properties: {
         decision: { type: 'string', enum: ['approved', 'revised', 'rejected'] },
         notes: { type: 'string' },
-        data: { type: 'object' },
+        input: { description: 'Passthrough of the upstream stage output.' },
       },
       required: ['decision'],
     },
