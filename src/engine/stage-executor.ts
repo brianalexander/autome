@@ -14,6 +14,19 @@ import { resolveTemplateValue } from '../engine/context-resolver.js';
 import { getSecretsSnapshot } from '../secrets/service.js';
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolves the effective max-iterations cap for a cycled stage.
+ * undefined/null → Infinity (no cap); any number is used as-is.
+ */
+export function resolveMaxIterations(raw: unknown): number {
+  if (raw == null) return Infinity;
+  return raw as number;
+}
+
+// ---------------------------------------------------------------------------
 // Retry helper
 // ---------------------------------------------------------------------------
 
@@ -418,7 +431,7 @@ export async function executeStepWithLifecycle(
 ): Promise<void> {
   const orchestratorUrl = execCtx.orchestratorUrl;
   const config: Record<string, unknown> = stage.config || {};
-  const maxIterations = (config.max_iterations as number) ?? 5;
+  const maxIterations = resolveMaxIterations(config.max_iterations);
   let iteration = context.stages[stageId].run_count || 0;
 
   // Cycle re-entry detection

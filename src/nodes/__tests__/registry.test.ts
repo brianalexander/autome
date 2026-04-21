@@ -308,7 +308,9 @@ describe('configCards in getAllInfo()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 3 slider widget dogfooding — verify x-widget and bounds on retrofitted fields
+// Slider widget NOT applied to open-ended fields
+// These fields (iteration limits, turn limits, timeouts) have no meaningful
+// upper bound — the slider was reverted so users can enter arbitrary values.
 // ---------------------------------------------------------------------------
 
 /** Helper: reach into a configSchema's properties bag and return the named field. */
@@ -318,45 +320,42 @@ function getSchemaField(nodeId: string, fieldName: string): Record<string, unkno
   return props[fieldName];
 }
 
-describe('slider widget schema annotations', () => {
-  it('agent max_iterations has x-widget slider with correct bounds', () => {
+describe('slider widget NOT applied to open-ended fields', () => {
+  it('agent max_iterations does NOT have x-widget or bounds', () => {
     const field = getSchemaField('agent', 'max_iterations');
-    expect(field['x-widget']).toBe('slider');
-    expect(field.minimum).toBe(1);
-    expect(field.maximum).toBe(20);
-    expect(field.multipleOf).toBe(1);
+    expect(field['x-widget']).toBeUndefined();
+    expect(field.minimum).toBeUndefined();
+    expect(field.maximum).toBeUndefined();
   });
 
-  it('agent max_turns has x-widget slider with correct bounds', () => {
+  it('agent max_turns does NOT have x-widget or bounds', () => {
     const field = getSchemaField('agent', 'max_turns');
-    expect(field['x-widget']).toBe('slider');
-    expect(field.minimum).toBe(1);
-    expect(field.maximum).toBe(100);
-    expect(field.multipleOf).toBe(1);
+    expect(field['x-widget']).toBeUndefined();
+    expect(field.minimum).toBeUndefined();
+    expect(field.maximum).toBeUndefined();
   });
 
-  it('agent timeout_minutes has x-widget slider with correct bounds', () => {
+  it('agent timeout_minutes does NOT have x-widget or bounds', () => {
     const field = getSchemaField('agent', 'timeout_minutes');
-    expect(field['x-widget']).toBe('slider');
-    expect(field.minimum).toBe(1);
-    expect(field.maximum).toBe(120);
-    expect(field.multipleOf).toBe(1);
+    expect(field['x-widget']).toBeUndefined();
+    expect(field.minimum).toBeUndefined();
+    expect(field.maximum).toBeUndefined();
   });
 
-  it('gate timeout_minutes has x-widget slider with correct bounds', () => {
+  it('gate timeout_minutes does NOT have x-widget or bounds', () => {
     const field = getSchemaField('gate', 'timeout_minutes');
-    expect(field['x-widget']).toBe('slider');
-    expect(field.minimum).toBe(1);
-    expect(field.maximum).toBe(1440);
-    expect(field.multipleOf).toBe(5);
+    expect(field['x-widget']).toBeUndefined();
+    expect(field.minimum).toBeUndefined();
+    expect(field.maximum).toBeUndefined();
   });
 
-  it('code-executor timeout_seconds has x-widget slider with correct bounds', () => {
+  it('code-executor timeout_seconds does NOT have x-widget or bounds (retains default: 30)', () => {
     const field = getSchemaField('code-executor', 'timeout_seconds');
-    expect(field['x-widget']).toBe('slider');
-    expect(field.minimum).toBe(5);
-    expect(field.maximum).toBe(300);
-    expect(field.multipleOf).toBe(5);
+    expect(field['x-widget']).toBeUndefined();
+    expect(field.minimum).toBeUndefined();
+    expect(field.maximum).toBeUndefined();
+    // default is kept so code execution has a sane fallback
+    expect(field.default).toBe(30);
   });
 
   it('code-trigger timeout_seconds does NOT have x-widget slider (0 = no timeout sentinel)', () => {

@@ -83,10 +83,7 @@ export const gateNodeSpec: NodeTypeSpec = {
       timeout_minutes: {
         type: 'number',
         title: 'Timeout (minutes)',
-        'x-widget': 'slider',
-        minimum: 1,
-        maximum: 1440,
-        multipleOf: 5,
+        description: 'How long to wait for approval. Empty = no timeout; wait indefinitely.',
       },
       timeout_action: {
         type: 'string',

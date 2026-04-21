@@ -131,12 +131,8 @@ export const codeExecutorNodeSpec: NodeTypeSpec = {
       timeout_seconds: {
         type: 'number',
         title: 'Timeout (seconds)',
-        description: 'Max execution time (default: 30s)',
+        description: 'Max execution time in seconds (default: 30). Leave empty to disable the timeout.',
         default: 30,
-        'x-widget': 'slider',
-        minimum: 5,
-        maximum: 300,
-        multipleOf: 5,
       },
       output_schema: {
         type: 'object',

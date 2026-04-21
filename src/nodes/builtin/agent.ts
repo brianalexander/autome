@@ -96,28 +96,17 @@ export const agentNodeSpec: NodeTypeSpec = {
       max_iterations: {
         type: 'number',
         title: 'Max Iterations',
-        description: 'Max re-executions in cycles (default: 5)',
-        'x-widget': 'slider',
-        minimum: 1,
-        maximum: 20,
-        multipleOf: 1,
+        description: 'Max re-executions in cycles. Empty = unlimited.',
       },
       max_turns: {
         type: 'number',
         title: 'Max Turns',
-        description: 'Safety limit on agent conversation turns',
-        'x-widget': 'slider',
-        minimum: 1,
-        maximum: 100,
-        multipleOf: 1,
+        description: 'Safety limit on agent conversation turns (not currently enforced — reserved for future providers).',
       },
       timeout_minutes: {
         type: 'number',
         title: 'Timeout (minutes)',
-        'x-widget': 'slider',
-        minimum: 1,
-        maximum: 120,
-        multipleOf: 1,
+        description: 'Time limit for this agent stage. Empty = unlimited.',
       },
       // cycle_behavior is rendered by the cycle-behavior configCard (conditionally, based on graph topology)
       // — NOT via SchemaForm, so it is intentionally absent from configSchema properties.
@@ -135,7 +124,7 @@ export const agentNodeSpec: NodeTypeSpec = {
     },
     required: ['agentId', 'output_schema'],
   },
-  defaultConfig: { agentId: '', max_iterations: 5 },
+  defaultConfig: { agentId: '' },
   configCards: [
     {
       kind: 'cycle-behavior',
