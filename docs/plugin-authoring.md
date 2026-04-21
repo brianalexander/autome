@@ -161,6 +161,51 @@ async execute({ ctx, stageId }) {
 }
 ```
 
+### Review Gate Pattern
+
+The built-in `review-gate` node type provides a human-in-the-loop review checkpoint with three possible decisions: **approve**, **request revision**, or **reject**. The "revise" path is designed for iterative loops where upstream stages rework their output based on reviewer feedback.
+
+Wire three conditional outgoing edges from the `review-gate` node to control routing:
+
+```yaml
+stages:
+  - id: draft_content
+    type: agent
+    # ... agent config ...
+
+  - id: review
+    type: review-gate
+    config:
+      message: "Please review the content draft: {{ stages.draft_content.latest.content }}"
+      timeout_minutes: 60
+      timeout_action: rejected
+
+  - id: publish
+    type: agent
+    # ... agent config ...
+
+edges:
+  # Proceed to publish on approval
+  - id: e_approve
+    source: review
+    target: publish
+    condition: "output.decision === 'approved'"
+
+  # Loop back to draft on revision request — reviewer notes are available downstream
+  - id: e_revise
+    source: review
+    target: draft_content
+    condition: "output.decision === 'revised'"
+    max_traversals: 3
+    prompt_template: |
+      Please revise your draft based on this feedback:
+      {{ stages.review.latest.notes }}
+
+  # No edge needed for 'rejected' — the gate throws a TerminalError automatically
+```
+
+The `review-gate` output shape is `{ decision, notes?, data? }`. When the decision is `approved` or `revised`, the output flows to downstream stages. When `rejected`, the gate throws a `TerminalError` and marks the instance failed.
+
 ### Trigger Executors
 
 A trigger is a long-running event source that starts workflow instances. The lifecycle engine spins it up when a workflow is activated and tears it down when deactivated. Trigger executors implement `TriggerExecutor`:

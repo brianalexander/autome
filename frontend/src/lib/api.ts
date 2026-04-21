@@ -193,6 +193,14 @@ export const instances = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
+  submitReview: (instanceId: string, stageId: string, body: ReviewGateDecisionBody) =>
+    request<{ submitted: boolean; decision: ReviewDecision }>(
+      `/instances/${instanceId}/stages/${stageId}/review`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
+    ),
   injectMessage: (instanceId: string, stageId: string, message: string) =>
     request<{ injected: boolean }>(`/instances/${instanceId}/stages/${stageId}/message`, {
       method: 'POST',
@@ -293,8 +301,17 @@ export interface PendingApproval {
   stageId: string;
   stageLabel: string;
   gateMessage: string | null;
+  gateKind: 'binary' | 'review';
   upstreamData: unknown;
   waitingSince: string;
+}
+
+export type ReviewDecision = 'approved' | 'revised' | 'rejected';
+
+export interface ReviewGateDecisionBody {
+  decision: ReviewDecision;
+  notes?: string;
+  data?: unknown;
 }
 
 export const approvals = {

@@ -4,9 +4,11 @@ import { StatusBadge } from '../ui/StatusBadge';
 import { MetadataRow } from '../ui/MetadataRow';
 import { RunHistory } from './RunHistory';
 import { ConfigPanel } from '../canvas/ConfigPanel';
+import { ReviewGateActions } from '../review/ReviewGateActions';
 import type { StageDefinition, StageContext, WorkflowDefinition } from '../../lib/api';
 
 export function GateSidebar({
+  instanceId,
   stageId,
   stageDef,
   stageCtx,
@@ -16,6 +18,7 @@ export function GateSidebar({
   onApprove,
   onReject,
 }: {
+  instanceId: string;
   stageId: string;
   stageDef: StageDefinition;
   stageCtx: StageContext | null | undefined;
@@ -27,7 +30,8 @@ export function GateSidebar({
 }) {
   const [activeTab, setActiveTab] = useState<'runtime' | 'config'>('runtime');
   const gate = (stageDef.config || {}) as Record<string, unknown>;
-  const isWaiting = stageCtx?.status === 'running' && gate.type === 'manual';
+  const isReviewGate = stageDef.type === 'review-gate';
+  const isWaiting = stageCtx?.status === 'running' && (isReviewGate || gate.type === 'manual');
   const statusText = stageCtx?.status || 'pending';
 
   // Find upstream stage(s) by looking at edges targeting this gate
@@ -146,57 +150,66 @@ export function GateSidebar({
           )}
           {isWaiting && (
             <>
-              {/* Editable data from upstream stage */}
-              <div className="space-y-1.5 pt-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-tertiary uppercase tracking-wider">
-                    Data to approve
-                  </span>
-                  {upstreamEdges.length === 1 && (
-                    <span className="text-[10px] text-text-muted font-mono">
-                      from: {upstreamEdges[0].source}
-                    </span>
-                  )}
+              {isReviewGate ? (
+                /* Review gate: show three-button review actions */
+                <div className="pt-2">
+                  <ReviewGateActions instanceId={instanceId} stageId={stageId} />
                 </div>
-                <textarea
-                  value={editedData}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setEditedData(value);
-                    if (value.trim()) {
-                      try {
-                        JSON.parse(value);
-                        setParseError(null);
-                      } catch {
-                        setParseError('Invalid JSON');
-                      }
-                    } else {
-                      setParseError(null);
-                    }
-                  }}
-                  className="w-full bg-surface-secondary border border-border-subtle rounded-lg px-3 py-2 text-xs font-mono text-text-primary focus:outline-none focus:border-blue-500 resize-y min-h-[100px] max-h-[400px]"
-                  placeholder="No upstream data available"
-                  spellCheck={false}
-                />
-                {parseError && (
-                  <p className="text-[10px] text-red-500">{parseError}</p>
-                )}
-              </div>
+              ) : (
+                /* Binary gate: show editable data + approve/reject */
+                <>
+                  <div className="space-y-1.5 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-text-tertiary uppercase tracking-wider">
+                        Data to approve
+                      </span>
+                      {upstreamEdges.length === 1 && (
+                        <span className="text-[10px] text-text-muted font-mono">
+                          from: {upstreamEdges[0].source}
+                        </span>
+                      )}
+                    </div>
+                    <textarea
+                      value={editedData}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setEditedData(value);
+                        if (value.trim()) {
+                          try {
+                            JSON.parse(value);
+                            setParseError(null);
+                          } catch {
+                            setParseError('Invalid JSON');
+                          }
+                        } else {
+                          setParseError(null);
+                        }
+                      }}
+                      className="w-full bg-surface-secondary border border-border-subtle rounded-lg px-3 py-2 text-xs font-mono text-text-primary focus:outline-none focus:border-blue-500 resize-y min-h-[100px] max-h-[400px]"
+                      placeholder="No upstream data available"
+                      spellCheck={false}
+                    />
+                    {parseError && (
+                      <p className="text-[10px] text-red-500">{parseError}</p>
+                    )}
+                  </div>
 
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={handleApprove}
-                  className="flex-1 px-3 py-2 text-sm bg-green-700 hover:bg-green-600 text-white rounded"
-                >
-                  Approve
-                </button>
-                <button
-                  onClick={onReject}
-                  className="flex-1 px-3 py-2 text-sm bg-red-700 hover:bg-red-600 text-white rounded"
-                >
-                  Reject
-                </button>
-              </div>
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={handleApprove}
+                      className="flex-1 px-3 py-2 text-sm bg-green-700 hover:bg-green-600 text-white rounded"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={onReject}
+                      className="flex-1 px-3 py-2 text-sm bg-red-700 hover:bg-red-600 text-white rounded"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </>
+              )}
             </>
           )}
           {stageCtx?.runs && <RunHistory runs={stageCtx.runs} />}

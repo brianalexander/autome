@@ -206,8 +206,9 @@ export function RuntimeViewer({
               status={selectedStageId ? stages[selectedStageId]?.status : undefined}
               onClose={() => setSelectedStageId(null)}
             />
-          ) : selectedStageDef?.type === 'gate' ? (
+          ) : (selectedStageDef?.type === 'gate' || selectedStageDef?.type === 'review-gate') ? (
             <GateSidebar
+              instanceId={instanceId}
               stageId={selectedStageId}
               stageDef={selectedStageDef}
               stageCtx={selectedStageCtx}

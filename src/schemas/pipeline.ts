@@ -359,6 +359,18 @@ export const TriggerLogsResponseSchema = z.object({
 export type TriggerStatusWithLogs = z.infer<typeof TriggerStatusSchema>;
 
 // ---------------------------------------------------------------------------
+// Review Gate decision schema
+// ---------------------------------------------------------------------------
+
+export const ReviewGateDecisionSchema = z.object({
+  decision: z.enum(['approved', 'revised', 'rejected']),
+  notes: z.string().optional(),
+  data: z.unknown().optional(),
+});
+
+export type ReviewGateDecision = z.infer<typeof ReviewGateDecisionSchema>;
+
+// ---------------------------------------------------------------------------
 // Inferred TypeScript types
 // ---------------------------------------------------------------------------
 

@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useApprovals, useApproveGate, useRejectGate } from '../hooks/queries';
 import { useState, useCallback } from 'react';
 import { CheckCircle2, XCircle, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import { ReviewGateActions } from '../components/review/ReviewGateActions';
 
 export const Route = createFileRoute('/approvals')({
   component: ApprovalsPage,
@@ -68,6 +69,7 @@ interface ApprovalCardProps {
     stageId: string;
     stageLabel: string;
     gateMessage: string | null;
+    gateKind?: 'binary' | 'review';
     upstreamData: unknown;
     waitingSince: string;
   };
@@ -86,6 +88,8 @@ function ApprovalCard({ approval, onApprove, onReject }: ApprovalCardProps) {
     }
   });
   const [parseError, setParseError] = useState<string | null>(null);
+
+  const isReview = approval.gateKind === 'review';
 
   const handleApprove = useCallback(() => {
     try {
@@ -122,6 +126,11 @@ function ApprovalCard({ approval, onApprove, onReject }: ApprovalCardProps) {
             <span className="text-sm font-medium text-text-primary truncate">
               {approval.stageLabel}
             </span>
+            {isReview && (
+              <span className="text-[9px] font-medium px-1.5 py-0.5 bg-amber-500/15 text-amber-600 dark:text-amber-400 rounded-full border border-amber-500/30">
+                Review
+              </span>
+            )}
             <span className="text-[10px] text-text-muted">in</span>
             <Link
               to="/instances/$instanceId"
@@ -138,8 +147,8 @@ function ApprovalCard({ approval, onApprove, onReject }: ApprovalCardProps) {
         <span className="text-[10px] text-text-muted flex-shrink-0">{waitingDuration}</span>
       </div>
 
-      {/* Expandable data editor */}
-      {approval.upstreamData !== undefined && (
+      {/* Expandable data editor (binary gates only — review gates show reviewer notes inline) */}
+      {!isReview && approval.upstreamData !== undefined && (
         <div className="border-t border-border">
           <button
             onClick={() => setExpanded(!expanded)}
@@ -178,19 +187,25 @@ function ApprovalCard({ approval, onApprove, onReject }: ApprovalCardProps) {
       )}
 
       {/* Action buttons */}
-      <div className="border-t border-border px-4 py-2.5 flex gap-2">
-        <button
-          onClick={handleApprove}
-          className="flex-1 px-3 py-1.5 text-xs font-medium bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors"
-        >
-          Approve
-        </button>
-        <button
-          onClick={onReject}
-          className="flex-1 px-3 py-1.5 text-xs font-medium bg-red-700 hover:bg-red-600 text-white rounded-lg transition-colors"
-        >
-          Reject
-        </button>
+      <div className="border-t border-border px-4 py-2.5">
+        {isReview ? (
+          <ReviewGateActions instanceId={approval.instanceId} stageId={approval.stageId} />
+        ) : (
+          <div className="flex gap-2">
+            <button
+              onClick={handleApprove}
+              className="flex-1 px-3 py-1.5 text-xs font-medium bg-green-700 hover:bg-green-600 text-white rounded-lg transition-colors"
+            >
+              Approve
+            </button>
+            <button
+              onClick={onReject}
+              className="flex-1 px-3 py-1.5 text-xs font-medium bg-red-700 hover:bg-red-600 text-white rounded-lg transition-colors"
+            >
+              Reject
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

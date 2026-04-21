@@ -68,8 +68,14 @@ const WorkflowStatusBody = z.object({
   message: z.string().optional(),
   /** Gate timeout in minutes (only meaningful for status="waiting_gate"). */
   timeout_minutes: z.number().positive().optional(),
-  /** Action on timeout: "approve" or "reject" (default: "reject"). */
-  timeout_action: z.enum(['approve', 'reject']).optional(),
+  /**
+   * Action on timeout. Legacy binary gate: "approve" | "reject".
+   * Review gate: "approved" | "revised" | "rejected".
+   * Both sets are accepted; the handler normalises them.
+   */
+  timeout_action: z.enum(['approve', 'reject', 'approved', 'revised', 'rejected']).optional(),
+  /** Distinguishes binary gates from review gates (sent by review-gate executor). */
+  gateKind: z.enum(['binary', 'review']).optional(),
 });
 
 /** Clear any active timeout for a stage and remove it from the map. */
@@ -188,11 +194,21 @@ export function registerSignalRoutes(app: FastifyInstance, deps: RouteDeps, stat
             state.stageTimeouts.delete(key);
             console.log(`[gate-timeout] Timeout fired for ${key} — applying action: ${action}`);
             try {
-              if (action === 'approve') {
-                state.runner.resolveWait(instanceId, `gate-${stageId}`, undefined);
+              // Normalise legacy "approve"/"reject" to their equivalents. Review gate
+              // sends "approved"/"revised"/"rejected"; binary gate sends "approve"/"reject".
+              if (action === 'approve' || action === 'approved') {
+                state.runner.resolveWait(instanceId, `gate-${stageId}`, { decision: 'approved' });
+                db.updateInstance(instanceId, { status: 'running' });
+                broadcast('instance:gate_approved', { instanceId, stageId, reason: 'timeout' }, { instanceId });
+              } else if (action === 'revised') {
+                state.runner.resolveWait(instanceId, `gate-${stageId}`, {
+                  decision: 'revised',
+                  notes: `Gate timed out after ${timeout_minutes} minute(s)`,
+                });
                 db.updateInstance(instanceId, { status: 'running' });
                 broadcast('instance:gate_approved', { instanceId, stageId, reason: 'timeout' }, { instanceId });
               } else {
+                // 'reject' or 'rejected' — for binary gate, rejectWait to trigger TerminalError in executor
                 state.runner.rejectWait(instanceId, `gate-${stageId}`, `Gate timed out after ${timeout_minutes} minute(s)`);
                 db.updateInstance(instanceId, { status: 'running' });
                 broadcast(

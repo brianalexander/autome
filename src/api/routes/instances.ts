@@ -10,6 +10,7 @@ import { errorMessage } from '../../utils/errors.js';
 import { launchWorkflowWithResume } from '../../workflow/launch.js';
 import { nodeRegistry } from '../../nodes/registry.js';
 import { resolveTemplate } from '../../engine/context-resolver.js';
+import { ReviewGateDecisionSchema } from '../../schemas/pipeline.js';
 
 /**
  * Render a gate message template against the instance's workflow context.
@@ -101,6 +102,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
         stageId: string;
         stageLabel: string;
         gateMessage: string | null;
+        gateKind: 'binary' | 'review';
         upstreamData: unknown;
         waitingSince: string;
       }> = [];
@@ -113,11 +115,16 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
         for (const [stageId, stageCtx] of Object.entries(context.stages)) {
           if (stageCtx.status !== 'running') continue;
 
-          // Find the stage definition and confirm it's a manual gate
+          // Find the stage definition and confirm it's a gate-type stage
           const stageDef = def?.stages?.find((s: { id: string }) => s.id === stageId);
-          if (!stageDef || stageDef.type !== 'gate') continue;
+          if (!stageDef) continue;
+
+          // Accept review-gate stages or manual-type gate stages
+          const isReviewGate = stageDef.type === 'review-gate';
+          const isBinaryGate = stageDef.type === 'gate' && ((stageDef.config || {}) as Record<string, unknown>).type === 'manual';
+          if (!isReviewGate && !isBinaryGate) continue;
+
           const gateConfig = (stageDef.config || {}) as Record<string, unknown>;
-          if (gateConfig.type !== 'manual') continue;
 
           // Collect upstream output for display
           const upstreamEdges = (def?.edges || []).filter((e: { target: string }) => e.target === stageId);
@@ -139,6 +146,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
             stageId,
             stageLabel: (stageDef.label as string | undefined) ?? stageId,
             gateMessage: renderGateMessage(gateConfig.message as string | undefined, context),
+            gateKind: isReviewGate ? 'review' : 'binary',
             upstreamData,
             waitingSince: inst.updated_at ?? inst.created_at,
           });
@@ -538,6 +546,51 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
           { instanceId: id },
         );
         return { rejected: true };
+      } catch (err) {
+        return reply.code(500).send({ error: errorMessage(err) });
+      }
+    },
+  );
+
+  // POST /api/instances/:id/stages/:stageId/review — Submit a review-gate decision
+  typedApp.post(
+    '/api/instances/:id/stages/:stageId/review',
+    {
+      schema: { params: InstanceStageParams, body: ReviewGateDecisionSchema },
+    },
+    async (request, reply) => {
+      try {
+        const { id, stageId } = request.params;
+        const decision = request.body;
+
+        // Cancel any scheduled timeout for this gate
+        const gateKey = `${id}:${stageId}`;
+        const existingTimeout = state.stageTimeouts.get(gateKey);
+        if (existingTimeout !== undefined) {
+          clearTimeout(existingTimeout);
+          state.stageTimeouts.delete(gateKey);
+        }
+
+        if (decision.decision === 'rejected') {
+          // The review-gate executor handles the TerminalError; we resolve (not reject) the
+          // wait so the executor receives the payload and can produce the proper error message.
+          state.runner.resolveWait(id, `gate-${stageId}`, decision);
+          broadcast(
+            'instance:gate_rejected',
+            { instanceId: id, stageId, reason: decision.notes },
+            { instanceId: id },
+          );
+        } else {
+          state.runner.resolveWait(id, `gate-${stageId}`, decision);
+          db.updateInstance(id, { status: 'running' });
+          broadcast(
+            'instance:gate_approved',
+            { instanceId: id, stageId, decision: decision.decision },
+            { instanceId: id },
+          );
+        }
+
+        return { submitted: true, decision: decision.decision };
       } catch (err) {
         return reply.code(500).send({ error: errorMessage(err) });
       }

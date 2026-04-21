@@ -169,7 +169,7 @@ When the user is NOT watching, the agent runs autonomously. The stream is still 
 - **AI authoring**: kiro-cli ACP (pipeline-author agent), NOT direct Anthropic API. Streams via WebSocket.
 - **Layout engine**: elkjs for auto-laying out workflow graphs (handles cycles, unlike dagre which is DAG-only)
 - **Schema validation**: Zod v4 schemas in `src/schemas/pipeline.ts` — single source of truth for types, runtime validation, and OpenAPI generation
-- **Node type registry**: Extensible registry (`src/nodes/registry.ts`) mapping stage types to `NodeTypeSpec` implementations. Built-in types include: `agent`, `gate`, `manual-trigger`, `prompt-trigger`, `webhook-trigger`, `cron-trigger`, `code-executor`, `code-trigger`. New node types can be registered at startup.
+- **Node type registry**: Extensible registry (`src/nodes/registry.ts`) mapping stage types to `NodeTypeSpec` implementations. Built-in types include: `agent`, `gate`, `review-gate`, `manual-trigger`, `prompt-trigger`, `webhook-trigger`, `cron-trigger`, `code-executor`, `code-trigger`. New node types can be registered at startup.
 
 ---
 
@@ -890,7 +890,7 @@ autome/
 │   ├── nodes/
 │   │   ├── registry.ts              — NodeTypeRegistry singleton (maps stage type → NodeTypeSpec)
 │   │   ├── types.ts                 — NodeTypeSpec, StepExecutor, TriggerExecutor interfaces
-│   │   └── builtin/                 — Built-in node types (agent, gate, manual-trigger, prompt-trigger, webhook-trigger, cron-trigger, code-executor, code-trigger)
+│   │   └── builtin/                 — Built-in node types (agent, gate, review-gate, manual-trigger, prompt-trigger, webhook-trigger, cron-trigger, code-executor, code-trigger)
 │   │
 │   ├── engine/
 │   │   ├── context-resolver.ts      — Template resolution + prompt building (Handlebars-style)

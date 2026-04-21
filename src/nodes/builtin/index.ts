@@ -4,6 +4,7 @@
 import type { NodeTypeSpec } from '../types.js';
 import { agentNodeSpec } from './agent.js';
 import { gateNodeSpec } from './gate.js';
+import { reviewGateNodeSpec } from './review-gate.js';
 import { manualTriggerSpec } from './manual-trigger.js';
 import { webhookTriggerSpec } from './webhook-trigger.js';
 import { cronTriggerSpec } from './cron-trigger.js';
@@ -21,5 +22,6 @@ export const allBuiltinSpecs: NodeTypeSpec[] = [
   // Steps
   agentNodeSpec,
   gateNodeSpec,
+  reviewGateNodeSpec,
   codeExecutorNodeSpec,
 ];
