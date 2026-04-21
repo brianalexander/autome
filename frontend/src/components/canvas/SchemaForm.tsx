@@ -46,7 +46,7 @@ export function SchemaForm({ schema, value, onChange, readonly }: SchemaFormProp
   });
 
   if (entries.length === 0) {
-    return <div className="text-xs text-text-tertiary py-2">No configuration needed.</div>;
+    return <></>;
   }
 
   return (

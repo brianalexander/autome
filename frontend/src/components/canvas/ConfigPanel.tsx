@@ -13,6 +13,7 @@ import { Field, SchemaPropertiesTree } from './ConfigPanelShared';
 import { AdvancedStageConfig } from './AdvancedStageConfig';
 import { ReadmeEditor } from './ReadmeEditor';
 import { StageConfigForm } from './StageConfigForm';
+import { NodeDescriptionPopover } from './NodeDescriptionPopover';
 
 // Re-export EdgeConfigPanel so existing import sites (WorkflowEditor.tsx) don't break.
 export { EdgeConfigPanel } from './EdgeConfigPanel';
@@ -29,6 +30,7 @@ interface ConfigPanelProps {
 
 export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDefinitionChange, readonly }: ConfigPanelProps) {
   const { data: specs } = useNodeTypes();
+  const nodeTypeInfo = useMemo(() => specs?.find((s) => s.id === stage.type), [specs, stage.type]);
 
   // Local edit state — updated synchronously on every keystroke for responsiveness.
   // Only reset when a DIFFERENT stage is selected (stage.id changes), not when the
@@ -165,7 +167,10 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
       {/* Header — hidden in readonly mode (parent sidebar provides its own) */}
       {!readonly && (
         <div className="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
-          <h3 className="font-semibold text-sm">Configure: {editState.id}</h3>
+          <div className="flex items-center gap-1 min-w-0">
+            <h3 className="font-semibold text-sm truncate">Configure: {editState.id}</h3>
+            {nodeTypeInfo && <NodeDescriptionPopover nodeTypeInfo={nodeTypeInfo} />}
+          </div>
           <div className="flex items-center gap-1">
             <button onClick={handleSaveAsTemplate} className="text-text-tertiary hover:text-text-primary transition-colors p-1" title="Save as template">
               <Bookmark className="w-3.5 h-3.5" />

@@ -27,41 +27,30 @@ const baseProps = {
 };
 
 // ---------------------------------------------------------------------------
-// HelpTextCard
+// HelpTextCard — now a no-op; content surfaced via NodeDescriptionPopover
 // ---------------------------------------------------------------------------
 describe('HelpTextCard', () => {
-  it('renders title and markdown content', () => {
-    render(
+  it('renders null for help-text (content moved to info icon popover)', () => {
+    const { container } = render(
       <HelpTextCard
         {...baseProps}
         card={{ kind: 'help-text', title: 'How it works', markdown: 'Some explanation here.' }}
       />,
     );
-    expect(screen.getByText('How it works')).toBeInTheDocument();
-    expect(screen.getByText('Some explanation here.')).toBeInTheDocument();
+    expect(container.firstChild).toBeNull();
   });
 
-  it('renders inline code via backticks', () => {
-    render(
+  it('renders null regardless of card content', () => {
+    const { container } = render(
       <HelpTextCard
         {...baseProps}
         card={{ kind: 'help-text', markdown: 'Access via `{{ output.field }}`' }}
       />,
     );
-    expect(screen.getByText('{{ output.field }}')).toBeInTheDocument();
+    expect(container.firstChild).toBeNull();
   });
 
-  it('substitutes template variables', () => {
-    render(
-      <HelpTextCard
-        {...baseProps}
-        card={{ kind: 'help-text', markdown: 'Workflow: {workflowId}' }}
-      />,
-    );
-    expect(screen.getByText('Workflow: wf-abc')).toBeInTheDocument();
-  });
-
-  it('renders nothing for wrong card kind', () => {
+  it('renders null for wrong card kind too (type guard still works)', () => {
     const { container } = render(
       <HelpTextCard
         {...baseProps}

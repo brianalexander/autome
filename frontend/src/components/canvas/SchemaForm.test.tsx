@@ -17,8 +17,8 @@ vi.mock('./CodeEditor', () => ({
 describe('SchemaForm', () => {
   it('renders nothing for empty schema', () => {
     const onChange = vi.fn();
-    render(<SchemaForm schema={{ properties: {} }} value={{}} onChange={onChange} />);
-    expect(screen.getByText('No configuration needed.')).toBeInTheDocument();
+    const { container } = render(<SchemaForm schema={{ properties: {} }} value={{}} onChange={onChange} />);
+    expect(container.firstChild).toBeNull();
   });
 
   it('renders a text input for string fields', () => {
