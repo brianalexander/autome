@@ -8,6 +8,26 @@ import { errorMessage } from '../../utils/errors.js';
 import { config as appConfig } from '../../config.js';
 import { createProvider } from '../../acp/provider/registry.js';
 import { notifyWorkflowFinished } from '../../workflow/test-run-listener.js';
+import { resolveTemplate } from '../../engine/context-resolver.js';
+import type { WorkflowContext } from '../../types/instance.js';
+
+/**
+ * Render a gate message template against the instance's workflow context.
+ * Falls back to the raw string if rendering fails.
+ */
+function renderGateMessage(raw: string | undefined, context: WorkflowContext): string | undefined {
+  if (!raw) return raw;
+  try {
+    const stagesScope: Record<string, { latest: unknown }> = {};
+    for (const [stageId, stageCtx] of Object.entries(context.stages)) {
+      stagesScope[stageId] = { latest: stageCtx.latest };
+    }
+    return resolveTemplate(raw, { trigger: context.trigger, stages: stagesScope });
+  } catch (err) {
+    console.warn('[gate-message] Template render failed in status broadcast, using raw:', err instanceof Error ? err.message : err);
+    return raw;
+  }
+}
 
 // Zod schemas
 
@@ -138,7 +158,16 @@ export function registerSignalRoutes(app: FastifyInstance, deps: RouteDeps, stat
         const { instanceId, stageId, status, message, timeout_minutes, timeout_action } = request.body;
         const key = `${instanceId}:${stageId}`;
 
-        broadcast('instance:stage_status', { instanceId, stageId, status, message }, { instanceId });
+        // Render gate message templates at broadcast time so the WS toast shows resolved values
+        let broadcastMessage = message;
+        if (status === 'waiting_gate' && message) {
+          const inst = db.getInstance(instanceId);
+          if (inst?.context) {
+            broadcastMessage = renderGateMessage(message, inst.context);
+          }
+        }
+
+        broadcast('instance:stage_status', { instanceId, stageId, status, message: broadcastMessage }, { instanceId });
 
         // Persist status change so the approvals query (and other DB-backed queries) reflect it
         if (status === 'waiting_gate' || status === 'waiting_input') {

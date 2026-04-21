@@ -79,7 +79,12 @@ export const gateNodeSpec: NodeTypeSpec = {
         format: 'code',
         'x-show-if': { field: 'type', equals: 'conditional' },
       },
-      message: { type: 'string', title: 'Message', description: 'Shown to the human reviewer (for manual gates)' },
+      message: {
+        type: 'string',
+        title: 'Message',
+        format: 'template',
+        description: "Shown to the human reviewer (for manual gates). Supports Nunjucks templates — reference the trigger payload via {{ trigger.FIELD }} or upstream outputs via {{ stages.STAGE_ID.latest.FIELD }}.",
+      },
       timeout_minutes: {
         type: 'number',
         title: 'Timeout (minutes)',
@@ -100,6 +105,14 @@ export const gateNodeSpec: NodeTypeSpec = {
       },
     },
   },
+  configCards: [
+    {
+      kind: 'preview-template',
+      field: 'message',
+      title: 'Message Preview',
+      description: 'Live preview using mock trigger + upstream outputs.',
+    },
+  ],
   defaultConfig: { type: 'manual' },
   executor,
   outEdgeSchema: {

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { InitiatedBy } from '../../types/instance.js';
+import type { InitiatedBy, WorkflowContext } from '../../types/instance.js';
 import { broadcast } from '../websocket.js';
 import type { RouteDeps, SharedState } from './shared.js';
 import type { SessionConfig } from './agent-utils.js';
@@ -9,6 +9,26 @@ import { sendChatMessage } from './agent-utils.js';
 import { errorMessage } from '../../utils/errors.js';
 import { launchWorkflowWithResume } from '../../workflow/launch.js';
 import { nodeRegistry } from '../../nodes/registry.js';
+import { resolveTemplate } from '../../engine/context-resolver.js';
+
+/**
+ * Render a gate message template against the instance's workflow context.
+ * Falls back to the raw string if rendering fails (e.g. malformed template).
+ */
+function renderGateMessage(raw: string | null | undefined, context: WorkflowContext): string | null {
+  if (!raw) return null;
+  try {
+    // Build scope matching the pattern gates use: trigger + stages.<id>.latest
+    const stagesScope: Record<string, { latest: unknown }> = {};
+    for (const [stageId, stageCtx] of Object.entries(context.stages)) {
+      stagesScope[stageId] = { latest: stageCtx.latest };
+    }
+    return resolveTemplate(raw, { trigger: context.trigger, stages: stagesScope });
+  } catch (err) {
+    console.warn('[gate-message] Template render failed, using raw string:', err instanceof Error ? err.message : err);
+    return raw;
+  }
+}
 
 // Zod schemas for instance routes
 const InstanceIdParams = z.object({ id: z.string() });
@@ -118,7 +138,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
             workflowId: inst.definition_id ?? '',
             stageId,
             stageLabel: (stageDef.label as string | undefined) ?? stageId,
-            gateMessage: (gateConfig.message as string) || null,
+            gateMessage: renderGateMessage(gateConfig.message as string | undefined, context),
             upstreamData,
             waitingSince: inst.updated_at ?? inst.created_at,
           });

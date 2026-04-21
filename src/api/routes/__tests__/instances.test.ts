@@ -3,6 +3,7 @@ import { buildTestApp } from './test-helpers.js';
 import { initializeRegistry } from '../../../nodes/registry.js';
 import type { FastifyInstance } from 'fastify';
 import type { OrchestratorDB } from '../../../db/database.js';
+import type { WorkflowContext } from '../../../types/instance.js';
 
 beforeAll(async () => {
   await initializeRegistry();
@@ -147,6 +148,129 @@ describe('Instance routes', () => {
     expect(res.statusCode).toBe(200);
     const fetched = db.getInstance(inst.id);
     expect(fetched?.display_summary).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/approvals — gate message rendering
+  // ---------------------------------------------------------------------------
+
+  it('GET /api/approvals — renders gateMessage template against workflow context', async () => {
+    // Create a workflow with a trigger and a manual gate
+    const wfRes = await app.inject({
+      method: 'POST',
+      url: '/api/workflows',
+      payload: {
+        name: 'Gate Template Workflow',
+        description: '',
+        trigger: { provider: 'manual' },
+        stages: [
+          { id: 'trigger', type: 'manual-trigger', config: {} },
+          {
+            id: 'gate1',
+            type: 'gate',
+            config: {
+              type: 'manual',
+              message: 'Review: {{ trigger.subject }} — category: {{ stages.trigger.latest.category }}',
+            },
+          },
+        ],
+        edges: [{ id: 'e1', source: 'trigger', target: 'gate1' }],
+      },
+    });
+    expect(wfRes.statusCode).toBe(201);
+    const wfId = wfRes.json().id;
+
+    // Build a context with trigger + trigger stage output
+    const context: WorkflowContext = {
+      trigger: { subject: 'Hello World' },
+      stages: {
+        trigger: {
+          status: 'completed',
+          run_count: 1,
+          runs: [],
+          latest: { category: 'urgent' },
+        },
+        gate1: {
+          status: 'running',
+          run_count: 1,
+          runs: [],
+        },
+      },
+    };
+
+    // Create an instance in waiting_gate status
+    db.createInstance({
+      definition_id: wfId,
+      definition_version: 1,
+      status: 'waiting_gate',
+      trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
+      context,
+      current_stage_ids: ['gate1'],
+      is_test: false,
+      initiated_by: 'user',
+      resume_count: 0,
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/approvals' });
+    expect(res.statusCode).toBe(200);
+    const approvals = res.json() as Array<{ stageId: string; gateMessage: string | null }>;
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].stageId).toBe('gate1');
+    // Template should be rendered with context values
+    expect(approvals[0].gateMessage).toBe('Review: Hello World — category: urgent');
+  });
+
+  it('GET /api/approvals — falls back to raw string for malformed template', async () => {
+    const wfRes = await app.inject({
+      method: 'POST',
+      url: '/api/workflows',
+      payload: {
+        name: 'Gate Fallback Workflow',
+        description: '',
+        trigger: { provider: 'manual' },
+        stages: [
+          { id: 'trigger', type: 'manual-trigger', config: {} },
+          {
+            id: 'gate1',
+            type: 'gate',
+            config: {
+              type: 'manual',
+              message: 'Bad template {{ unclosed',
+            },
+          },
+        ],
+        edges: [{ id: 'e1', source: 'trigger', target: 'gate1' }],
+      },
+    });
+    expect(wfRes.statusCode).toBe(201);
+    const wfId = wfRes.json().id;
+
+    const context: WorkflowContext = {
+      trigger: {},
+      stages: {
+        trigger: { status: 'completed', run_count: 1, runs: [] },
+        gate1: { status: 'running', run_count: 1, runs: [] },
+      },
+    };
+
+    db.createInstance({
+      definition_id: wfId,
+      definition_version: 1,
+      status: 'waiting_gate',
+      trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
+      context,
+      current_stage_ids: ['gate1'],
+      is_test: false,
+      initiated_by: 'user',
+      resume_count: 0,
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/approvals' });
+    expect(res.statusCode).toBe(200);
+    const approvals = res.json() as Array<{ stageId: string; gateMessage: string | null }>;
+    expect(approvals).toHaveLength(1);
+    // Falls back to raw template string
+    expect(approvals[0].gateMessage).toBe('Bad template {{ unclosed');
   });
 
   it('GET /api/instances — excludes test instances by default', async () => {
