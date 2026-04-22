@@ -31,6 +31,49 @@ const AuthorSegmentsMigrateBody = z.object({
   toId: z.string(),
 });
 
+/**
+ * Build the workflow-state portion of the author context string.
+ *
+ * Exported for unit testing — keeps the logic pure and side-effect-free.
+ * The only allowed template references in the returned text are `{{ output.<field> }}`
+ * (on outbound edges). Cross-stage reach-back (`stages.X.*`) must never appear here.
+ */
+export function buildWorkflowContextParts(workflow: WorkflowDefinition): string[] {
+  const parts: string[] = [];
+  parts.push(`Name: ${workflow.name || '(unnamed)'}`);
+  parts.push(`Description: ${workflow.description || '(none)'}`);
+  parts.push(`\nStages (${workflow.stages.length}):`);
+  for (const s of workflow.stages) {
+    const cfg = (s.config || {}) as Record<string, unknown>;
+    const detail =
+      s.type === 'agent'
+        ? `agent: ${cfg.agentId || 'none'}${cfg.output_schema ? ', has output_schema' : ''}`
+        : nodeRegistry.isTriggerType(s.type)
+          ? `trigger: ${s.type}`
+          : s.type === 'gate'
+            ? `gate: ${cfg.type || 'manual'}`
+            : s.type;
+    parts.push(`  - ${s.id} (${detail})`);
+  }
+  parts.push(`\nEdges (${workflow.edges.length}):`);
+  for (const e of workflow.edges) {
+    let desc = `  - ${e.source} -> ${e.target}`;
+    if (e.label) desc += ` [${e.label}]`;
+    if (e.condition) desc += ` condition: ${e.condition}`;
+    parts.push(desc);
+    if (e.prompt_template) {
+      parts.push(
+        `    prompt_template: ${e.prompt_template.length > 120 ? e.prompt_template.slice(0, 120) + '...' : e.prompt_template}`,
+      );
+    }
+    const sourceStage = workflow.stages.find((s) => s.id === e.source);
+    if (sourceStage) {
+      parts.push(`    template vars: {{ output.<field> }} = ${e.source}'s output`);
+    }
+  }
+  return parts;
+}
+
 export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, state: SharedState): void {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
   const { db } = deps;
@@ -115,48 +158,7 @@ export function registerAuthorRoutes(app: FastifyInstance, deps: RouteDeps, stat
     parts.push(`<workflow_id>${workflowId}</workflow_id>`);
     parts.push('<current_workflow>');
     if (workflow) {
-      parts.push(`Name: ${workflow.name || '(unnamed)'}`);
-      parts.push(`Description: ${workflow.description || '(none)'}`);
-      parts.push(`\nStages (${workflow.stages.length}):`);
-      for (const s of workflow.stages) {
-        const cfg = (s.config || {}) as Record<string, unknown>;
-        const detail =
-          s.type === 'agent'
-            ? `agent: ${cfg.agentId || 'none'}${cfg.output_schema ? ', has output_schema' : ''}`
-            : nodeRegistry.isTriggerType(s.type)
-              ? `trigger: ${s.type}`
-              : s.type === 'gate'
-                ? `gate: ${cfg.type || 'manual'}`
-                : s.type;
-        parts.push(`  - ${s.id} (${detail})`);
-      }
-      parts.push(`\nEdges (${workflow.edges.length}):`);
-      for (const e of workflow.edges) {
-        let desc = `  - ${e.source} -> ${e.target}`;
-        if (e.label) desc += ` [${e.label}]`;
-        if (e.condition) desc += ` condition: ${e.condition}`;
-        parts.push(desc);
-        if (e.prompt_template) {
-          parts.push(
-            `    prompt_template: ${e.prompt_template.length > 120 ? e.prompt_template.slice(0, 120) + '...' : e.prompt_template}`,
-          );
-        }
-        const sourceStage = workflow.stages.find((s) => s.id === e.source);
-        if (sourceStage) {
-          parts.push(`    template vars: {{ output.<field> }} = ${e.source}'s output`);
-        }
-        const upstreamIds = workflow.stages
-          .filter((s) => !nodeRegistry.isTriggerType(s.type) && s.id !== e.target)
-          .map((s) => s.id);
-        if (upstreamIds.length > 0) {
-          const examples = upstreamIds
-            .slice(0, 3)
-            .map((id: string) =>
-              /^[a-zA-Z_]\w*$/.test(id) ? `stages.${id}.output.<field>` : `stages['${id}'].output.<field>`,
-            );
-          parts.push(`    also available: ${examples.join(', ')}`);
-        }
-      }
+      parts.push(...buildWorkflowContextParts(workflow));
     } else {
       parts.push('(empty workflow — no stages or edges yet)');
     }
