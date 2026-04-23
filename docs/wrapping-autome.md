@@ -37,6 +37,8 @@ A wrapper is an npm package with a `bin` entry that calls `createCli` from `auto
 }
 ```
 
+The wrapper sets `"type": "module"` so the bin script above can use top-level `import` / `await`. A CJS wrapper is equally valid — use `require()` syntax and no top-level `await`, or name the bin file `.mjs`.
+
 ### `bin/my-product.js`
 
 ```js
@@ -359,7 +361,7 @@ my-product/
   "bin": { "my-product": "./bin/my-product.js" },
   "scripts": {
     "build": "tsc",
-    "start": "node --import tsx/esm bin/my-product.ts start"
+    "start": "node ./dist/bin/my-product.js start"
   },
   "dependencies": {
     "autome": "^0.1.0"
@@ -372,8 +374,8 @@ my-product/
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "Node16",
+    "moduleResolution": "Node16",
     "outDir": "./dist",
     "strict": true
   },

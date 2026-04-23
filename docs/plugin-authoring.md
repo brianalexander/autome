@@ -35,7 +35,9 @@ plugins/
         └── feature-request.json
 ```
 
-Each plugin is a subdirectory of `./plugins/` (or `~/.autome/plugins/` for user-global). The directory must contain an `autome-plugin.json` file.
+Each plugin is a subdirectory of `./plugins/` (or `~/.autome/plugins/` for user-global), or any directory listed in the `plugins` array of your `autome.config.json`. The directory must contain an `autome-plugin.json` file.
+
+> **Plugin directories don't need their own `package.json`.** Autome transpiles plugin `.ts` files through its own loader, which is insensitive to the consumer project's module type. Write plain TypeScript; autome handles the rest.
 
 ---
 
@@ -659,13 +661,13 @@ On every boot, autome syncs plugin templates into the DB:
 
 ## Discovery
 
-On boot, autome scans for plugins in this order:
+On boot, autome scans for plugins in this order (additive — all sources are merged):
 
-1. **`./plugins/*/autome-plugin.json`** in `process.cwd()` — project-local
-2. **`~/.autome/plugins/*/autome-plugin.json`** — user-global
-3. **`AUTOME_PLUGINS_DIR` env var** — overrides the project-local plugins directory path (instead of `./plugins/`)
+1. **`plugins: []` array in `autome.config.*`** — recommended. List any directory paths relative to the project root.
+2. **`./plugins/*/autome-plugin.json`** in `process.cwd()` — directory auto-scan. Set `AUTOME_PLUGINS_DIR` to override the `./plugins/` path.
+3. **`~/.autome/plugins/*/autome-plugin.json`** — user-global, always scanned.
 
-Each plugin directory is only loaded once. Plugins from both project-local and user-global directories are merged (project-local first).
+Each plugin directory is only loaded once. Earlier sources take priority on ID collision. Plugins from all sources are merged before the server starts.
 
 **Programmatic plugins** (passed via `createCli` or `startServer` options) are registered before filesystem discovery and take priority on ID collision.
 
@@ -774,7 +776,7 @@ export default spec;
 ### Verify
 
 ```bash
-npx tsx src/cli/index.ts doctor
+npx autome doctor
 # Should show:
 #   ✓ Slack Integration v1.0.0
 #         ✓ Node types (1): slack-notify

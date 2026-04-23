@@ -4,6 +4,7 @@ This guide walks through installing autome as a dependency and running your own 
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
+- [Install Options](#install-options)
 - [Project Layout](#project-layout)
 - [Configuration](#configuration)
 - [Running the Server](#running-the-server)
@@ -15,141 +16,123 @@ This guide walks through installing autome as a dependency and running your own 
 
 ## Overview
 
-Autome is designed to be embedded. You install it, create a `plugins/` directory next to it, and run the server. Your plugins get discovered and registered at boot — the rest behaves identically to a stock autome.
+Autome is designed to be embedded. You install it, point it at a plugins directory, and run the server. Your plugins get discovered and registered at boot — the rest behaves identically to a stock autome.
 
 > **Looking for the programmatic API?** If you're publishing a branded npm package that bundles plugins as part of its dist, see [Wrapping Autome](./wrapping-autome.md) — that guide covers `createCli` and `startServer`.
 
 ```
 ┌─────────────────────────────────────────────┐
 │  Your Project                               │
-│  ├── plugins/            ← your plugins     │
-│  │   └── my-plugin/                         │
-│  │       ├── autome-plugin.json             │
-│  │       └── nodes/...                      │
+│  ├── my-plugin/          ← your plugins     │
+│  │   ├── autome-plugin.json                 │
+│  │   └── nodes/...                          │
+│  ├── autome.config.json  ← optional         │
 │  ├── data/               ← runtime state    │
 │  └── node_modules/                          │
 │      └── autome/        ← the core         │
 └─────────────────────────────────────────────┘
 ```
 
-The core (autome) provides the server, workflow engine, UI, API, and DB layer. Your project provides extensions via the `plugins/` directory.
+The core (autome) provides the server, workflow engine, UI, API, and DB layer. Your project provides extensions via one or more plugin directories.
 
 ---
 
 ## Quick Start
 
-### 1. Create a new project
-
 ```bash
-mkdir my-autome
-cd my-autome
+mkdir my-autome && cd my-autome
 npm init -y
-npm install autome
-npm install -D typescript tsx @types/node
+npm i <autome-source>           # see Install Options section
+npx autome start                # UI + API on http://127.0.0.1:3001
 ```
 
-### 2. Add a `tsconfig.json`
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "outDir": "./dist",
-    "rootDir": "./src"
-  },
-  "include": ["src/**/*", "plugins/**/*"]
-}
-```
-
-### 3. Create your first plugin
+### First plugin
 
 ```bash
-mkdir -p plugins/my-plugin/templates
+mkdir -p my-plugin/nodes
 ```
 
+`my-plugin/autome-plugin.json`:
 ```json
-// plugins/my-plugin/autome-plugin.json
 {
   "id": "my-plugin",
   "name": "My Plugin",
-  "version": "1.0.0",
-  "templates": ["./templates/*.json"]
+  "nodeTypes": ["./nodes/reverse.ts"]
 }
 ```
 
+`my-plugin/nodes/reverse.ts`:
+```typescript
+import { defineNodeType } from 'autome/plugin';
+
+export default defineNodeType({
+  id: 'reverse',
+  name: 'Reverse String',
+  category: 'step',
+  configSchema: {
+    type: 'object',
+    properties: {
+      text: { type: 'string', title: 'Text to reverse' },
+    },
+  },
+  defaultConfig: { text: '' },
+  executor: {
+    type: 'step',
+    async execute({ config }) {
+      const text = (config.text as string) ?? '';
+      return { output: { reversed: text.split('').reverse().join('') } };
+    },
+  },
+});
+```
+
+`autome.config.json`:
 ```json
-// plugins/my-plugin/templates/github-webhook.json
 {
-  "id": "github-webhook-receiver",
-  "name": "GitHub Webhook Receiver",
-  "nodeType": "webhook-trigger",
-  "config": {
-    "output_schema": {
-      "type": "object",
-      "properties": {
-        "action": { "type": "string" },
-        "repository": { "type": "object" }
-      },
-      "required": ["action", "repository"]
-    }
-  }
+  "plugins": ["./my-plugin"]
 }
 ```
-
-### 4. Add package.json scripts
-
-```json
-{
-  "scripts": {
-    "start": "tsx node_modules/autome/src/server.ts",
-    "dev": "tsx watch node_modules/autome/src/server.ts",
-    "dev:all": "concurrently -n api,web \"npm run dev\" \"npm --prefix node_modules/autome/frontend run dev\""
-  }
-}
-```
-
-### 5. Run it
 
 ```bash
-npm run dev:all
+npx autome start
 ```
 
-Open http://localhost:5173. Your custom template appears in the Templates page and the Node Palette.
+Open http://127.0.0.1:3001 — the `reverse` node is in the node palette.
+
+**No `"type": "module"` in the consumer `package.json` and no `package.json` in `my-plugin/`.** Autome loads plugin `.ts` files through a transpiler that's insensitive to your project's module type.
+
+---
+
+## Install Options
+
+| Source | Command | Use when |
+|---|---|---|
+| npm registry | `npm i autome` | After publish (not available yet). |
+| GitHub | `npm i github:YourOrg/autome-repo` | Easiest pre-publish sharing. npm clones, runs `prepare` (which builds), packs with the `files` allowlist, and installs. |
+| Local tarball | `npm pack` in the autome source → `npm i ./autome-0.1.0.tgz` in the consumer | Same bytes as a registry install. No git needed. |
+| Local symlink | `npm i /path/to/autome-source` (requires `npm run build:all` first) | Fastest re-installs during active development. `prepare` does NOT run — you must build manually. |
+| Global symlink | `cd autome && npm link` then `cd consumer && npm link autome` | Same semantics as local symlink, different ergonomics. |
 
 ---
 
 ## Project Layout
 
-A typical embedded autome project:
+A minimal embedded autome project — no `tsconfig.json`, no `src/`:
 
 ```
 my-autome/
 ├── package.json
-├── tsconfig.json
-├── plugins/
-│   ├── jira/
-│   │   ├── autome-plugin.json
-│   │   ├── nodes/
-│   │   │   ├── create-ticket.ts    ← default-exports a NodeTypeSpec
-│   │   │   └── search.ts
-│   │   └── templates/
-│   │       ├── bug-report.json
-│   │       └── feature-request.json
-│   └── slack/
-│       ├── autome-plugin.json
-│       └── nodes/
-│           └── notify.ts
-├── data/                           ← runtime state (SQLite, workspaces)
-│   ├── orchestrator.db
-│   ├── workspaces/
-│   └── agents/
-└── .env                            ← environment config (optional)
+├── autome.config.json         ← optional
+├── my-plugin/
+│   ├── autome-plugin.json
+│   ├── nodes/
+│   │   └── reverse.ts
+│   └── templates/
+│       └── starter.json       ← optional
+└── data/                      ← created at boot
+    ├── orchestrator.db
+    ├── workspaces/
+    └── agents/                ← provider-specific configs
 ```
 
 ### Plugin manifest (`autome-plugin.json`)
@@ -174,7 +157,7 @@ Node type files must default-export a `NodeTypeSpec`. Template files are plain J
 
 ## Configuration
 
-Autome reads config from environment variables. Create a `.env` file or pass them directly.
+Autome reads config from environment variables. Create a `.env` file or pass them directly. You can also declare everything in `autome.config.json` (or `.ts` / `.js`) in your project root — env vars take precedence, but the config file is often more convenient.
 
 ### Core settings
 
@@ -186,20 +169,23 @@ Autome reads config from environment variables. Create a `.env` file or pass the
 | `DATABASE_PATH` | `./data/orchestrator.db` | SQLite file location (overrides DATA_DIR for DB only) |
 | `NODE_ENV` | `development` | `production` enables caching/logging changes |
 
-You can also configure autome via a `autome.config.ts` (or `.js` / `.json`) file in your project root. It is merged with env vars (env takes precedence). See `src/config/types.ts` for all available keys.
-
 ### Plugin discovery
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `AUTOME_PLUGINS_DIR` | `./plugins` | Override the project-local plugins directory path |
+The recommended way to register plugins is via the `plugins` array in your config file:
 
-Plugin discovery order:
+```json
+{
+  "plugins": ["./my-plugin", "./another-plugin"]
+}
+```
 
-1. `./plugins/*/autome-plugin.json` (or `$AUTOME_PLUGINS_DIR/*/autome-plugin.json`)
-2. `~/.autome/plugins/*/autome-plugin.json` (user-global, always scanned)
+Discovery is additive and runs in this order:
 
-Plugins from both sources are merged (project-local first). Each plugin must live in its own subdirectory and have an `autome-plugin.json` manifest — loose `.ts`/`.js` files at the top of the plugins directory are not picked up.
+1. **`plugins: []` array in `autome.config.*`** — recommended; explicit and visible.
+2. **`./plugins/*/autome-plugin.json`** in `process.cwd()` — directory auto-scan. Override the directory with `AUTOME_PLUGINS_DIR`.
+3. **`~/.autome/plugins/*/autome-plugin.json`** — user-global, always scanned.
+
+Plugins from all sources are merged (earlier sources take priority on ID collision). Each plugin must live in its own subdirectory and have an `autome-plugin.json` manifest — loose `.ts`/`.js` files at the top of a plugin directory are not picked up.
 
 ### ACP provider settings
 
@@ -215,37 +201,13 @@ Any API keys required by the underlying ACP provider (e.g. `ANTHROPIC_API_KEY` f
 
 ## Running the Server
 
-### Development
-
 ```bash
-npm run dev:all
+npx autome start
 ```
 
-Starts the API server on port 3001 and the frontend dev server on 5173. Hot reload is enabled for both.
+One process. UI + API on port 3001 (configurable via `PORT`, `--port`, or `autome.config`). The frontend is served from the same port — no separate asset server needed.
 
-### Production
-
-```bash
-# Build the frontend static assets
-npm --prefix node_modules/autome/frontend run build
-
-# Start the API in production mode
-NODE_ENV=production npm start
-```
-
-The frontend assets end up in `node_modules/autome/frontend/dist/`. Serve them with any static host (Nginx, Caddy, Cloudflare Pages, etc.) and point them at the API.
-
-### Single-process production (simpler)
-
-If you don't need separate deployment:
-
-```bash
-# Build once
-npm --prefix node_modules/autome/frontend run build
-
-# Run — the API can serve the frontend static files if desired
-NODE_ENV=production tsx node_modules/autome/src/server.ts
-```
+For development with hot-reload on the frontend, clone the autome source repo and run its own `npm run dev:all` — that is an autome-monorepo-internal workflow and not intended for consumer projects.
 
 ---
 
@@ -254,19 +216,19 @@ NODE_ENV=production tsx node_modules/autome/src/server.ts
 ### Dockerfile (example)
 
 ```dockerfile
-FROM node:20-alpine AS build
+FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
-COPY . .
-RUN npm --prefix node_modules/autome/frontend run build
 
 FROM node:20-alpine
 WORKDIR /app
-COPY --from=build /app .
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
 ENV NODE_ENV=production
+ENV HOST=0.0.0.0
 EXPOSE 3001
-CMD ["npx", "tsx", "node_modules/autome/src/server.ts"]
+CMD ["npx", "autome", "start"]
 ```
 
 ### State persistence
@@ -311,6 +273,16 @@ Your users' local (non-plugin) templates are never overwritten.
 
 ## Troubleshooting
 
+### `npx autome: command not found`
+
+Confirm autome installed correctly:
+
+```bash
+ls node_modules/autome/bin/autome.js
+```
+
+If the file is missing, re-install: `npm i autome` (or whichever install source you used).
+
 ### Plugin doesn't appear to load
 
 Check the boot logs for:
@@ -320,20 +292,20 @@ Check the boot logs for:
 ```
 
 If the load message is missing:
-- Confirm `plugins/your-plugin/autome-plugin.json` exists in `process.cwd()`
+- Confirm the plugin directory path is listed in `autome.config.json`'s `plugins` array, or that `autome-plugin.json` exists under `plugins/your-plugin/` in `process.cwd()`
 - Run `npx autome doctor` to see load failures
 - Ensure the `autome-plugin.json` has both `id` and `name` fields
 
 ### `Failed to parse autome-plugin.json`
 
-Your manifest has a JSON syntax error. Validate it with `node -e "JSON.parse(require('fs').readFileSync('plugins/my-plugin/autome-plugin.json','utf8'))"`.
+Your manifest has a JSON syntax error. Validate it with `node -e "JSON.parse(require('fs').readFileSync('my-plugin/autome-plugin.json','utf8'))"`.
 
 ### Node type file fails to import
 
 The file must default-export a `NodeTypeSpec`. Common issues:
 - Named export instead of default export (use `export default spec`, not `export { spec }`)
 - Missing `id` field on the exported object
-- TypeScript compilation error (check `npx tsc --noEmit`)
+- TypeScript syntax error visible in the boot logs
 
 ### Templates not showing
 
