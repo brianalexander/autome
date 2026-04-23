@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { tsImport } from 'tsx/esm/api';
 import type { AutomeConfig, ResolvedConfig } from './types.js';
 
 /**
@@ -42,6 +43,8 @@ export async function loadConfig(overrides?: Partial<AutomeConfig>): Promise<Res
     mode = rawMode;
   }
 
+  const plugins = (merged.plugins ?? []).map((p) => resolve(process.cwd(), p));
+
   return {
     port: merged.port ?? 3001,
     host: merged.host ?? '127.0.0.1',
@@ -51,6 +54,7 @@ export async function loadConfig(overrides?: Partial<AutomeConfig>): Promise<Res
     acpProvider: merged.acpProvider ?? undefined,
     mode,
     openBrowser: merged.openBrowser ?? false,
+    plugins,
   };
 }
 
@@ -85,9 +89,15 @@ async function loadConfigFile(): Promise<AutomeConfig> {
         const { readFileSync } = await import('node:fs');
         return JSON.parse(readFileSync(filePath, 'utf-8')) as AutomeConfig;
       }
-      // .ts or .js — dynamic import (works via tsx in dev, compiled in prod)
-      const mod = await import(filePath);
-      const cfg = mod.default ?? mod;
+      // .ts or .js — use tsImport so consumer package.json#type is irrelevant.
+      // When the consumer package is CJS, tsImport wraps the ES `export default`
+      // as module.exports.default, causing mod.default = { default: actualValue }.
+      // Unwrap that extra layer when present.
+      const mod = await tsImport(filePath, import.meta.url);
+      let cfg = mod.default ?? mod;
+      if (cfg && typeof cfg === 'object' && 'default' in cfg) {
+        cfg = (cfg as Record<string, unknown>).default ?? cfg;
+      }
       return (typeof cfg === 'function' ? cfg() : cfg) as AutomeConfig;
     } catch (err) {
       console.warn(`[config] Failed to load ${filePath}:`, err instanceof Error ? err.message : err);

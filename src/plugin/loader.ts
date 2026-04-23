@@ -3,19 +3,53 @@ import { join, resolve } from 'path';
 import { readdir, readFile } from 'fs/promises';
 import { homedir } from 'os';
 import { glob } from 'glob';
+import { tsImport } from 'tsx/esm/api';
 import type { LoadedPlugin, PluginManifest, NodeTemplate } from './types.js';
 import type { NodeTypeSpec } from '../nodes/types.js';
 import type { AcpProvider } from '../acp/provider/types.js';
 import { fromProject, PROJECT_ROOT } from '../paths.js';
+
+/**
+ * Resolve the default export from a tsImport result.
+ * When tsImport loads a CJS-context `.ts` file (e.g. in a package without
+ * "type":"module"), the ES `export default` ends up as `module.exports.default`,
+ * so the ESM interop wraps it: mod.default = { default: actualValue }.
+ * This helper unwraps that extra layer when present.
+ */
+function resolveDefault(mod: Record<string, unknown>): unknown {
+  const d = mod.default;
+  if (d && typeof d === 'object' && 'default' in (d as object)) {
+    return (d as Record<string, unknown>).default;
+  }
+  return d;
+}
 
 export interface PluginLoadResult {
   loaded: LoadedPlugin[];
   failures: Array<{ path: string; error: Error }>;
 }
 
-export async function loadPlugins(): Promise<PluginLoadResult> {
+export async function loadPlugins(opts: { explicitPaths?: string[] } = {}): Promise<PluginLoadResult> {
   const loaded: LoadedPlugin[] = [];
   const failures: Array<{ path: string; error: Error }> = [];
+
+  // 0. Explicit plugin directories declared in autome.config (additive, first-wins not enforced here)
+  for (const pluginDir of opts.explicitPaths ?? []) {
+    if (!existsSync(pluginDir)) {
+      failures.push({ path: pluginDir, error: new Error(`plugin dir not found: ${pluginDir}`) });
+      continue;
+    }
+    const manifestPath = join(pluginDir, 'autome-plugin.json');
+    if (!existsSync(manifestPath)) {
+      failures.push({ path: pluginDir, error: new Error(`manifest missing: ${manifestPath}`) });
+      continue;
+    }
+    const result = await loadManifestPlugin(pluginDir, manifestPath);
+    if (result.plugin) {
+      loaded.push(result.plugin);
+    }
+    failures.push(...result.failures);
+  }
 
   // Determine the project-local plugins directory. AUTOME_PLUGINS_DIR env var overrides.
   const envPluginsDir = process.env.AUTOME_PLUGINS_DIR;
@@ -110,8 +144,8 @@ async function loadManifestPlugin(
     for (const relPath of manifest.nodeTypes) {
       const absPath = resolve(pluginDir, relPath);
       try {
-        const mod = await import(absPath);
-        const spec = mod.default;
+        const mod = await tsImport(absPath, import.meta.url);
+        const spec = resolveDefault(mod as Record<string, unknown>);
         if (!spec || typeof spec !== 'object' || !('id' in spec)) {
           failures.push({
             path: absPath,
@@ -168,8 +202,8 @@ async function loadManifestPlugin(
     for (const relPath of manifest.providers) {
       const absPath = resolve(pluginDir, relPath);
       try {
-        const mod = await import(absPath);
-        const Export = mod.default ?? mod;
+        const mod = await tsImport(absPath, import.meta.url);
+        const Export = resolveDefault(mod as Record<string, unknown>) ?? mod;
 
         // Support class exports (instantiate) or object exports (use directly)
         const provider: unknown =
