@@ -16,7 +16,8 @@
  * Used by PreviewTemplateCard to render live Nunjucks previews in the canvas.
  */
 
-import type { StageDefinition, WorkflowDefinition } from './api';
+import type { StageDefinition, WorkflowDefinition, NodeTypeInfo } from './api';
+import { resolveEffectiveOutputSchema } from './resolveOutputSchema';
 
 // ---------------------------------------------------------------------------
 // Schema-based value synthesis
@@ -116,14 +117,18 @@ export interface MockWorkflowContext {
  *
  * Exposed variables match the runtime policy:
  *   - `trigger` — sampled from the trigger node's output_schema
- *   - `input`   — sampled from the immediate upstream stage's output_schema
+ *   - `input`   — sampled from the immediate upstream stage's resolved output_schema
  *   - `output`  — alias of input (for outbound-edge templates)
  *
  * `stages.*` is intentionally excluded — templates cannot reach across stages.
+ *
+ * Uses resolveEffectiveOutputSchema so gate/review-gate passthroughs yield
+ * typed samples from the originating upstream rather than untyped placeholders.
  */
 export function buildMockContext(
   stageId: string,
   definition: WorkflowDefinition,
+  specs?: NodeTypeInfo[],
 ): MockWorkflowContext {
   const upstreamIds = findUpstreamStageIds(stageId, definition);
 
@@ -136,6 +141,7 @@ export function buildMockContext(
 
     const isTrigger = stageDef.type === 'trigger' || stageDef.type.endsWith('-trigger');
     const config = (stageDef.config || {}) as Record<string, unknown>;
+    // Use raw config output_schema for triggers (they don't have passthrough)
     const outputSchema = config['output_schema'] as Record<string, unknown> | undefined;
     const sampled = outputSchema ? sampleFromSchema(outputSchema, upId) : {};
 
@@ -147,18 +153,16 @@ export function buildMockContext(
     }
   }
 
-  // input = the immediate upstream non-trigger stage's sampled output
+  // input = the immediate upstream non-trigger stage's resolved output — uses
+  // resolveEffectiveOutputSchema so passthrough chains (gate → gate → here) yield
+  // the originating typed schema rather than untyped x-passthrough placeholders.
   const immediateUpstreamId = findImmediateUpstream(stageId, definition);
   if (immediateUpstreamId) {
-    const stageDef = definition.stages.find((s) => s.id === immediateUpstreamId);
-    if (stageDef) {
-      const config = (stageDef.config || {}) as Record<string, unknown>;
-      const outputSchema = config['output_schema'] as Record<string, unknown> | undefined;
-      const sampled = outputSchema ? sampleFromSchema(outputSchema, immediateUpstreamId) : {};
-      input = (typeof sampled === 'object' && sampled !== null && !Array.isArray(sampled))
-        ? (sampled as Record<string, unknown>)
-        : { data: sampled };
-    }
+    const resolvedSchema = resolveEffectiveOutputSchema(immediateUpstreamId, definition, specs);
+    const sampled = resolvedSchema ? sampleFromSchema(resolvedSchema, immediateUpstreamId) : {};
+    input = (typeof sampled === 'object' && sampled !== null && !Array.isArray(sampled))
+      ? (sampled as Record<string, unknown>)
+      : { data: sampled };
   }
 
   return { trigger, input, output: input };

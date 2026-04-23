@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { useNodeTypes } from '../../hooks/queries';
 import {
@@ -8,6 +8,7 @@ import {
 import { SchemaForm } from './SchemaForm';
 import { CodeEditor } from './CodeEditor';
 import { Field, SchemaPropertiesTree } from './ConfigPanelShared';
+import { resolveEffectiveOutputSchema } from '../../lib/resolveOutputSchema';
 
 /** Extract field references from a JS expression like output.foo.bar */
 function extractFieldReferences(expr: string): string[][] {
@@ -74,6 +75,13 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
   const sourceSpec = specs?.find((s) => s.id === sourceStage?.type);
   const targetSpec = specs?.find((s) => s.id === targetStage?.type);
 
+  // Resolved source output schema — substitutes x-passthrough fields so gate/review-gate
+  // nodes show downstream-relevant typed schemas instead of untyped placeholders.
+  const sourceOutputSchema = useMemo(
+    () => (sourceStage ? resolveEffectiveOutputSchema(sourceStage.id, definition, specs ?? undefined) : undefined),
+    [sourceStage, definition, specs],
+  );
+
   return (
     <div className="w-full h-full bg-surface flex flex-col min-h-0 overflow-hidden">
       <div className="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
@@ -98,27 +106,18 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
         </Field>
 
         {/* Source output schema reference — shows what fields are available */}
-        {(() => {
-          const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
-          let outputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-          if (!outputSchema && sourceStage) {
-            const spec = specs?.find((sp) => sp.id === sourceStage.type);
-            outputSchema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
-          }
-          if (!outputSchema?.properties) return null;
-          return (
-            <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3">
-              <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
-                Available from {sourceStage?.label || editState.source}
-              </div>
-              <SchemaPropertiesTree
-                properties={outputSchema.properties as Record<string, Record<string, unknown>>}
-                depth={0}
-                prefix="output"
-              />
+        {!!sourceOutputSchema?.properties && (
+          <div className="bg-surface-secondary/50 border border-border-subtle rounded-lg p-3">
+            <div className="text-[10px] text-text-tertiary uppercase tracking-wider mb-2">
+              Available from {sourceStage?.label || editState.source}
             </div>
-          );
-        })()}
+            <SchemaPropertiesTree
+              properties={sourceOutputSchema.properties as Record<string, Record<string, unknown>>}
+              depth={0}
+              prefix="output"
+            />
+          </div>
+        )}
 
         <Field label="Label">
           <input
@@ -159,15 +158,7 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
               schema={sourceSpec.outEdgeSchema}
               value={editState as Record<string, unknown>}
               onChange={(updated) => updateEdge({ ...editState, ...updated })}
-              outputSchema={(() => {
-                const sc = (sourceStage?.config || {}) as Record<string, unknown>;
-                let os = sc.output_schema as Record<string, unknown> | undefined;
-                if (!os && sourceStage) {
-                  const sp = specs?.find((s) => s.id === sourceStage.type);
-                  os = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
-                }
-                return os;
-              })()}
+              outputSchema={sourceOutputSchema}
             />
           </div>
         )}
@@ -180,65 +171,46 @@ export function EdgeConfigPanel({ edge, definition, isCycleEdge, onSave, onDelet
               schema={targetSpec.inEdgeSchema}
               value={editState as Record<string, unknown>}
               onChange={(updated) => updateEdge({ ...editState, ...updated })}
-              outputSchema={(() => {
-                const sc = (sourceStage?.config || {}) as Record<string, unknown>;
-                let os = sc.output_schema as Record<string, unknown> | undefined;
-                if (!os && sourceStage) {
-                  const sp = specs?.find((s) => s.id === sourceStage.type);
-                  os = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
-                }
-                return os;
-              })()}
+              outputSchema={sourceOutputSchema}
             />
           </div>
         )}
 
         {/* Fallback: if neither node declares edge schemas, show basic fields */}
-        {(() => {
-          const sourceConfig = (sourceStage?.config || {}) as Record<string, unknown>;
-          let sourceOutputSchema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-          if (!sourceOutputSchema && sourceStage) {
-            const sp = specs?.find((s) => s.id === sourceStage.type);
-            sourceOutputSchema = sp?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
-          }
-          return (
-            <>
-              {!sourceSpec?.outEdgeSchema && !targetSpec?.inEdgeSchema && (
-                <Field label="Condition (JS expression)">
-                  <CodeEditor
-                    value={editState.condition || ''}
-                    onChange={(val) => updateEdge({ ...editState, condition: val || undefined })}
-                    editorMode="condition"
-                    minHeight="60px"
-                    outputSchema={sourceOutputSchema}
-                  />
-                </Field>
-              )}
+        <>
+          {!sourceSpec?.outEdgeSchema && !targetSpec?.inEdgeSchema && (
+            <Field label="Condition (JS expression)">
+              <CodeEditor
+                value={editState.condition || ''}
+                onChange={(val) => updateEdge({ ...editState, condition: val || undefined })}
+                editorMode="condition"
+                minHeight="60px"
+                outputSchema={sourceOutputSchema}
+              />
+            </Field>
+          )}
 
-              {/* Design-time validation warnings */}
-              {(() => {
-                const outputSchema = sourceOutputSchema;
-                const conditionExpr = editState.condition;
-                if (!outputSchema?.properties || !conditionExpr) return null;
+          {/* Design-time validation warnings */}
+          {(() => {
+            const conditionExpr = editState.condition;
+            if (!sourceOutputSchema?.properties || !conditionExpr) return null;
 
-                const refs = extractFieldReferences(conditionExpr);
-                const invalid = refs.filter((path) => !validateFieldPath(outputSchema, path));
-                if (invalid.length === 0) return null;
+            const refs = extractFieldReferences(conditionExpr);
+            const invalid = refs.filter((path) => !validateFieldPath(sourceOutputSchema, path));
+            if (invalid.length === 0) return null;
 
-                return (
-                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-700/50 rounded-lg p-2.5 text-xs">
-                    <div className="text-amber-700 dark:text-amber-300 font-medium mb-1">Schema warning</div>
-                    {invalid.map((path, i) => (
-                      <div key={i} className="text-amber-600 dark:text-amber-400">
-                        <code className="font-mono">output.{path.join('.')}</code> not found in source schema
-                      </div>
-                    ))}
+            return (
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-700/50 rounded-lg p-2.5 text-xs">
+                <div className="text-amber-700 dark:text-amber-300 font-medium mb-1">Schema warning</div>
+                {invalid.map((path, i) => (
+                  <div key={i} className="text-amber-600 dark:text-amber-400">
+                    <code className="font-mono">output.{path.join('.')}</code> not found in source schema
                   </div>
-                );
-              })()}
-            </>
-          );
-        })()}
+                ))}
+              </div>
+            );
+          })()}
+        </>
       </div>
     </div>
   );

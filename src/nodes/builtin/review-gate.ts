@@ -91,9 +91,18 @@ export const reviewGateNodeSpec: NodeTypeSpec = {
       output_schema: {
         type: 'object',
         title: 'Output Schema',
-        description: 'Fixed shape: { decision, notes?, input }. The input field is a passthrough of the upstream stage output — reference it downstream as {{ output.input.FIELD }}.',
+        description: 'Fixed by the runtime.',
         format: 'json',
         readOnly: true,
+        properties: {
+          decision: { type: 'string', enum: ['approved', 'revised', 'rejected'] },
+          notes: { type: 'string', description: 'Optional reviewer feedback.' },
+          input: {
+            'x-passthrough': 'input',
+            description: 'Passthrough of the upstream stage output — reference downstream as {{ output.input.FIELD }}.',
+          },
+        },
+        required: ['decision', 'input'],
       },
     },
   },
@@ -102,10 +111,13 @@ export const reviewGateNodeSpec: NodeTypeSpec = {
       type: 'object',
       properties: {
         decision: { type: 'string', enum: ['approved', 'revised', 'rejected'] },
-        notes: { type: 'string' },
-        input: { description: 'Passthrough of the upstream stage output.' },
+        notes: { type: 'string', description: 'Optional reviewer feedback.' },
+        input: {
+          'x-passthrough': 'input',
+          description: 'Passthrough of the upstream stage output — reference downstream as {{ output.input.FIELD }}.',
+        },
       },
-      required: ['decision'],
+      required: ['decision', 'input'],
     },
   },
   executor,

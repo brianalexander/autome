@@ -33,6 +33,14 @@ export interface JSONSchemaFragment {
    */
   'x-placeholder'?: string;
   /**
+   * Passthrough marker — when set to 'input', the field is replaced at resolution time
+   * by the stage's resolved INPUT schema (derived from upstream edges).
+   * Only 'input' is valid for now; the keyword is reserved for future expansion.
+   * Used by gate and review-gate nodes so downstream stages see typed schemas
+   * through pass-through chains.
+   */
+  'x-passthrough'?: 'input';
+  /**
    * JSON Schema standard keyword — when true, the field is rendered read-only.
    * SchemaForm treats this as additive: disabled = panelReadonly || readOnly.
    */

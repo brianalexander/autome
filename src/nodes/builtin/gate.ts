@@ -108,9 +108,20 @@ export const gateNodeSpec: NodeTypeSpec = {
       output_schema: {
         type: 'object',
         title: 'Output Schema',
-        description: 'Fixed shape: { approved: true, input: <upstream data> }. The input field is a passthrough of the upstream stage output — reference it downstream as {{ output.input.FIELD }}.',
+        description: 'Fixed by the runtime.',
         format: 'json',
         readOnly: true,
+        properties: {
+          approved: {
+            type: 'boolean',
+            description: 'True if the gate was approved (or auto/conditional passed).',
+          },
+          input: {
+            'x-passthrough': 'input',
+            description: 'Passthrough of the upstream stage output — reference downstream as {{ output.input.FIELD }}.',
+          },
+        },
+        required: ['approved', 'input'],
       },
     },
   },
@@ -122,7 +133,17 @@ export const gateNodeSpec: NodeTypeSpec = {
       description: 'Live preview using mock trigger + upstream outputs.',
     },
   ],
-  defaultConfig: { type: 'manual' },
+  defaultConfig: {
+    type: 'manual',
+    output_schema: {
+      type: 'object',
+      properties: {
+        approved: { type: 'boolean', description: 'True if the gate was approved (or auto/conditional passed).' },
+        input: { 'x-passthrough': 'input', description: 'Passthrough of the upstream stage output — reference downstream as {{ output.input.FIELD }}.' },
+      },
+      required: ['approved', 'input'],
+    },
+  },
   executor,
   outEdgeSchema: {
     type: 'object',

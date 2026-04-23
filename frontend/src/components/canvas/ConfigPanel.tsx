@@ -14,6 +14,7 @@ import { AdvancedStageConfig } from './AdvancedStageConfig';
 import { ReadmeEditor } from './ReadmeEditor';
 import { StageConfigForm } from './StageConfigForm';
 import { NodeDescriptionPopover } from './NodeDescriptionPopover';
+import { resolveEffectiveOutputSchema } from '../../lib/resolveOutputSchema';
 
 // Re-export EdgeConfigPanel so existing import sites (WorkflowEditor.tsx) don't break.
 export { EdgeConfigPanel } from './EdgeConfigPanel';
@@ -127,18 +128,12 @@ export function ConfigPanel({ stage, definition, onSave, onDelete, onClose, onDe
 
     const inputMode = (editState.input_mode as string) || 'queue';
 
-    // Collect each upstream's output schema, keyed by source stage ID
+    // Collect each upstream's resolved output schema, keyed by source stage ID.
+    // resolveEffectiveOutputSchema substitutes x-passthrough fields so gate/review-gate
+    // nodes expose the upstream typed shape rather than untyped placeholders.
     const sourceSchemas: Record<string, Record<string, unknown>> = {};
     for (const edge of incomingEdges) {
-      const sourceStage = definition.stages.find(s => s.id === edge.source);
-      if (!sourceStage) continue;
-      const sourceConfig = (sourceStage.config || {}) as Record<string, unknown>;
-      let schema = sourceConfig.output_schema as Record<string, unknown> | undefined;
-      // Fallback to node type spec's default
-      if (!schema && specs) {
-        const spec = specs.find(s => s.id === sourceStage.type);
-        schema = spec?.defaultConfig?.output_schema as Record<string, unknown> | undefined;
-      }
+      const schema = resolveEffectiveOutputSchema(edge.source, definition, specs ?? undefined);
       sourceSchemas[edge.source] = schema || { type: 'object' };
     }
 
