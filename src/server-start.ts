@@ -190,7 +190,7 @@ export async function startServer(resolvedConfig: ResolvedConfig, options: Start
     await applyTemplates(options.templates, 'programmatic', nodeRegistry, db);
   }
 
-  const { loaded: fsPlugins, failures: pluginFailures } = await loadPlugins();
+  const { loaded: fsPlugins, failures: pluginFailures } = await loadPlugins({ explicitPaths: resolvedConfig.plugins });
   if (pluginFailures.length > 0) {
     for (const f of pluginFailures) {
       console.warn(`[plugins] Failed to load ${f.path}: ${f.error.message}`);
@@ -284,28 +284,26 @@ export async function startServer(resolvedConfig: ResolvedConfig, options: Start
   // Register routes with all dependencies (plugins get routes registered inside)
   await app.register(registerRoutes, { db, eventBus, runner, manualTrigger, authorPool, acpPool, assistantPool, plugins, secretsService, orchestratorPort: resolvedConfig.port, programmaticProviders });
 
-  // Production: serve bundled frontend static files
-  if (resolvedConfig.mode === 'production') {
-    const frontendPath = resolveFrontendDistPath();
-    if (!existsSync(frontendPath)) {
-      console.warn(
-        '[server] Production mode but frontend/dist not found. ' +
-        'Run `npm run build:all` first.',
-      );
-    } else {
-      await app.register(fastifyStatic, {
-        root: frontendPath,
-        prefix: '/',
-      });
+  // Serve bundled frontend static files if the dist folder exists.
+  // This runs in both dev and production mode — whoever has the frontend built gets the UI.
+  const frontendPath = resolveFrontendDistPath();
+  if (existsSync(frontendPath)) {
+    await app.register(fastifyStatic, {
+      root: frontendPath,
+      prefix: '/',
+    });
 
-      // SPA fallback — unknown routes that aren't /api or /ws get index.html
-      app.setNotFoundHandler((req, reply) => {
-        if (req.url.startsWith('/api/') || req.url.startsWith('/ws')) {
-          return reply.code(404).send({ error: 'Not found' });
-        }
-        return reply.sendFile('index.html');
-      });
-    }
+    // SPA fallback — unknown routes that aren't /api or /ws get index.html
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api/') || req.url.startsWith('/ws')) {
+        return reply.code(404).send({ error: 'Not found' });
+      }
+      return reply.sendFile('index.html');
+    });
+  } else {
+    console.log(
+      '[server] Frontend not bundled — running API-only. Build with `npm run build:all` to serve the UI from this process.',
+    );
   }
 
   // Graceful shutdown hook

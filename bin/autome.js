@@ -12,7 +12,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(__dirname, '../dist/cli/index.js');
 
 try {
-  execFileSync(process.execPath, ['--import', 'tsx/esm', cli, ...process.argv.slice(2)], {
+  execFileSync(process.execPath, ['--import', 'tsx', cli, ...process.argv.slice(2)], {
     stdio: 'inherit',
     env: process.env,
   });

@@ -24,6 +24,12 @@ export interface AutomeConfig {
 
   /** Auto-open the browser on startup. Default: false (only true when CLI says so). */
   openBrowser?: boolean;
+
+  /**
+   * Explicit plugin directories to load. Each path must contain an autome-plugin.json manifest.
+   * Resolved relative to the config file's cwd. Additive with filesystem discovery.
+   */
+  plugins?: string[];
 }
 
 export interface ResolvedConfig {
@@ -35,6 +41,7 @@ export interface ResolvedConfig {
   acpProvider: string | undefined;
   mode: 'dev' | 'production';
   openBrowser: boolean;
+  plugins: string[];
 }
 
 export function defineConfig(config: AutomeConfig): AutomeConfig {

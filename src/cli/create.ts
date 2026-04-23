@@ -205,14 +205,11 @@ Options:
       console.log(`[${cliName}] Resolved config:`, resolvedConfig);
     }
 
-    if (resolvedConfig.mode === 'production') {
-      const frontendDistIndex = resolve(__dirname, '../../frontend/dist/index.html');
-      if (!existsSync(frontendDistIndex)) {
-        console.log(
-          `[${cliName}] Production mode: frontend not built. Run \`npm run build:all\` and try again.\n` +
-            '         Starting in API-only mode.',
-        );
-      }
+    const frontendDistIndex = resolve(__dirname, '../../frontend/dist/index.html');
+    if (!existsSync(frontendDistIndex)) {
+      console.log(
+        '[server] Frontend not bundled — running API-only. Build with `npm run build:all` to serve the UI from this process.',
+      );
     }
 
     console.log(
@@ -282,7 +279,7 @@ Options:
     let pluginLoadError: unknown = null;
 
     try {
-      pluginLoadResult = await loadPlugins();
+      pluginLoadResult = await loadPlugins({ explicitPaths: resolvedConfig.plugins });
     } catch (err) {
       pluginLoadError = err;
     }
