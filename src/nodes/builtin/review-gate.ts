@@ -94,15 +94,6 @@ export const reviewGateNodeSpec: NodeTypeSpec = {
         description: 'Fixed by the runtime.',
         format: 'json',
         readOnly: true,
-        properties: {
-          decision: { type: 'string', enum: ['approved', 'revised', 'rejected'] },
-          notes: { type: 'string', description: 'Optional reviewer feedback.' },
-          input: {
-            'x-passthrough': 'input',
-            description: 'Passthrough of the upstream stage output — reference downstream as {{ output.input.FIELD }}.',
-          },
-        },
-        required: ['decision', 'input'],
       },
     },
   },

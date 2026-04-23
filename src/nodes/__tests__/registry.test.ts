@@ -429,6 +429,100 @@ describe('x-placeholder on unlimited number fields', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// gate / review-gate configSchema.output_schema must not have nested properties
+// (regression gate: nested properties caused the validator to treat the stored
+// JSON Schema value as a literal constraint, rejecting real workflow saves)
+// ---------------------------------------------------------------------------
+
+describe('gate and review-gate configSchema.output_schema has no nested properties', () => {
+  it('gate configSchema.output_schema has no properties field', () => {
+    const field = getSchemaField('gate', 'output_schema');
+    expect(field).toBeDefined();
+    expect(field['properties']).toBeUndefined();
+    expect(field['required']).toBeUndefined();
+  });
+
+  it('review-gate configSchema.output_schema has no properties field', () => {
+    const field = getSchemaField('review-gate', 'output_schema');
+    expect(field).toBeDefined();
+    expect(field['properties']).toBeUndefined();
+    expect(field['required']).toBeUndefined();
+  });
+
+  it('gate configSchema.output_schema is readOnly and format json', () => {
+    const field = getSchemaField('gate', 'output_schema');
+    expect(field['readOnly']).toBe(true);
+    expect(field['format']).toBe('json');
+  });
+
+  it('review-gate configSchema.output_schema is readOnly and format json', () => {
+    const field = getSchemaField('review-gate', 'output_schema');
+    expect(field['readOnly']).toBe(true);
+    expect(field['format']).toBe('json');
+  });
+
+  it('gate defaultConfig.output_schema has full structure including x-passthrough on input', () => {
+    const spec = nodeRegistry.getAll().find((s) => s.id === 'gate')!;
+    const outputSchema = (spec.defaultConfig as Record<string, unknown>)['output_schema'] as Record<string, unknown>;
+    expect(outputSchema).toBeDefined();
+    const properties = outputSchema['properties'] as Record<string, Record<string, unknown>>;
+    expect(properties).toBeDefined();
+    expect(properties['approved']).toBeDefined();
+    expect(properties['approved']['type']).toBe('boolean');
+    expect(properties['input']).toBeDefined();
+    expect(properties['input']['x-passthrough']).toBe('input');
+    expect(outputSchema['required']).toEqual(expect.arrayContaining(['approved', 'input']));
+  });
+
+  it('review-gate defaultConfig.output_schema has full structure including x-passthrough on input', () => {
+    const spec = nodeRegistry.getAll().find((s) => s.id === 'review-gate')!;
+    const outputSchema = (spec.defaultConfig as Record<string, unknown>)['output_schema'] as Record<string, unknown>;
+    expect(outputSchema).toBeDefined();
+    const properties = outputSchema['properties'] as Record<string, Record<string, unknown>>;
+    expect(properties).toBeDefined();
+    expect(properties['decision']).toBeDefined();
+    expect(properties['decision']['type']).toBe('string');
+    expect(properties['decision']['enum']).toEqual(['approved', 'revised', 'rejected']);
+    expect(properties['input']).toBeDefined();
+    expect(properties['input']['x-passthrough']).toBe('input');
+    expect(outputSchema['required']).toEqual(expect.arrayContaining(['decision', 'input']));
+  });
+
+  it('gate config with a realistic stored output_schema passes validation', () => {
+    const schema = nodeRegistry.getConfigZodSchema('gate')!;
+    const result = schema.safeParse({
+      type: 'manual',
+      message: 'Please approve',
+      output_schema: {
+        type: 'object',
+        properties: {
+          approved: { type: 'boolean', description: 'True if the gate was approved.' },
+          input: { 'x-passthrough': 'input', description: 'Passthrough of upstream output.' },
+        },
+        required: ['approved', 'input'],
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('review-gate config with a realistic stored output_schema passes validation', () => {
+    const schema = nodeRegistry.getConfigZodSchema('review-gate')!;
+    const result = schema.safeParse({
+      output_schema: {
+        type: 'object',
+        properties: {
+          decision: { type: 'string', enum: ['approved', 'revised', 'rejected'] },
+          notes: { type: 'string', description: 'Optional reviewer feedback.' },
+          input: { 'x-passthrough': 'input', description: 'Passthrough of upstream output.' },
+        },
+        required: ['decision', 'input'],
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
 describe('built-in trigger lifecycle flags', () => {
   it('cron-trigger has hasLifecycle and hasSampleEvent === true', () => {
     const info = nodeRegistry.getAllInfo().find((i) => i.id === 'cron-trigger')!;

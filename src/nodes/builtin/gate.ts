@@ -111,17 +111,6 @@ export const gateNodeSpec: NodeTypeSpec = {
         description: 'Fixed by the runtime.',
         format: 'json',
         readOnly: true,
-        properties: {
-          approved: {
-            type: 'boolean',
-            description: 'True if the gate was approved (or auto/conditional passed).',
-          },
-          input: {
-            'x-passthrough': 'input',
-            description: 'Passthrough of the upstream stage output — reference downstream as {{ output.input.FIELD }}.',
-          },
-        },
-        required: ['approved', 'input'],
       },
     },
   },
