@@ -162,10 +162,14 @@ export function useDraftLifecycle(workflowId: string | undefined): DraftLifecycl
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(def),
-        }).catch((err) => console.warn('[draft-sync]', err));
+        })
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ['workflow-validation', effectiveId] });
+          })
+          .catch((err) => console.warn('[draft-sync]', err));
       }
     },
-    [effectiveId, isNew, pushDefinition],
+    [effectiveId, isNew, pushDefinition, queryClient],
   );
 
   const setDefinitionSilent = useCallback(

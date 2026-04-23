@@ -648,33 +648,23 @@ export function WorkflowCanvas({
     [mode, definition, onDefinitionChange, setEdges],
   );
 
-  // Author mode: handle keyboard Delete / Backspace on selected edges
-  const onEdgesDelete = useCallback(
-    (deletedEdges: Edge[]) => {
+  // Author mode: unified delete handler for both nodes and edges (fires once per operation)
+  const onDelete = useCallback(
+    ({ nodes: deletedNodes, edges: deletedEdges }: { nodes: Node[]; edges: Edge[] }) => {
       if (mode !== 'author' || !onDefinitionChange) return;
-      const deletedIds = new Set(deletedEdges.map((e) => e.id));
+      const deletedNodeIds = new Set(deletedNodes.map((n) => n.id));
+      const deletedEdgeIds = new Set(deletedEdges.map((e) => e.id));
       onDefinitionChange({
         ...definition,
-        edges: definition.edges.filter((e) => !deletedIds.has(e.id)),
+        stages: definition.stages.filter((s) => !deletedNodeIds.has(s.id)),
+        edges: definition.edges.filter(
+          (e) =>
+            !deletedEdgeIds.has(e.id) &&
+            !deletedNodeIds.has(e.source) &&
+            !deletedNodeIds.has(e.target),
+        ),
       });
-    },
-    [mode, definition, onDefinitionChange],
-  );
-
-  // Author mode: handle keyboard Delete / Backspace on selected nodes
-  const onNodesDelete = useCallback(
-    (deletedNodes: Node[]) => {
-      if (mode !== 'author' || !onDefinitionChange) return;
-      const deletedIds = new Set(deletedNodes.map((n) => n.id));
-      onDefinitionChange({
-        ...definition,
-        stages: definition.stages.filter((s) => !deletedIds.has(s.id)),
-        edges: definition.edges.filter((e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)),
-      });
-      // Deselect if the selected node was deleted
-      if (onStageClick) {
-        onStageClick(null);
-      }
+      if (deletedNodes.length > 0 && onStageClick) onStageClick(null);
     },
     [mode, definition, onDefinitionChange, onStageClick],
   );
@@ -740,8 +730,7 @@ export function WorkflowCanvas({
         onEdgeClick={handleEdgeClick}
         onPaneClick={onPaneClick}
         onConnect={isAuthor ? onConnect : undefined}
-        onEdgesDelete={isAuthor ? onEdgesDelete : undefined}
-        onNodesDelete={isAuthor ? onNodesDelete : undefined}
+        onDelete={isAuthor ? onDelete : undefined}
         onNodeDragStart={isAuthor ? onNodeDragStart : undefined}
         onNodeDragStop={isAuthor ? onNodeDragStop : undefined}
         nodesDraggable={isAuthor}
