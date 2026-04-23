@@ -1,8 +1,9 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useNodeTypes } from '../../hooks/queries';
 import { type StageDefinition, type WorkflowDefinition } from '../../lib/api';
 import { SchemaForm } from './SchemaForm';
 import { ConfigCardRenderer } from './ConfigCardRenderer';
+import { resolveSpecOutputSchema } from '../../lib/resolveOutputSchema';
 
 interface StageConfigFormProps {
   stage: StageDefinition;
@@ -58,6 +59,31 @@ export function StageConfigForm({ stage, onChange, readonly, definition, expecte
     [stage, onChange, readonly],
   );
 
+  // For readOnly output_schema fields (e.g. gate, review-gate, prompt-trigger, cron-trigger),
+  // the stored stage.config.output_schema can be stale if the spec evolved after stage creation.
+  // Override the display value with the resolved schema from the spec (with x-passthrough substituted),
+  // so the CodeWidget always shows a fresh, accurate shape.
+  const configForDisplay = useMemo<Record<string, unknown>>(() => {
+    const base = (stage.config || {}) as Record<string, unknown>;
+    if (!nodeTypeInfo || !definition) return base;
+
+    const configSchemaProps = (nodeTypeInfo.configSchema?.properties as Record<string, Record<string, unknown>> | undefined) ?? {};
+    const outputSchemaProp = configSchemaProps['output_schema'];
+
+    // Only override when the spec marks output_schema readOnly — user-editable schemas
+    // (agent, code-executor, etc.) must continue to show the user's edited value.
+    if (!outputSchemaProp || outputSchemaProp['readOnly'] !== true) return base;
+
+    // Use the spec's current defaultConfig as the canonical base — ignoring any stale
+    // stage.config.output_schema — then substitute x-passthrough fields with the live
+    // upstream shape so users see the resolved typed schema.
+    const specSchema = nodeTypeInfo.defaultConfig?.output_schema as Record<string, unknown> | undefined;
+    if (specSchema === undefined) return base;
+
+    const resolved = resolveSpecOutputSchema(specSchema, stage.id, definition, nodeTypeSpecs ?? undefined);
+    return { ...base, output_schema: resolved };
+  }, [stage, nodeTypeInfo, definition, nodeTypeSpecs]);
+
   if (!nodeTypeInfo) {
     return <div className="text-xs text-text-tertiary py-2">Unknown node type: {stage.type}</div>;
   }
@@ -87,10 +113,10 @@ export function StageConfigForm({ stage, onChange, readonly, definition, expecte
       {/* Schema-driven form for all config fields */}
       <SchemaForm
         schema={nodeTypeInfo.configSchema ?? { type: 'object', properties: {} }}
-        value={(stage.config || {}) as Record<string, unknown>}
+        value={configForDisplay}
         onChange={handleConfigChange}
         nodeType={stage.type}
-        returnSchema={(stage.config as Record<string, unknown>)?.output_schema as Record<string, unknown> | undefined}
+        returnSchema={configForDisplay?.output_schema as Record<string, unknown> | undefined}
         sandbox={(stage.config as Record<string, unknown>)?.sandbox as boolean | undefined}
         readonly={readonly}
       />

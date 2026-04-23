@@ -187,6 +187,26 @@ export function resolveEffectiveOutputSchema(
 }
 
 /**
+ * Resolve passthrough fields in an EXPLICIT schema, using a stage's resolved input
+ * as the substitution target. Differs from resolveEffectiveOutputSchema in that the
+ * schema is provided directly (e.g. from spec.defaultConfig) rather than being read
+ * from stage.config or spec — useful for readOnly output_schema fields where the
+ * stored config may be stale and the spec's current schema should always take precedence.
+ *
+ * Returns the schema unchanged if it has no x-passthrough fields (fast path).
+ */
+export function resolveSpecOutputSchema(
+  schema: Record<string, unknown>,
+  stageId: string,
+  definition: WorkflowDefinition,
+  specs?: NodeTypeInfo[],
+): Record<string, unknown> {
+  if (!hasPassthroughFields(schema)) return schema;
+  const inputSchema = resolveEffectiveInputSchemaInternal(stageId, definition, specs, new Set([stageId]));
+  return substitutePassthroughFields(schema, inputSchema);
+}
+
+/**
  * Get the resolved INPUT schema for a stage — the shape of `input.*` references.
  *
  * Shape mirrors the runtime:
