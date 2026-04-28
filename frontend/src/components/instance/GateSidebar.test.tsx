@@ -109,6 +109,43 @@ describe('GateSidebar', () => {
     expect(screen.queryByTestId('review-gate-actions')).not.toBeInTheDocument();
   });
 
+  it('renders gate message template with trigger and input values (not raw template)', () => {
+    const gateStageDef: StageDefinition = {
+      id: 'gate1',
+      type: 'gate',
+      config: { type: 'manual', message: 'Approve {{ trigger.email }} for {{ input.amount }}' },
+    };
+
+    // upstream stage provides the input data
+    const upstreamCtx: Record<string, import('../../lib/api').StageContext> = {
+      step1: { status: 'completed', run_count: 1, runs: [], latest: { amount: 500 } },
+    };
+
+    const definitionWithEdge: WorkflowDefinition = {
+      ...baseDefinition,
+      stages: [
+        { id: 'step1', type: 'code-executor', config: {} },
+        { id: 'gate1', type: 'gate', config: { type: 'manual', message: 'Approve {{ trigger.email }} for {{ input.amount }}' } },
+      ],
+      edges: [{ id: 'e1', source: 'step1', target: 'gate1' }],
+    };
+
+    render(
+      <GateSidebar
+        {...defaultProps}
+        stageId="gate1"
+        stageDef={gateStageDef}
+        definition={definitionWithEdge}
+        workflowContext={upstreamCtx}
+        triggerData={{ email: 'alice@example.com' }}
+      />
+    );
+
+    // The rendered value should appear, not the raw template string
+    expect(screen.getByText('Approve alice@example.com for 500')).toBeInTheDocument();
+    expect(screen.queryByText('Approve {{ trigger.email }} for {{ input.amount }}')).not.toBeInTheDocument();
+  });
+
   it('renders review-gate label in header', () => {
     const reviewStageDef: StageDefinition = {
       id: 'review1',

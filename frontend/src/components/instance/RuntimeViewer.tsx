@@ -214,6 +214,7 @@ export function RuntimeViewer({
               stageCtx={selectedStageCtx}
               definition={definition}
               workflowContext={effectiveContext?.stages || {}}
+              triggerData={effectiveContext?.trigger}
               onClose={() => setSelectedStageId(null)}
               onApprove={(data) => approveGate.mutate({ instanceId, stageId: selectedStageId, data })}
               onReject={() => rejectGate.mutate({ instanceId, stageId: selectedStageId })}

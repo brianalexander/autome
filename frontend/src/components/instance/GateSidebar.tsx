@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import nunjucks from 'nunjucks';
 import { ChevronLeft } from 'lucide-react';
 import { StatusBadge } from '../ui/StatusBadge';
 import { MetadataRow } from '../ui/MetadataRow';
@@ -14,6 +15,7 @@ export function GateSidebar({
   stageCtx,
   definition,
   workflowContext,
+  triggerData,
   onClose,
   onApprove,
   onReject,
@@ -24,6 +26,8 @@ export function GateSidebar({
   stageCtx: StageContext | null | undefined;
   definition: WorkflowDefinition;
   workflowContext: Record<string, StageContext>;
+  /** Workflow-level trigger payload, used to render gate message templates. */
+  triggerData?: unknown;
   onClose: () => void;
   onApprove: (data?: unknown) => void;
   onReject: () => void;
@@ -51,6 +55,26 @@ export function GateSidebar({
 
   const [editedData, setEditedData] = useState<string>('');
   const [parseError, setParseError] = useState<string | null>(null);
+
+  // Nunjucks env configured to match the server-side renderer and PreviewTemplateCard
+  const nunjucksEnv = useMemo(
+    () => new nunjucks.Environment(null, { autoescape: false, throwOnUndefined: false }),
+    [],
+  );
+
+  // Render the gate message template against the same scope as the server (trigger + input)
+  const renderedMessage = useMemo(() => {
+    if (!gate.message) return null;
+    const raw = String(gate.message);
+    try {
+      return nunjucksEnv.renderString(raw, {
+        trigger: triggerData ?? {},
+        input: upstreamData ?? {},
+      });
+    } catch {
+      return raw;
+    }
+  }, [gate.message, triggerData, upstreamData, nunjucksEnv]);
 
   // Initialize/reset textarea when upstream data changes
   useEffect(() => {
@@ -121,7 +145,7 @@ export function GateSidebar({
           {gate && (
             <>
               <MetadataRow label="Type" value={String(gate.type || '')} />
-              {gate.message && <MetadataRow label="Message" value={String(gate.message)} />}
+              {renderedMessage && <MetadataRow label="Message" value={renderedMessage} />}
               {gate.condition && (
                 <MetadataRow
                   label="Condition"

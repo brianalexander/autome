@@ -221,6 +221,65 @@ describe('Instance routes', () => {
     expect(approvals[0].gateMessage).toBe('Review: Hello World — category: urgent');
   });
 
+  it('GET /api/approvals — renders {{ input.FIELD }} against the upstream stage output', async () => {
+    const wfRes = await app.inject({
+      method: 'POST',
+      url: '/api/workflows',
+      payload: {
+        name: 'Gate Input Template Workflow',
+        description: '',
+        trigger: { provider: 'manual' },
+        stages: [
+          { id: 'trigger', type: 'manual-trigger', config: {} },
+          { id: 'step1', type: 'code-executor', config: { code: 'return {}', output_schema: { type: 'object' } } },
+          {
+            id: 'gate1',
+            type: 'gate',
+            config: {
+              type: 'manual',
+              message: 'Approve {{ trigger.email }} for {{ input.amount }}',
+            },
+          },
+        ],
+        edges: [
+          { id: 'e1', source: 'trigger', target: 'step1' },
+          { id: 'e2', source: 'step1', target: 'gate1' },
+        ],
+      },
+    });
+    expect(wfRes.statusCode).toBe(201);
+    const wfId = wfRes.json().id;
+
+    const context: WorkflowContext = {
+      trigger: { email: 'alice@example.com' },
+      stages: {
+        trigger: { status: 'completed', run_count: 1, runs: [], latest: { email: 'alice@example.com' } },
+        step1: { status: 'completed', run_count: 1, runs: [], latest: { amount: 500 } },
+        gate1: { status: 'running', run_count: 1, runs: [] },
+      },
+    };
+
+    db.createInstance({
+      definition_id: wfId,
+      definition_version: 1,
+      status: 'waiting_gate',
+      trigger_event: { type: 'trigger', provider: 'manual', payload: {} },
+      context,
+      current_stage_ids: ['gate1'],
+      is_test: false,
+      initiated_by: 'user',
+      resume_count: 0,
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/approvals' });
+    expect(res.statusCode).toBe(200);
+    const approvals = res.json() as Array<{ stageId: string; gateMessage: string | null }>;
+    const gateApproval = approvals.find(a => a.stageId === 'gate1');
+    expect(gateApproval).toBeDefined();
+    // Both trigger and input fields should be rendered
+    expect(gateApproval?.gateMessage).toBe('Approve alice@example.com for 500');
+  });
+
   it('GET /api/approvals — falls back to raw string for malformed template', async () => {
     const wfRes = await app.inject({
       method: 'POST',

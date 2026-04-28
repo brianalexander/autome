@@ -3,9 +3,9 @@
  * Adds: header with status/tabs, iteration picker, config tab, prompt tab, stage output display.
  * Loads persisted transcript segments so chat history survives navigation.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Copy, Check } from 'lucide-react';
-import { useCancelStage, useAgent, useInjectMessage, useStagePrompt, useRestartStageSession } from '../../hooks/queries';
+import { useCancelStage, useAgent, useStagePrompt, useRestartStageSession } from '../../hooks/queries';
 import { useChatSegments } from '../../hooks/useChatSegments';
 import { AcpChatPane } from '../chat/AcpChatPane';
 import { formatDuration, formatElapsed } from '../../lib/format';
@@ -35,7 +35,6 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
   const [selectedRunIndex, setSelectedRunIndex] = useState<number>(stageContext.runs.length - 1);
   const [copied, setCopied] = useState(false);
   const cancelStage = useCancelStage();
-  const injectMessage = useInjectMessage();
   const restartStageSession = useRestartStageSession();
   const stageCfg = (stageDef?.config || {}) as Record<string, any>;
   const agentId = stageCfg.agentId || '';
@@ -57,6 +56,23 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
   // Load rendered prompt
   const { data: promptData } = useStagePrompt(instanceId, stageId);
 
+  // Prepend the rendered prompt as a synthetic user bubble so the transcript
+  // starts with what was sent to the agent, matching the chat convention.
+  // Only the latest iteration's prompt is shown (multi-iteration interleaving is out of scope).
+  const seededInitialMessages = useMemo(() => {
+    if (!promptData?.prompt) return initialMessages;
+    const promptMessage = {
+      role: 'user' as const,
+      content: promptData.prompt,
+      timestamp: promptData.created_at,
+      segments: [{ type: 'text' as const, content: promptData.prompt }],
+    };
+    // Defensive dedup: skip if the transcript already starts with this exact prompt
+    const first = initialMessages?.[0];
+    if (first?.role === 'user' && first.content === promptData.prompt) return initialMessages;
+    return [promptMessage, ...(initialMessages ?? [])];
+  }, [promptData, initialMessages]);
+
   // Elapsed timer for running stages
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -67,13 +83,6 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [isRunning, selectedRun?.started_at]);
-
-  const handleSendMessage = useCallback(
-    (message: string) => {
-      injectMessage.mutate({ instanceId, stageId, message });
-    },
-    [instanceId, stageId, injectMessage],
-  );
 
   const handleStop = useCallback(() => {
     cancelStage.mutate({ instanceId, stageId });
@@ -221,16 +230,17 @@ export function AgentSessionViewer({ instanceId, stageId, stageContext, stageDef
         <AcpChatPane
           eventPrefix="agent"
           eventFilter={{ instanceId, stageId }}
-          placeholder="Send a message to the agent..."
+          placeholder="Agent transcript"
           emptyMessage={isRunning ? 'Waiting for agent output...' : 'No transcript data available.'}
           isActive={isRunning}
           sessionState={isRunning ? 'idle' : undefined}
-          onSendMessage={handleSendMessage}
+          onSendMessage={() => {}}
           onStop={handleStop}
           onRestartSession={handleRestartSession}
           agentName={agentId || undefined}
           modelName={agentInfo?.spec?.model || undefined}
-          initialMessages={initialMessages}
+          initialMessages={seededInitialMessages}
+          readOnly
         />
       </div>
 

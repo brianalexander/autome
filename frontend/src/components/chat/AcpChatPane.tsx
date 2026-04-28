@@ -66,6 +66,12 @@ export interface AcpChatPaneProps {
   }>;
   /** Ephemeral system messages injected from outside (e.g., test-run completions, pending flushes) */
   ephemeralSystemMessages?: Array<{ text: string; timestamp: string }>;
+  /**
+   * When true, the input bar (textarea, Send, Stop, expand buttons) is not rendered.
+   * WebSocket subscriptions and the live transcript remain active.
+   * Use for autonomous agent stages where the user should not be able to type.
+   */
+  readOnly?: boolean;
 }
 
 export function AcpChatPane({
@@ -88,6 +94,7 @@ export function AcpChatPane({
   onClearChat,
   initialMessages,
   ephemeralSystemMessages,
+  readOnly = false,
 }: AcpChatPaneProps) {
   // --- Core state hooks ---
   const chat = useChatMessages(initialMessages);
@@ -560,13 +567,13 @@ export function AcpChatPane({
         )}
       </div>
 
-      {/* Expanded input backdrop */}
-      {inputExpanded && (
+      {/* Expanded input backdrop — hidden in readOnly mode */}
+      {!readOnly && inputExpanded && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setInputExpanded(false)} />
       )}
 
-      {/* Input bar */}
-      <div className={inputExpanded
+      {/* Input bar — hidden in readOnly mode */}
+      {!readOnly && <div className={inputExpanded
         ? "fixed inset-0 z-50 flex items-center justify-center p-8 pointer-events-none"
         : "p-3 border-t border-border flex-shrink-0"
       }>
@@ -669,7 +676,7 @@ export function AcpChatPane({
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Expanded modal */}
       {expandedModal !== null && displayMessages[expandedModal] && (

@@ -16,13 +16,17 @@ import { ReviewGateDecisionSchema } from '../../schemas/pipeline.js';
  * Render a gate message template against the instance's workflow context.
  * Falls back to the raw string if rendering fails (e.g. malformed template).
  *
- * Narrowed scope: only `trigger` is available (workflow-level payload).
- * `stages.*` is not exposed — use {{ trigger.FIELD }} in gate message templates.
+ * Exposes `trigger` (workflow trigger payload) and `input` (the upstream stage's output,
+ * mirroring the runtime template scope).
  */
-function renderGateMessage(raw: string | null | undefined, context: WorkflowContext): string | null {
+function renderGateMessage(
+  raw: string | null | undefined,
+  context: WorkflowContext,
+  input: unknown,
+): string | null {
   if (!raw) return null;
   try {
-    return resolveTemplate(raw, { trigger: context.trigger });
+    return resolveTemplate(raw, { trigger: context.trigger, input });
   } catch (err) {
     console.warn('[gate-message] Template render failed, using raw string:', err instanceof Error ? err.message : err);
     return raw;
@@ -143,7 +147,7 @@ export function registerInstanceRoutes(app: FastifyInstance, deps: RouteDeps, st
             workflowId: inst.definition_id ?? '',
             stageId,
             stageLabel: (stageDef.label as string | undefined) ?? stageId,
-            gateMessage: renderGateMessage(gateConfig.message as string | undefined, context),
+            gateMessage: renderGateMessage(gateConfig.message as string | undefined, context, upstreamData),
             gateKind: isReviewGate ? 'review' : 'binary',
             upstreamData,
             waitingSince: inst.updated_at ?? inst.created_at,
