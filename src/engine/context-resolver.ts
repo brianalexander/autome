@@ -252,17 +252,46 @@ export function buildAgentPrompt(
 
   // Determine the prompt content from the incoming edge
   let resolvedContext: string;
-  const incomingPT = options?.incomingEdge ? getEdgePromptTemplate(options.incomingEdge) : undefined;
-  if (incomingPT && effectiveInput !== undefined) {
-    // Edge-specific prompt template — resolve with source output (or merged map).
-    // Edge templates use buildEdgeScope: `output` = source stage output, `input` = same, `trigger` = trigger payload.
-    resolvedContext = resolveEdgeTemplate(incomingPT, effectiveInput, context, options?.mergedInputs);
-  } else if (options?.mergedInputs) {
-    // Fan-in with no edge template — show all upstream outputs as context
-    resolvedContext = JSON.stringify(options.mergedInputs, null, 2);
+
+  // Fan-in branch: when mergedInputs is set AND there are multiple incoming success edges,
+  // render each edge's prompt_template against that edge's source output and concatenate.
+  const incomingSuccessEdges = options?.definition
+    ? (options.definition.edges ?? []).filter(
+        (e) => e.target === stage.id && (e.trigger ?? 'on_success') === 'on_success',
+      )
+    : [];
+
+  if (options?.mergedInputs && incomingSuccessEdges.length > 1) {
+    const renderedSections: string[] = [];
+    for (const edge of incomingSuccessEdges) {
+      const sourceOutput = options.mergedInputs[edge.source];
+      if (sourceOutput === undefined) continue; // upstream may have been skipped
+      const pt = getEdgePromptTemplate(edge);
+      if (pt) {
+        // Render each edge's template with that edge's source output.
+        // mergedInputs is also passed so templates can reference sourceOutputs.<stageId>.
+        renderedSections.push(resolveEdgeTemplate(pt, sourceOutput, context, options.mergedInputs));
+      }
+    }
+    if (renderedSections.length > 0) {
+      resolvedContext = renderedSections.join('\n\n');
+    } else {
+      // No templates on any edge — fall back to dumping the merged map
+      resolvedContext = JSON.stringify(options.mergedInputs, null, 2);
+    }
   } else {
-    // No edge template — provide the trigger payload as default context
-    resolvedContext = context.trigger ? JSON.stringify(context.trigger, null, 2) : '';
+    const incomingPT = options?.incomingEdge ? getEdgePromptTemplate(options.incomingEdge) : undefined;
+    if (incomingPT && effectiveInput !== undefined) {
+      // Edge-specific prompt template — resolve with source output (or merged map).
+      // Edge templates use buildEdgeScope: `output` = source stage output, `input` = same, `trigger` = trigger payload.
+      resolvedContext = resolveEdgeTemplate(incomingPT, effectiveInput, context, options?.mergedInputs);
+    } else if (options?.mergedInputs) {
+      // Fan-in with no edge template — show all upstream outputs as context
+      resolvedContext = JSON.stringify(options.mergedInputs, null, 2);
+    } else {
+      // No edge template — provide the trigger payload as default context
+      resolvedContext = context.trigger ? JSON.stringify(context.trigger, null, 2) : '';
+    }
   }
 
   const parts: string[] = [];

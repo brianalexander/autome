@@ -103,7 +103,7 @@ export function registerWebhookRoutes(app: FastifyInstance, deps: RouteDeps, sta
         // Return run info to the caller (instance is defined — we returned early on validationError)
         const baseUrl = `${request.protocol}://${request.hostname}`;
         return reply.code(201).send({
-          instance_id: instance!.id,
+          id: instance!.id,
           status: 'running',
           url: `${baseUrl}/instances/${instance!.id}`,
           workflow_name: workflow.name,

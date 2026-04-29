@@ -325,6 +325,126 @@ describe('fan-in mergedInputs', () => {
   });
 });
 
+// --- Fan-in multi-edge prompt_template rendering ---
+
+describe('fan-in multi-edge prompt templates', () => {
+  const stageC: StageDefinition = {
+    id: 'c',
+    type: 'agent',
+    config: { agentId: 'generalist' },
+  };
+
+  const fanInContext: WorkflowContext = {
+    trigger: { prompt: 'run' },
+    stages: {
+      a: { status: 'completed', run_count: 1, runs: [], latest: { a_value: 100, a_label: 'from-A' } },
+      b: { status: 'completed', run_count: 1, runs: [], latest: { b_value: 200, b_label: 'from-B' } },
+      c: { status: 'pending', run_count: 0, runs: [] },
+    },
+  };
+
+  const mergedInputs = {
+    a: { a_value: 100, a_label: 'from-A' },
+    b: { b_value: 200, b_label: 'from-B' },
+  };
+
+  const definition: WorkflowDefinition = {
+    id: 'wf-fanin',
+    name: 'Fan-in test',
+    active: false,
+    trigger: { provider: 'manual' },
+    stages: [stageC],
+    edges: [
+      {
+        id: 'e_a_c',
+        source: 'a',
+        target: 'c',
+        prompt_template: 'From A: a_value={{ output.a_value }}, a_label={{ output.a_label }}',
+      },
+      {
+        id: 'e_b_c',
+        source: 'b',
+        target: 'c',
+        prompt_template: 'From B: b_value={{ output.b_value }}, b_label={{ output.b_label }}',
+      },
+    ],
+  };
+
+  it('renders both edges\' templates when two incoming edges have prompt_template', () => {
+    const result = buildAgentPrompt(stageC, fanInContext, 1, {
+      mergedInputs,
+      definition,
+    });
+    expect(result).toContain('From A: a_value=100, a_label=from-A');
+    expect(result).toContain('From B: b_value=200, b_label=from-B');
+  });
+
+  it('resolves each edge\'s template against that edge\'s source output only', () => {
+    const result = buildAgentPrompt(stageC, fanInContext, 1, {
+      mergedInputs,
+      definition,
+    });
+    // A's template variables should not bleed into B's context (b_value is not in A's output)
+    // B's template variables should resolve correctly from B's output
+    expect(result).toContain('b_value=200');
+    expect(result).toContain('b_label=from-B');
+  });
+
+  it('joins multiple rendered sections with double newline', () => {
+    const result = buildAgentPrompt(stageC, fanInContext, 1, {
+      mergedInputs,
+      definition,
+    });
+    // Both sections should be present and separated
+    const aIdx = result.indexOf('From A:');
+    const bIdx = result.indexOf('From B:');
+    expect(aIdx).toBeGreaterThan(-1);
+    expect(bIdx).toBeGreaterThan(-1);
+    // Check they are separated by at least one blank line (\n\n)
+    const between = result.slice(Math.min(aIdx, bIdx), Math.max(aIdx, bIdx));
+    expect(between).toContain('\n\n');
+  });
+
+  it('falls back to JSON-stringified merged map when no edge has a prompt_template', () => {
+    const definitionNoTemplates: WorkflowDefinition = {
+      ...definition,
+      edges: [
+        { id: 'e_a_c', source: 'a', target: 'c' },
+        { id: 'e_b_c', source: 'b', target: 'c' },
+      ],
+    };
+    const result = buildAgentPrompt(stageC, fanInContext, 1, {
+      mergedInputs,
+      definition: definitionNoTemplates,
+    });
+    expect(result).toContain('"a_value": 100');
+    expect(result).toContain('"b_value": 200');
+  });
+
+  it('uses single-edge path when only one incoming success edge (degenerate fan-in)', () => {
+    const definitionOneEdge: WorkflowDefinition = {
+      ...definition,
+      edges: [
+        {
+          id: 'e_a_c',
+          source: 'a',
+          target: 'c',
+          prompt_template: 'From A: a_value={{ output.a_value }}, a_label={{ output.a_label }}',
+        },
+      ],
+    };
+    const incomingEdge = definitionOneEdge.edges[0];
+    const result = buildAgentPrompt(stageC, fanInContext, 1, {
+      incomingEdge,
+      mergedInputs,
+      definition: definitionOneEdge,
+    });
+    // Single edge path uses effectiveInput = mergedInputs, so output = mergedInputs
+    // The template should still render without throwing
+    expect(result).toContain('Agent: generalist');
+  });
+});
+
 // --- Output requirements injection ---
 
 describe('output requirements', () => {

@@ -7,9 +7,19 @@
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { createRequire } from 'module';
 import type { NodeTypeSpec, StepExecutor, StepExecutorContext } from '../types.js';
 import { ensureWorkspace, writeCodeFile, cleanupCodeFile } from '../workspace-manager.js';
 import { buildExecutorScope } from '../executor-scope.js';
+import { PACKAGE_ROOT } from '../../paths.js';
+
+// Resolve tsx loader paths at module load time so child processes can always
+// locate them regardless of their working directory.
+const _require = createRequire(import.meta.url);
+const TSX_ESM_PATH = _require.resolve('tsx/esm');
+// tsx/cjs is used in sandbox mode: it transforms TypeScript without spawning
+// a Worker thread, avoiding Worker-thread permission restrictions in Node 24+.
+const TSX_CJS_PATH = _require.resolve('tsx/cjs');
 
 const execFileAsync = promisify(execFile);
 
@@ -57,17 +67,27 @@ const executor: StepExecutor = {
 
       try {
         // 4. Execute in child process with tsx for TypeScript support
-        const nodeArgs: string[] = [
-          '--import', 'tsx/esm',
-        ];
-        if (config.sandbox !== false) {
+        const sandboxed = config.sandbox !== false;
+        // In sandbox mode use tsx/cjs (synchronous CJS transform) instead of
+        // tsx/esm. tsx/esm spawns a Worker thread for its loader hooks, but
+        // Node's permission model does not propagate --allow-fs-read grants to
+        // worker threads, causing ERR_ACCESS_DENIED on startup. tsx/cjs avoids
+        // worker threads entirely, so the sandbox flags work correctly.
+        const tsxFlag: string[] = sandboxed
+          ? ['--require', TSX_CJS_PATH]
+          : ['--import', TSX_ESM_PATH];
+        const nodeArgs: string[] = [...tsxFlag];
+        if (sandboxed) {
           // Enable Node.js permission model (stable in Node 24+).
-          // Grants read access to workspace root (contains node_modules/ and runs/)
-          // but denies fs writes, child_process, and worker_threads.
+          // Grants unrestricted fs reads: tsx's tsconfig discovery probes
+          // case-inverted paths that cannot be predicted (e.g. isFsCaseSensitive
+          // in get-tsconfig). PACKAGE_ROOT is included for tsx's own modules.
+          // Writes, child_process, and worker_threads remain denied.
           // fetch() / network is unrestricted by the permission model.
           nodeArgs.push(
             '--permission',
-            `--allow-fs-read=${workspace.root}`,
+            '--allow-fs-read=/',
+            `--allow-fs-read=${PACKAGE_ROOT}`,
           );
         }
         nodeArgs.push(codePath);
@@ -82,6 +102,9 @@ const executor: StepExecutor = {
               ...process.env,
               NODE_PATH: workspace.nodeModules,
               ...(secretsEnv ? { __AUTOME_SECRETS__: secretsEnv } : {}),
+              // Disable tsx's on-disk cache to avoid fs-write attempts against
+              // the OS temp dir, which is denied when --permission is active.
+              ...(sandboxed ? { TSX_DISABLE_CACHE: '1' } : {}),
             },
             maxBuffer: 10 * 1024 * 1024, // 10MB
           },

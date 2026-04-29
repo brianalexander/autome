@@ -70,7 +70,7 @@ export type WorkflowContext = z.infer<typeof WorkflowContextSchema>;
 // InitiatedBy — who started a workflow instance
 // ---------------------------------------------------------------------------
 
-export type InitiatedBy = 'user' | 'author' | 'webhook' | 'cron';
+export type InitiatedBy = 'user' | 'author' | 'webhook' | 'cron' | 'code';
 
 // ---------------------------------------------------------------------------
 // PendingAuthorMessage — buffered system messages for the author chat
@@ -99,7 +99,7 @@ export const WorkflowInstanceSchema = z.object({
   completed_at: z.string().optional(),
   is_test: z.boolean().optional(),
   /** Who initiated this workflow run */
-  initiated_by: z.enum(['user', 'author', 'webhook', 'cron']).default('user'),
+  initiated_by: z.enum(['user', 'author', 'webhook', 'cron', 'code']).default('user'),
   /** Number of times this instance was resumed */
   resume_count: z.number().int().default(0),
   context: WorkflowContextSchema,

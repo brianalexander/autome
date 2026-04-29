@@ -34,14 +34,31 @@ function emit(event) {
   process.stdout.write('${EVENT_PREFIX}' + JSON.stringify(event) + '\\n');
 }
 
-process.on('SIGTERM', () => { ac.abort(); setTimeout(() => process.exit(0), 1000); });
-process.on('SIGINT',  () => { ac.abort(); setTimeout(() => process.exit(0), 1000); });
+// Keep the event loop alive — without this, an idle async user fn
+// causes Node to detect "unsettled top-level await" and exit code 13.
+const keepAlive = setInterval(() => {}, 60_000);
 
+function shutdown() {
+  ac.abort();
+  clearInterval(keepAlive);
+  setTimeout(() => process.exit(0), 1000);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+// Run user code without awaiting at top level; surface errors via stderr.
 try {
-  await userFn({ config, emit, signal: ac.signal });
+  const result = userFn({ config, emit, signal: ac.signal });
+  if (result && typeof result.catch === 'function') {
+    result.catch((err) => {
+      process.stderr.write('Code trigger error: ' + (err?.message ?? String(err)) + '\\n');
+      shutdown();
+    });
+  }
 } catch (err) {
   process.stderr.write('Code trigger error: ' + (err?.message ?? String(err)) + '\\n');
-  process.exit(1);
+  shutdown();
 }
 `;
 }

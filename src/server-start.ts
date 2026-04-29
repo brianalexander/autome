@@ -39,6 +39,7 @@ import type { ResolvedConfig } from './config/types.js';
 import type { LoadedPlugin, NodeTemplate } from './plugin/types.js';
 import type { NodeTypeSpec } from './nodes/types.js';
 import type { AcpProvider } from './acp/provider/types.js';
+import type { InitiatedBy } from './types/instance.js';
 
 /** Options for programmatic registrations — applied before filesystem discovery. */
 export interface StartServerOptions {
@@ -113,17 +114,31 @@ export async function startServer(resolvedConfig: ResolvedConfig, options: Start
   // Initialize trigger lifecycle manager with the event bus
   initTriggerLifecycle(eventBus);
 
+  // Maps event.provider values to the InitiatedBy enum used on instances.
+  // 'code-trigger' is the stage.type emitted by code-trigger nodes; map it to 'code'.
+  const providerToInitiatedBy: Record<string, InitiatedBy> = {
+    cron: 'cron',
+    'cron-trigger': 'cron',
+    code: 'code',
+    'code-trigger': 'code',
+    webhook: 'webhook',
+    manual: 'user',
+    prompt: 'user',
+  };
+
   // Listen for trigger events and spawn workflow instances
   eventBus.on('trigger', async ({ subscription, event }) => {
     try {
       const workflow = db.getWorkflow(subscription.workflowDefinitionId);
       if (!workflow || !workflow.active) return;
 
+      const initiatedBy: InitiatedBy = providerToInitiatedBy[event.provider] ?? 'user';
+
       const nonTriggerStageIds = workflow.stages
         .filter((s) => !nodeRegistry.isTriggerType(s.type))
         .map((s) => s.id);
       const { runnerError, validationError } = await launchWorkflow(
-        db, runner, workflow, event, nonTriggerStageIds, workflow.id, { initiatedBy: 'cron' },
+        db, runner, workflow, event, nonTriggerStageIds, workflow.id, { initiatedBy },
       );
       if (validationError) {
         console.error(`[event-bus] Payload validation failed for ${workflow.id}: ${validationError}`);
