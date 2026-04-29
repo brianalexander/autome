@@ -17,8 +17,20 @@ Started: 2026-04-28
 | T3 | 2 | Webhook trigger | ✅ | `POST /api/webhooks/:workflowId` → instance with `initiated_by='webhook'`, payload + source IP captured. |
 | T4 | 2 | Cron trigger fires | ✅ | 30s schedule fires, instance has `initiated_by='cron'`. |
 | T5 | 2 | Code-trigger fires | ⚠ partial | Activates; child emits 1 event (`eventCount:1`); but child exits with code 13 ("unsettled top-level await") and instance is wrongly tagged `initiated_by='cron'`. See B5 + B6. |
-| D1–D6 | 3 | Data flow | ⏭ | Deferred — pick up next session. |
-| G1–G8 | 4 | Gates & approvals | ⏭ | Deferred. |
+| D1 | 3 | Edge `prompt_template` resolves `{{ output.* }}` | ✅ | trigger → code-exec(typed) → agent. `{{ output.count }}`, `{{ output.label }}`, `{{ output.items \| join(",") }}` all substituted correctly. |
+| D2 | 3 | Gate passthrough downstream | ✅ | producer → auto-gate → consumer. Gate output is `{approved:true, input: <upstream>}` exactly as documented. |
+| D3 | 3 | Fan-in: 2 upstreams → 1 downstream | ❌ | **Bug B9** — default `input_mode:queue` runs target N times (one per edge). Even with explicit `input_mode:fan_in`, only one edge's template renders and field refs resolve to empty. |
+| D4 | 3 | Code-executor typed output | ✅ | Output exactly matches declared `output_schema`; downstream sees the right shape. (Discovered B8 — sandbox issue.) |
+| D5 | 3 | Conditional edge — passing predicate | ✅ | `condition: "output.x > 0"` with x=5 → branch fires. |
+| D6 | 3 | Conditional edge — failing predicate | ✅ | x=-3 → branch doesn't fire (stays `pending`, not `skipped` — minor observability note). |
+| G1 | 4 | Manual gate pauses | ✅ | instance status `waiting_gate`; gate stage `running`; downstream `pending`. |
+| G2 | 4 | `/api/approvals` shows rendered template | ✅ | `"Please approve {{ input.item }} priced at {{ input.price }}"` → `"Please approve widget-42 priced at 99"`. |
+| G3 | 4 | GateSidebar (UI) shows rendered template | ✅ | playwright-cli verified `"Buy {{ input.item }} for $ {{ input.price }}?"` → `"Buy monitor for $ 350?"` in the sidebar. |
+| G4 | 4 | Approve resumes; downstream sees edited data | ✅ | Was failing (B10); fixed in this session — gate executor now honors `result.data` when present. End-to-end re-verified: edits reach downstream consumer. |
+| G5 | 4 | Reject terminates | ✅ | Instance `failed`; gate error reads `Gate "the-gate" was rejected`; consumer never runs. |
+| G6 | 4 | Conditional gate fail terminates | ✅ | `condition: "input.ok === true"` with `ok:false` → instance `failed`, downstream `pending`. |
+| G7 | 4 | Review gate paths | ⏭ | Deferred — needs review-gate fixture + 3 decision branches. |
+| G8 | 4 | Gate timeout fires | ⏭ | Deferred — slow (≥1 min wait). |
 
 Legend: ⬜ pending · 🟡 in progress · ✅ pass · ⚠ partial · ❌ fail · ⏭ deferred
 
@@ -86,14 +98,43 @@ Legend: ⬜ pending · 🟡 in progress · ✅ pass · ⚠ partial · ❌ fail �
 - **Recommendation:** normalize to `instanceId` (camelCase) or at least one field name across both endpoints.
 - **Status:** open — flag for API hygiene pass.
 
+### B8 — Code-executor sandbox blocks tsx loader
+
+- **Discovered:** D1
+- **Severity:** Blocks any code-executor stage that uses sandbox=true (the default).
+- **Repro:** Trigger any workflow with a sandboxed code-executor.
+- **Observed:** Stage fails with `ERR_ACCESS_DENIED` reading `/Users/brian/vibe/autome2/node_modules/tsx/package.json` because Node's `--permission --allow-fs-read=<workspace>` only whitelists the workspace dir.
+- **Cause:** the wrapper that runs user code uses `tsx/esm` to support TypeScript imports, but the loader needs to read its own package.json from the project's `node_modules`. Permission model doesn't allow that path.
+- **Workaround:** set `sandbox: false` in code-executor config.
+- **Fix direction:** add the autome install dir's `node_modules` to `--allow-fs-read` (read-only), or pre-bundle the user code so tsx isn't needed at runtime.
+- **Status:** open.
+
+### B9 — Fan-in (multiple incoming edges into one stage) is broken
+
+- **Discovered:** D3
+- **Severity:** High — multi-stage workflows with parallel branches don't merge correctly.
+- **Repro 9.1:** trigger → A and B (parallel) → C (no `input_mode` set). Both A and B complete in parallel, then C runs **twice** (`run_count: 2`), once with A's input and once with B's. Each iteration only has one source's data.
+- **Repro 9.2:** Same fixture but with `input_mode: 'fan_in'`, `trigger_rule: 'all_success'` on C. C correctly runs once (`run_count: 1`), but only one of the two incoming edges' `prompt_template` is rendered, and `{{ output.* }}` references inside it resolve to empty (because in fan-in mode, the template scope changes — input becomes keyed by source-id `{a:..., b:...}`, but the docs/UX still suggest `{{ output.* }}` works).
+- **Cause:** Two-part — the engine's default `input_mode:queue` is wrong for fan-in semantics, AND the template rendering for fan-in mode isn't merging or reaching the keyed inputs.
+- **Status:** open — needs design discussion. The `input_mode:queue` default may be intentional for queue/streaming workloads, but the docs and seed examples (Jira workflow has multi-upstream `code-reviewer → code-gen` revise loop) all assume fan-in.
+
+### B10 — Approve body's `data` field is silently dropped
+
+- **Discovered:** G4
+- **Severity:** High — UX lies. The approval UI lets users edit upstream data before approving (`GateSidebar.tsx` and the `/approvals` ApprovalCard both have a "Data to approve" textarea), but the gate executor ignores `result.data` and emits the original `passthrough`.
+- **Repro:** trigger workflow with manual gate. POST `/api/instances/:id/gates/:stageId/approve` with `{data:{item:"EDITED",price:9999}}`. Downstream stage receives the original upstream output, not the edited version.
+- **Cause:** `src/nodes/builtin/gate.ts` line ~46: `return { output: { approved: true, input: passthrough } }` — `result.data` is not consulted. The `resolveWait` payload includes `{approved, data}` but the executor types `raw` as `{approved} | boolean` and never reads `data`.
+- **Fix sketch:** `const finalInput = result.data !== undefined ? result.data : passthrough; return { output: { approved: true, input: finalInput } };`
+- **Status:** **patched ✅** — gate executor now uses `result.data` when present, falling back to `passthrough` when undefined. 16 unit tests pass (was 14). End-to-end re-verified.
+
 ---
 
 ## Coverage progression
 
 - **Tier 1 (smoke):** 5/5 ✅
 - **Tier 2 (triggers):** 4/5 ✅, 1 partial (T5)
-- **Tier 3 (data flow):** deferred
-- **Tier 4 (gates & approvals):** deferred
+- **Tier 3 (data flow):** 5/6 ✅, 1 fail (D3 / B9)
+- **Tier 4 (gates & approvals):** 6/8 ✅ (G7 review-gate, G8 timeout deferred). G4 was failing pre-fix; B10 patched in this session, re-verified ✅.
 
 ## Operational notes
 

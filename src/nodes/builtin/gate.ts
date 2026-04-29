@@ -35,7 +35,7 @@ const executor: StepExecutor = {
 
       // Wait for approval via durable wait.
       // Accept both the legacy boolean shape (in-flight workflows) and the new object shape.
-      const raw = await ctx.waitFor<{ approved: boolean } | boolean>(`gate-${stageId}`);
+      const raw = await ctx.waitFor<{ approved: boolean; data?: unknown } | boolean>(`gate-${stageId}`);
       const result = typeof raw === 'boolean' ? { approved: raw } : raw;
 
       if (!result.approved) {
@@ -43,7 +43,10 @@ const executor: StepExecutor = {
       }
 
       ctx.setStatus('running');
-      return { output: { approved: true, input: passthrough } };
+      // Use reviewer-edited data when present; undefined means no edit was made, fall back to passthrough.
+      // Explicit null is treated as a deliberate edit to null (not a fallback).
+      const finalInput = result.data !== undefined ? result.data : passthrough;
+      return { output: { approved: true, input: finalInput } };
     } else if (gateType === 'conditional') {
       const condition = config.condition as string;
       // Narrowed sandbox: `input` is the edge-delivered upstream output, `trigger` is the workflow trigger payload.

@@ -128,6 +128,35 @@ describe('gate executor — manual', () => {
       global.fetch = origFetch;
     }
   });
+
+  it('uses result.data as output.input when reviewer edits the upstream data', async () => {
+    const upstream = { original: 'value' };
+    const editedData = { x: 99 };
+    const ctx = buildCtx('approval_gate', { type: 'manual' }, { approved: true, data: editedData }, upstream);
+    const executor = gateNodeSpec.executor as StepExecutor;
+    const origFetch = global.fetch;
+    global.fetch = vi.fn().mockResolvedValue({ ok: true });
+    try {
+      const result = await executor.execute(ctx);
+      expect(result).toEqual({ output: { approved: true, input: { x: 99 } } });
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
+
+  it('falls back to passthrough when result.data is absent (no reviewer edit)', async () => {
+    const upstream = { original: 'value' };
+    const ctx = buildCtx('approval_gate', { type: 'manual' }, { approved: true }, upstream);
+    const executor = gateNodeSpec.executor as StepExecutor;
+    const origFetch = global.fetch;
+    global.fetch = vi.fn().mockResolvedValue({ ok: true });
+    try {
+      const result = await executor.execute(ctx);
+      expect(result).toEqual({ output: { approved: true, input: upstream } });
+    } finally {
+      global.fetch = origFetch;
+    }
+  });
 });
 
 describe('gate executor — conditional', () => {
