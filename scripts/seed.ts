@@ -2,19 +2,19 @@ import { OrchestratorDB } from '../src/db/database.js';
 
 const db = new OrchestratorDB();
 
-// Check if pipelines already exist
-const existing = db.listPipelines();
-if (existing.length > 0) {
-  console.log(`Database already has ${existing.length} pipeline(s). Skipping seed.`);
-  console.log(existing.map((p) => `  - ${p.name}`).join('\n'));
+// Check if workflows already exist
+const existing = db.listWorkflows();
+if (existing.data.length > 0) {
+  console.log(`Database already has ${existing.data.length} workflow(s). Skipping seed.`);
+  console.log(existing.data.map((p) => `  - ${p.name}`).join('\n'));
   db.close();
   process.exit(0);
 }
 
-console.log('Seeding database with sample pipelines...\n');
+console.log('Seeding database with sample workflows...\n');
 
-// Pipeline 1: Jira Ticket to Merged PR (with iterative review loops)
-const jiraPipeline = db.createPipeline({
+// Workflow 1: Jira Ticket to Merged PR (with iterative review loops)
+const jiraPipeline = db.createWorkflow({
   name: 'Jira Ticket to Merged PR',
   description:
     'Requirements analysis → code generation → iterative code review → PR publishing. Full ticket-to-PR automation.',
@@ -23,9 +23,9 @@ const jiraPipeline = db.createPipeline({
   stages: [
     {
       id: 'manual-trigger',
-      type: 'trigger',
+      type: 'manual-trigger',
       label: 'Manual Trigger',
-      config: { provider: 'manual' },
+      config: { provider: 'manual', output_schema: { type: 'object', properties: {} } },
       position: { x: 250, y: 0 },
     },
     {
@@ -33,7 +33,7 @@ const jiraPipeline = db.createPipeline({
       type: 'agent',
       label: 'Requirements Analysis',
       config: {
-        agentId: 'requirements-analyst',
+        agentId: 'researcher',
         max_turns: 50,
         timeout_minutes: 30,
       },
@@ -56,7 +56,7 @@ const jiraPipeline = db.createPipeline({
       type: 'agent',
       label: 'Code Generator',
       config: {
-        agentId: 'code-generator',
+        agentId: 'implementer',
         max_iterations: 4,
         max_turns: 100,
         timeout_minutes: 60,
@@ -68,7 +68,7 @@ const jiraPipeline = db.createPipeline({
       type: 'agent',
       label: 'Code Reviewer',
       config: {
-        agentId: 'code-reviewer',
+        agentId: 'reviewer',
         max_iterations: 4,
         max_turns: 50,
         timeout_minutes: 30,
@@ -80,7 +80,7 @@ const jiraPipeline = db.createPipeline({
       type: 'agent',
       label: 'PR Publisher',
       config: {
-        agentId: 'pr-publisher',
+        agentId: 'generalist',
         max_turns: 20,
         timeout_minutes: 10,
       },
@@ -92,7 +92,7 @@ const jiraPipeline = db.createPipeline({
       id: 'e0',
       source: 'manual-trigger',
       target: 'deep-dive',
-      prompt_template: 'Analyze this task:\n{{ trigger.payload }}',
+      prompt_template: 'Analyze this task:\n{{ trigger | dump }}',
     },
     { id: 'e1', source: 'deep-dive', target: 'gate-requirements' },
     { id: 'e2', source: 'gate-requirements', target: 'code-gen' },
@@ -124,8 +124,8 @@ const jiraPipeline = db.createPipeline({
 });
 console.log(`Created: ${jiraPipeline.name} (${jiraPipeline.id})`);
 
-// Pipeline 2: Simple Analysis (minimal — one trigger, one agent)
-const simplePipeline = db.createPipeline({
+// Workflow 2: Simple Analysis (minimal — one trigger, one agent)
+const simplePipeline = db.createWorkflow({
   name: 'Simple Analysis',
   description: 'A minimal pipeline: analyze input and produce a summary.',
   active: false,
@@ -133,9 +133,9 @@ const simplePipeline = db.createPipeline({
   stages: [
     {
       id: 'manual-trigger',
-      type: 'trigger',
+      type: 'manual-trigger',
       label: 'Manual Trigger',
-      config: { provider: 'manual' },
+      config: { provider: 'manual', output_schema: { type: 'object', properties: {} } },
       position: { x: 250, y: 0 },
     },
     {
@@ -143,7 +143,7 @@ const simplePipeline = db.createPipeline({
       type: 'agent',
       label: 'Analyzer',
       config: {
-        agentId: 'requirements-analyst',
+        agentId: 'generalist',
         max_turns: 10,
         timeout_minutes: 5,
       },
@@ -151,13 +151,13 @@ const simplePipeline = db.createPipeline({
     },
   ],
   edges: [
-    { id: 'e0', source: 'manual-trigger', target: 'analyzer', prompt_template: 'Analyze this:\n{{ trigger.payload }}' },
+    { id: 'e0', source: 'manual-trigger', target: 'analyzer', prompt_template: 'Analyze this:\n{{ trigger | dump }}' },
   ],
 });
 console.log(`Created: ${simplePipeline.name} (${simplePipeline.id})`);
 
-// Pipeline 3: Webhook-triggered analysis
-const webhookPipeline = db.createPipeline({
+// Workflow 3: Webhook-triggered analysis
+const webhookPipeline = db.createWorkflow({
   name: 'Webhook Analysis',
   description: 'Triggered by external webhook. Analyzes the incoming payload.',
   active: false,
@@ -165,11 +165,12 @@ const webhookPipeline = db.createPipeline({
   stages: [
     {
       id: 'webhook-trigger',
-      type: 'trigger',
+      type: 'webhook-trigger',
       label: 'Webhook Trigger',
       config: {
         provider: 'webhook',
-        webhook: {},
+        payload_schema: { type: 'object', properties: {} },
+        output_schema: { type: 'object', description: 'Incoming webhook payload.' },
       },
       position: { x: 250, y: 0 },
     },
@@ -178,7 +179,7 @@ const webhookPipeline = db.createPipeline({
       type: 'agent',
       label: 'Payload Analyzer',
       config: {
-        agentId: 'requirements-analyst',
+        agentId: 'generalist',
         max_turns: 10,
         timeout_minutes: 5,
       },
@@ -190,11 +191,11 @@ const webhookPipeline = db.createPipeline({
       id: 'e0',
       source: 'webhook-trigger',
       target: 'analyzer',
-      prompt_template: 'Analyze this incoming webhook payload:\n{{ trigger.payload }}',
+      prompt_template: 'Analyze this incoming webhook payload:\n{{ trigger | dump }}',
     },
   ],
 });
 console.log(`Created: ${webhookPipeline.name} (${webhookPipeline.id})`);
 
-console.log('\nDone! 3 pipelines seeded.');
+console.log('\nDone! 3 workflows seeded.');
 db.close();
